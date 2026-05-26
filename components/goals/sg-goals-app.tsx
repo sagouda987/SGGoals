@@ -20,6 +20,7 @@ type GoalTask = {
 type GoalsStore = Record<Scope, GoalTask[]>;
 
 const STORAGE_KEY = 'sg-goals-store-v1';
+const SAVE_DEBOUNCE_MS = 600;
 
 const priorities: Record<Priority, { label: string; color: string; soft: string }> = {
   health: { label: 'Health', color: '#00d97e', soft: 'rgba(0,217,126,.12)' },
@@ -100,18 +101,72 @@ function loadStore(): GoalsStore {
 export function SgGoalsApp() {
   const [store, setStore] = useState<GoalsStore>(starterStore);
   const [ready, setReady] = useState(false);
+  const [cloudReady, setCloudReady] = useState(false);
+  const [syncState, setSyncState] = useState<'loading' | 'local' | 'saving' | 'saved' | 'error'>('loading');
   const [scope, setScope] = useState<Scope>('today');
   const [editing, setEditing] = useState<GoalTask | null>(null);
   const [draft, setDraft] = useState({ text: '', note: '', priority: 'career' as Priority, block: 'morning' as Block });
 
   useEffect(() => {
-    setStore(loadStore());
-    setReady(true);
+    let cancelled = false;
+    const localStore = loadStore();
+    setStore(localStore);
+
+    async function loadCloudStore() {
+      try {
+        const response = await fetch('/api/goals', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Cloud database is not ready.');
+        const data = (await response.json()) as { store?: GoalsStore; hasCloudData?: boolean };
+        if (cancelled) return;
+        if (data.hasCloudData && data.store) {
+          setStore(data.store);
+        } else {
+          await fetch('/api/goals', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ store: localStore })
+          });
+        }
+        setCloudReady(true);
+        setSyncState('saved');
+      } catch {
+        if (!cancelled) {
+          setCloudReady(false);
+          setSyncState('local');
+        }
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    }
+
+    loadCloudStore();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (ready) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
   }, [ready, store]);
+
+  useEffect(() => {
+    if (!ready || !cloudReady) return;
+    setSyncState('saving');
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await fetch('/api/goals', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store })
+        });
+        if (!response.ok) throw new Error('Save failed.');
+        setSyncState('saved');
+      } catch {
+        setSyncState('error');
+      }
+    }, SAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [cloudReady, ready, store]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => {
@@ -223,9 +278,32 @@ export function SgGoalsApp() {
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[.3em] text-[#52527a]">SG Goals</p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight">Daily dashboard</h1>
-              <p className="mt-1 text-sm text-[#8b8bb3]">Every add, edit, delete, and completion is saved in this browser automatically.</p>
+              <p className="mt-1 text-sm text-[#8b8bb3]">
+                {syncState === 'saved'
+                  ? 'Saved to Supabase and backed up in this browser.'
+                  : syncState === 'saving'
+                    ? 'Saving changes to Supabase...'
+                    : syncState === 'error'
+                      ? 'Cloud save failed. Browser backup is still active.'
+                      : syncState === 'local'
+                        ? 'Browser backup active. Add DATABASE_URL to enable Supabase sync.'
+                        : 'Loading your saved goals...'}
+              </p>
             </div>
-            <CalendarDays className="mt-1 h-7 w-7 text-[#00d97e]" />
+            <div className="flex flex-col items-end gap-2">
+              <CalendarDays className="mt-1 h-7 w-7 text-[#00d97e]" />
+              <span
+                className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                  syncState === 'saved'
+                    ? 'border-[#00d97e40] text-[#00d97e]'
+                    : syncState === 'saving'
+                      ? 'border-[#4f8ef740] text-[#4f8ef7]'
+                      : 'border-[#ff6b6b44] text-[#ff6b6b]'
+                }`}
+              >
+                {syncState === 'saved' ? 'Cloud saved' : syncState === 'saving' ? 'Saving' : syncState === 'loading' ? 'Loading' : 'Local only'}
+              </span>
+            </div>
           </div>
 
           <div>

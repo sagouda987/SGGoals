@@ -32,3 +32,22 @@ For same tasks on laptop and mobile, add:
 - Database-backed SG Goals tasks
 
 That makes task edits persist across devices.
+
+## Supabase Setup
+
+In Supabase:
+
+1. Open the SGGoals project.
+2. Click **Connect** or go to **Settings > Database**.
+3. Copy the PostgreSQL URI connection string.
+4. Replace `[YOUR-PASSWORD]` with the database password you created.
+
+In Vercel:
+
+1. Open the SGGoals project.
+2. Go to **Settings > Environment Variables**.
+3. Add `DATABASE_URL`.
+4. Paste the Supabase PostgreSQL URI as the value.
+5. Save and redeploy.
+
+The Vercel build runs `prisma db push`, which creates the `GoalTask` table automatically.
