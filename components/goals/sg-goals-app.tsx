@@ -21,6 +21,7 @@ type GoalsStore = Record<Scope, GoalTask[]>;
 
 const STORAGE_KEY = 'sg-goals-store-v1';
 const SAVE_DEBOUNCE_MS = 600;
+const APP_VERSION = 'cloud-sync-v2';
 
 const priorities: Record<Priority, { label: string; color: string; soft: string }> = {
   health: { label: 'Health', color: '#00d97e', soft: 'rgba(0,217,126,.12)' },
@@ -303,6 +304,7 @@ export function SgGoalsApp() {
               >
                 {syncState === 'saved' ? 'Cloud saved' : syncState === 'saving' ? 'Saving' : syncState === 'loading' ? 'Loading' : 'Local only'}
               </span>
+              <span className="text-[10px] text-[#52527a]">{APP_VERSION}</span>
             </div>
           </div>
 
