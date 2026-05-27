@@ -191,6 +191,7 @@ export function SgGoalsApp() {
   const [failureNote, setFailureNote] = useState('');
   const [mainGoalId, setMainGoalId] = useState('');
   const [reportCopied, setReportCopied] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [draft, setDraft] = useState({ text: '', note: '', priority: 'career' as Priority, block: 'morning' as Block });
 
@@ -261,6 +262,14 @@ export function SgGoalsApp() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {
+        // The app still works normally when service worker registration is unavailable.
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -747,7 +756,14 @@ export function SgGoalsApp() {
               </p>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <CalendarDays className="mt-1 h-7 w-7 text-[#00d97e]" />
+              <button
+                onClick={() => setCalendarOpen(true)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#00d97e40] bg-[#00d97e12] text-[#00d97e]"
+                aria-label="Open calendar heatmap"
+                title="Open calendar heatmap"
+              >
+                <CalendarDays className="h-5 w-5" />
+              </button>
               <span
                 className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
                   syncState === 'saved'
@@ -853,64 +869,6 @@ export function SgGoalsApp() {
               <Sparkles className="h-3.5 w-3.5" />
               {reportCopied ? 'Report copied' : 'Copy coaching report'}
             </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-4xl px-5 pb-2">
-        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Calendar heatmap</p>
-              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{MONTH_LABELS[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}</h2>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setCalendarCursor((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
-                className="h-8 w-8 rounded-lg border border-[#1a1a30] text-sm text-[#8b8bb3]"
-                aria-label="Previous month"
-              >
-                &lt;
-              </button>
-              <button
-                onClick={() => setCalendarCursor((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
-                className="h-8 w-8 rounded-lg border border-[#1a1a30] text-sm text-[#8b8bb3]"
-                aria-label="Next month"
-              >
-                &gt;
-              </button>
-            </div>
-          </div>
-          <div className="mt-4 grid grid-cols-7 gap-1">
-            {WEEKDAY_LABELS.map((label, index) => (
-              <div key={`${label}-${index}`} className="py-1 text-center text-[10px] font-bold text-[#52527a]">
-                {label}
-              </div>
-            ))}
-            {calendarDays.map((day) => {
-              const isToday = day.date ? toISODate(day.date) === toISODate(new Date()) : false;
-              const stateClass =
-                day.status === 'green'
-                  ? 'border-[#00d97e40] bg-[#00d97e] text-black'
-                  : day.status === 'red'
-                    ? 'border-[#ff6b6b44] bg-[#ff6b6b22] text-[#ff6b6b]'
-                    : 'border-[#1a1a30] bg-[#13132a] text-[#52527a]';
-              return (
-                <div
-                  key={day.key}
-                  className={`flex aspect-square items-center justify-center rounded-lg border text-xs font-bold ${day.day ? stateClass : 'border-transparent bg-transparent'} ${
-                    isToday ? 'ring-1 ring-white/80' : ''
-                  }`}
-                  title={day.date ? `${formatDateShort(day.date.toISOString())}: ${day.status}` : undefined}
-                >
-                  {day.day || ''}
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-[#8b8bb3]">
-            <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-[#00d97e]" />All daily tasks complete</span>
-            <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-[#ff6b6b55]" />Incomplete or failed</span>
           </div>
         </div>
       </section>
@@ -1212,6 +1170,68 @@ export function SgGoalsApp() {
           </div>
         </aside>
       </section>
+
+      <div className={`fixed inset-0 z-[99997] flex items-end justify-center bg-black/70 px-4 transition ${calendarOpen ? 'visible opacity-100' : 'pointer-events-none invisible opacity-0'}`}>
+        <div className="w-full max-w-md rounded-t-3xl border border-[#1a1a30] bg-[#12122a] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)]">
+          <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#1a1a30]" />
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Calendar heatmap</p>
+              <h2 className="mt-1 text-base font-bold text-[#e8e8f5]">{MONTH_LABELS[calendarCursor.getMonth()]} {calendarCursor.getFullYear()}</h2>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCalendarCursor((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}
+                className="h-8 w-8 rounded-lg border border-[#1a1a30] text-sm text-[#8b8bb3]"
+                aria-label="Previous month"
+              >
+                &lt;
+              </button>
+              <button
+                onClick={() => setCalendarCursor((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}
+                className="h-8 w-8 rounded-lg border border-[#1a1a30] text-sm text-[#8b8bb3]"
+                aria-label="Next month"
+              >
+                &gt;
+              </button>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-7 gap-1">
+            {WEEKDAY_LABELS.map((label, index) => (
+              <div key={`${label}-${index}`} className="py-1 text-center text-[10px] font-bold text-[#52527a]">
+                {label}
+              </div>
+            ))}
+            {calendarDays.map((day) => {
+              const isToday = day.date ? toISODate(day.date) === toISODate(new Date()) : false;
+              const stateClass =
+                day.status === 'green'
+                  ? 'border-[#00d97e40] bg-[#00d97e] text-black'
+                  : day.status === 'red'
+                    ? 'border-[#ff6b6b44] bg-[#ff6b6b22] text-[#ff6b6b]'
+                    : 'border-[#1a1a30] bg-[#13132a] text-[#52527a]';
+              return (
+                <div
+                  key={day.key}
+                  className={`flex aspect-square min-h-10 items-center justify-center rounded-lg border text-xs font-bold ${day.day ? stateClass : 'border-transparent bg-transparent'} ${
+                    isToday ? 'ring-1 ring-white/80' : ''
+                  }`}
+                  title={day.date ? `${formatDateShort(day.date.toISOString())}: ${day.status}` : undefined}
+                >
+                  {day.day || ''}
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-[#8b8bb3]">
+            <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-[#00d97e]" />All done</span>
+            <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded bg-[#ff6b6b55]" />Incomplete</span>
+          </div>
+          <button onClick={() => setCalendarOpen(false)} className="mt-4 w-full rounded-xl border border-[#1a1a30] px-3 py-3 text-sm text-[#8b8bb3]">
+            Close
+          </button>
+        </div>
+      </div>
 
       <div className={`fixed inset-0 z-[99999] flex items-end justify-center bg-black/60 px-4 transition ${timingTask ? 'visible opacity-100' : 'pointer-events-none invisible opacity-0'}`}>
         <div className="w-full max-w-md rounded-t-3xl border border-[#1a1a30] bg-[#12122a] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)]">

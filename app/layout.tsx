@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Manrope, Space_Grotesk } from 'next/font/google';
 import '@/app/globals.css';
 import { Providers } from '@/app/providers';
@@ -14,8 +14,26 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: 'TalkFluent | Real-time English Practice Rooms',
-  description: 'Join live voice rooms for English practice and language exchange.'
+  title: 'SG Goals',
+  description: 'Track daily goals, streaks, scorecards, failures, and progress.',
+  applicationName: 'SG Goals',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'SG Goals'
+  },
+  icons: {
+    icon: '/sg-goals-icon.svg',
+    apple: '/sg-goals-icon.svg'
+  }
+};
+
+export const viewport: Viewport = {
+  themeColor: '#07070f',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

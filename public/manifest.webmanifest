@@ -1,0 +1,20 @@
+{
+  "name": "SG Goals",
+  "short_name": "SG Goals",
+  "description": "Track daily goals, streaks, scorecards, failures, and progress.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07070f",
+  "theme_color": "#07070f",
+  "icons": [
+    {
+      "src": "/sg-goals-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "health", "education"]
+}
