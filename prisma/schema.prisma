@@ -132,6 +132,24 @@ model GoalTask {
   @@index([ownerKey, scope, position])
 }
 
+model GoalActivity {
+  id          String   @id
+  ownerKey    String   @default("default")
+  scope       String
+  priority    String
+  taskText    String
+  kind        String
+  reason      String?
+  note        String?
+  minutes     Int?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([ownerKey, createdAt])
+  @@index([ownerKey, scope, priority, createdAt])
+}
+
 model Account {
   id                 String  @id @default(cuid())
   userId             String

@@ -1,0 +1,324 @@
+{
+  "today": [
+    {
+      "id": "daily-pray-morning",
+      "text": "Pray and set intention",
+      "note": "5 minutes before phone",
+      "priority": "health",
+      "block": "morning",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-water-morning",
+      "text": "Drink 1 liter water before noon",
+      "note": "Start the day clean",
+      "priority": "health",
+      "block": "morning",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-gym-or-walk",
+      "text": "Gym workout or 30 minute walk",
+      "note": "No zero day",
+      "priority": "health",
+      "block": "morning",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-office-focus",
+      "text": "Office work with zero escalation",
+      "note": "Finish priority items first",
+      "priority": "career",
+      "block": "afternoon",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-career-learning",
+      "text": "Study Data Engineering for 60 minutes",
+      "note": "Databricks, Spark, DSA, Java, or architecture",
+      "priority": "career",
+      "block": "evening",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-dsa-problem",
+      "text": "Solve or revise 1 DSA problem",
+      "note": "Write notes after solving",
+      "priority": "career",
+      "block": "evening",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-english-speaking",
+      "text": "Speak English for 15 minutes",
+      "note": "Record yourself or speak aloud",
+      "priority": "communication",
+      "block": "evening",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-read-or-listen",
+      "text": "Read or listen to English for 15 minutes",
+      "note": "One article, podcast, or video",
+      "priority": "communication",
+      "block": "evening",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-skincare",
+      "text": "Morning and night skin care",
+      "note": "Keep routine simple and consistent",
+      "priority": "looks",
+      "block": "evening",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "daily-sleep-11",
+      "text": "Sleep preparation by 11 PM",
+      "note": "Phone away, lights low",
+      "priority": "health",
+      "block": "evening",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    }
+  ],
+  "weekly": [
+    {
+      "id": "weekly-gym-4x",
+      "text": "Gym or strength training 4 times",
+      "note": "Minimum 45 minutes each",
+      "priority": "health",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "weekly-weight-check",
+      "text": "Check weight and waist once",
+      "note": "Record number honestly",
+      "priority": "health",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "weekly-no-junk-5-days",
+      "text": "No junk food for 5 days",
+      "note": "Track failures if missed",
+      "priority": "health",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "weekly-study-7-hours",
+      "text": "Complete 7 hours of career study",
+      "note": "Databricks, Spark, DSA, Java, architecture",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "weekly-dsa-5",
+      "text": "Solve 5 DSA problems",
+      "note": "Focus on patterns, not speed only",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "weekly-project-progress",
+      "text": "Move 1 portfolio project forward",
+      "note": "Commit, deploy, document, or demo",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "weekly-communication-5-days",
+      "text": "Communication practice 5 days",
+      "note": "Speaking, reading aloud, or recorded practice",
+      "priority": "communication",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "weekly-kannada-20-words",
+      "text": "Learn 20 Kannada words",
+      "note": "Use in small sentences",
+      "priority": "communication",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "weekly-grooming-review",
+      "text": "Grooming and wardrobe review",
+      "note": "Hair, beard, skin, outfit basics",
+      "priority": "looks",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    }
+  ],
+  "monthly": [
+    {
+      "id": "monthly-health-weight-progress",
+      "text": "Move weight toward 68 kg",
+      "note": "Track weekly weight and adjust food",
+      "priority": "health",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-gym-16",
+      "text": "Complete 16 gym sessions",
+      "note": "4 sessions per week average",
+      "priority": "health",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-sleep-22-days",
+      "text": "Sleep 7 hours for 22 days",
+      "note": "Protect energy first",
+      "priority": "health",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-databricks-spark-module",
+      "text": "Finish 1 Databricks or Spark module",
+      "note": "Notes plus hands-on practice",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-dsa-20",
+      "text": "Solve 20 DSA problems",
+      "note": "Arrays, strings, hash maps, trees, graphs",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-project-1",
+      "text": "Complete 1 small portfolio project",
+      "note": "Deploy it and write README",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-communication-25-days",
+      "text": "Communication practice for 25 days",
+      "note": "Track speaking minutes",
+      "priority": "communication",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-kannada-80-words",
+      "text": "Learn 80 Kannada words",
+      "note": "Review weekly",
+      "priority": "communication",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-skincare-25-days",
+      "text": "Skin care routine for 25 days",
+      "note": "Consistency beats complexity",
+      "priority": "looks",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "monthly-style-upgrade",
+      "text": "Improve 1 style or grooming item",
+      "note": "Quality shirt, shoes, haircut, or routine",
+      "priority": "looks",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    }
+  ],
+  "yearly": [
+    {
+      "id": "yearly-visible-fitness",
+      "text": "Build a fit body with visible muscle definition",
+      "note": "Gym, food discipline, sleep, consistency",
+      "priority": "health",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "yearly-weight-68",
+      "text": "Reach and maintain 68 kg",
+      "note": "Healthy and sustainable",
+      "priority": "health",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "yearly-data-engineering",
+      "text": "Become strong in Data Engineering",
+      "note": "Spark, Databricks, pipelines, SQL, cloud basics",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "yearly-data-architecture",
+      "text": "Become strong in Data Architecture",
+      "note": "Design, scaling, governance, cost, reliability",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "yearly-java-depth",
+      "text": "Become strong in Java technology",
+      "note": "Core Java, Spring basics, system design fundamentals",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "yearly-job-40-lpa",
+      "text": "Prepare for a 40 LPA job switch",
+      "note": "Skills, projects, resume, interviews, confidence",
+      "priority": "career",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "yearly-communication-personality",
+      "text": "Improve communication and personality significantly",
+      "note": "Speak clearly, listen better, present calmly",
+      "priority": "communication",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "yearly-kannada-fluent",
+      "text": "Learn Kannada for daily conversation",
+      "note": "Words, sentences, listening, speaking practice",
+      "priority": "communication",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    },
+    {
+      "id": "yearly-polished-look",
+      "text": "Build a clean and confident personal style",
+      "note": "Skin, grooming, clothes, posture, presence",
+      "priority": "looks",
+      "done": false,
+      "updatedAt": "2026-05-28T00:00:00.000Z"
+    }
+  ]
+}
