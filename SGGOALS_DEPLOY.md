@@ -51,3 +51,5 @@ In Vercel:
 5. Save and redeploy.
 
 The Vercel build runs `prisma db push`, which creates the `GoalTask` table automatically.
+
+If you add time-tracking fields later, run the matching SQL file in Supabase SQL Editor to add new columns without deleting old data.

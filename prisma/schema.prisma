@@ -114,17 +114,20 @@ model Report {
 }
 
 model GoalTask {
-  id        String   @id
-  ownerKey  String   @default("default")
-  scope     String
-  text      String
-  note      String?
-  priority  String
-  block     String?
-  done      Boolean  @default(false)
-  position  Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String    @id
+  ownerKey       String    @default("default")
+  scope          String
+  text           String
+  note           String?
+  priority       String
+  block          String?
+  done           Boolean   @default(false)
+  position       Int       @default(0)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  investedMinutes Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([ownerKey, scope, position])
 }

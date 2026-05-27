@@ -9,6 +9,9 @@ type GoalTaskInput = {
   priority: string;
   block?: string;
   done: boolean;
+  startedAt?: string;
+  completedAt?: string;
+  investedMinutes?: number;
   updatedAt?: string;
 };
 type GoalsStoreInput = Record<Scope, GoalTaskInput[]>;
@@ -52,6 +55,9 @@ export async function GET() {
         priority: row.priority,
         block: row.block || undefined,
         done: row.done,
+        startedAt: row.startedAt ? row.startedAt.toISOString() : undefined,
+        completedAt: row.completedAt ? row.completedAt.toISOString() : undefined,
+        investedMinutes: row.investedMinutes ?? undefined,
         updatedAt: row.updatedAt.toISOString()
       });
     });
@@ -83,6 +89,9 @@ export async function PUT(req: NextRequest) {
             priority: task.priority,
             block: task.block || null,
             done: task.done,
+            startedAt: task.startedAt ? new Date(task.startedAt) : null,
+            completedAt: task.completedAt ? new Date(task.completedAt) : null,
+            investedMinutes: typeof task.investedMinutes === 'number' ? task.investedMinutes : null,
             position: index
           }
         })

@@ -14,6 +14,9 @@ type GoalTask = {
   priority: Priority;
   block?: Block;
   done: boolean;
+  startedAt?: string;
+  completedAt?: string;
+  investedMinutes?: number;
   updatedAt: string;
 };
 
@@ -21,7 +24,7 @@ type GoalsStore = Record<Scope, GoalTask[]>;
 
 const STORAGE_KEY = 'sg-goals-store-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v2';
+const APP_VERSION = 'cloud-sync-v3';
 
 const priorities: Record<Priority, { label: string; color: string; soft: string }> = {
   health: { label: 'Health', color: '#00d97e', soft: 'rgba(0,217,126,.12)' },
@@ -77,6 +80,23 @@ function makeTask(text: string, note: string | undefined, priority: Priority, bl
   };
 }
 
+function formatMinutes(mins?: number) {
+  if (mins == null || Number.isNaN(mins)) return '';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const rem = mins % 60;
+  if (!rem) return `${hours}h`;
+  return `${hours}h ${rem}m`;
+}
+
+function parseStartDate(timeValue: string) {
+  if (!timeValue) return null;
+  const now = new Date();
+  const [hours, minutes] = timeValue.split(':').map(Number);
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0, 0);
+  return Number.isNaN(start.getTime()) ? null : start;
+}
+
 function cryptoSafeId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
   return `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -106,6 +126,10 @@ export function SgGoalsApp() {
   const [syncState, setSyncState] = useState<'loading' | 'local' | 'saving' | 'saved' | 'error'>('loading');
   const [scope, setScope] = useState<Scope>('today');
   const [editing, setEditing] = useState<GoalTask | null>(null);
+  const [timingTask, setTimingTask] = useState<GoalTask | null>(null);
+  const [timingScope, setTimingScope] = useState<Scope>('today');
+  const [timingStart, setTimingStart] = useState('');
+  const [timingPreview, setTimingPreview] = useState('—');
   const [draft, setDraft] = useState({ text: '', note: '', priority: 'career' as Priority, block: 'morning' as Block });
 
   useEffect(() => {
@@ -211,10 +235,70 @@ export function SgGoalsApp() {
   }
 
   function toggleTask(taskId: string) {
+    const currentTask = store[scope].find((task) => task.id === taskId);
+    if (!currentTask) return;
+    if (currentTask.done) {
+      persist((current) => ({
+        ...current,
+        [scope]: current[scope].map((task) =>
+          task.id === taskId
+            ? { ...task, done: false, startedAt: undefined, completedAt: undefined, investedMinutes: undefined, updatedAt: new Date().toISOString() }
+            : task
+        )
+      }));
+      return;
+    }
+
+    setTimingTask(currentTask);
+    setTimingScope(scope);
+    const guessed = new Date(Date.now() - 30 * 60 * 1000);
+    setTimingStart(`${String(guessed.getHours()).padStart(2, '0')}:${String(guessed.getMinutes()).padStart(2, '0')}`);
+    setTimingPreview('—');
+  }
+
+  function updateTimingPreview(nextValue = timingStart) {
+    if (!nextValue) {
+      setTimingPreview('—');
+      return;
+    }
+    const start = parseStartDate(nextValue);
+    if (!start) {
+      setTimingPreview('Invalid time');
+      return;
+    }
+    const now = new Date();
+    const diffMs = now.getTime() - start.getTime();
+    if (diffMs < 0) {
+      setTimingPreview('Start time is in the future');
+      return;
+    }
+    setTimingPreview(`Invested ${formatMinutes(Math.max(1, Math.round(diffMs / 60000)))}`);
+  }
+
+  function confirmTiming() {
+    if (!timingTask) return;
+    const startedAt = parseStartDate(timingStart);
+    const completedAt = new Date();
+    const investedMinutes = startedAt ? Math.max(1, Math.round((completedAt.getTime() - startedAt.getTime()) / 60000)) : undefined;
     persist((current) => ({
       ...current,
-      [scope]: current[scope].map((task) => (task.id === taskId ? { ...task, done: !task.done, updatedAt: new Date().toISOString() } : task))
+      [timingScope]: current[timingScope].map((task) =>
+        task.id === timingTask.id
+          ? {
+              ...task,
+              done: true,
+              startedAt: startedAt ? startedAt.toISOString() : undefined,
+              completedAt: completedAt.toISOString(),
+              investedMinutes,
+              updatedAt: new Date().toISOString()
+            }
+          : task
+      )
     }));
+      setTimingTask(null);
+      setTimingScope('today');
+      setTimingStart('');
+      setTimingPreview('—');
   }
 
   function deleteTask(taskId: string) {
@@ -371,6 +455,15 @@ export function SgGoalsApp() {
                           <span className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#52527a]">
                             <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
                             {task.note ? <span>{task.note}</span> : null}
+                            {task.done && task.investedMinutes != null ? (
+                              <span style={{ color: priorities[task.priority].color }}>{formatMinutes(task.investedMinutes)} invested</span>
+                            ) : null}
+                            {task.done && task.startedAt && task.completedAt ? (
+                              <span>
+                                {new Date(task.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} -{' '}
+                                {new Date(task.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            ) : null}
                           </span>
                         </span>
                       </button>
@@ -457,6 +550,55 @@ export function SgGoalsApp() {
           </div>
         </aside>
       </section>
+
+      <div className={`fixed inset-0 z-[99999] flex items-end justify-center bg-black/60 px-4 transition ${timingTask ? 'visible opacity-100' : 'pointer-events-none invisible opacity-0'}`}>
+        <div className="w-full max-w-md rounded-t-3xl border border-[#1a1a30] bg-[#12122a] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)]">
+          <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#1a1a30]" />
+          <div className="text-[10px] font-bold uppercase tracking-[.28em] text-[#8b8bb3]">Task completed</div>
+          <div className="mt-2 text-base font-bold text-[#e8e8f5]">{timingTask?.text}</div>
+          <div className="mt-4 text-[11px] text-[#8b8bb3]">When did you start this task?</div>
+          <input
+            type="time"
+            value={timingStart}
+            onChange={(event) => {
+              setTimingStart(event.target.value);
+              updateTimingPreview(event.target.value);
+            }}
+            className="mt-2 w-full rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-4 py-3 text-center text-lg text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+          />
+          <div className="mt-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-4 py-3 text-sm text-[#8b8bb3]">{timingPreview}</div>
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={() => {
+                const now = new Date();
+                const value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                setTimingStart(value);
+                updateTimingPreview(value);
+              }}
+              className="flex-1 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-3 text-sm text-[#8b8bb3]"
+            >
+              Just now
+            </button>
+            <button
+              onClick={confirmTiming}
+              className="flex-1 rounded-xl bg-[#00d97e] px-3 py-3 text-sm font-bold text-black"
+            >
+              Save & Complete
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              setTimingTask(null);
+              setTimingScope('today');
+              setTimingStart('');
+              setTimingPreview('—');
+            }}
+            className="mt-2 w-full rounded-xl px-3 py-3 text-sm text-[#52527a]"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
     </main>
   );
 }
