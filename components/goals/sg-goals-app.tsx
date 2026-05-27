@@ -42,7 +42,7 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v6';
+const APP_VERSION = 'cloud-sync-v7';
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -271,6 +271,7 @@ export function SgGoalsApp() {
   const [mainGoalId, setMainGoalId] = useState('');
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [scoreOpen, setScoreOpen] = useState(false);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
   const [draft, setDraft] = useState({ text: '', note: '', priority: 'career' as Priority, block: 'morning' as Block });
@@ -968,14 +969,24 @@ export function SgGoalsApp() {
               </p>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <button
-                onClick={() => setCalendarOpen(true)}
-                className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#00d97e40] bg-[#00d97e12] text-[#00d97e]"
-                aria-label="Open calendar heatmap"
-                title="Open calendar heatmap"
-              >
-                <CalendarDays className="h-5 w-5" />
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setScoreOpen(true)}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#4f8ef740] bg-[#4f8ef712] text-[#4f8ef7]"
+                  aria-label="Open score details"
+                  title="Open score details"
+                >
+                  <BarChart3 className="h-5 w-5" />
+                </button>
+                <button
+                  onClick={() => setCalendarOpen(true)}
+                  className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#00d97e40] bg-[#00d97e12] text-[#00d97e]"
+                  aria-label="Open calendar heatmap"
+                  title="Open calendar heatmap"
+                >
+                  <CalendarDays className="h-5 w-5" />
+                </button>
+              </div>
               <span
                 className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
                   syncState === 'saved'
@@ -1085,122 +1096,6 @@ export function SgGoalsApp() {
           </div>
         </div>
       </section>
-      ) : null}
-
-      {scope === 'today' ? (
-        <>
-      <section className="mx-auto max-w-4xl px-5 pb-2">
-        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Today reset</p>
-              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Fresh day, clean dashboard</h2>
-              <p className="mt-1 text-xs text-[#8b8bb3]">
-                Yesterday is kept in patterns and calendar history, not mixed into today.
-              </p>
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-[11px] md:min-w-[320px]">
-              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
-                <p className="text-[10px] text-[#52527a]">Today misses</p>
-                <p className="mt-1 text-sm font-bold text-[#ff6b6b]">{todayFocus.misses.length}</p>
-              </div>
-              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
-                <p className="text-[10px] text-[#52527a]">Today time</p>
-                <p className="mt-1 text-sm font-bold text-[#f7a04f]">{formatMinutes(todayFocus.minutes) || '0m'}</p>
-              </div>
-              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
-                <p className="text-[10px] text-[#52527a]">Yesterday</p>
-                <p className="mt-1 text-sm font-bold text-[#4f8ef7]">
-                  {yesterdaySummary.hadActivity ? `${yesterdaySummary.completed}/${Math.max(store.today.length, yesterdaySummary.completed)}` : '-'}
-                </p>
-              </div>
-            </div>
-          </div>
-          {yesterdaySummary.hadActivity ? (
-            <div className="mt-3 rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-xs text-[#8b8bb3]">
-              Yesterday: {yesterdaySummary.completed} completed, {yesterdaySummary.failures} missed, {formatMinutes(yesterdaySummary.minutes) || '0m'} invested.
-            </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-4xl px-5 pb-2">
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Overall score</p>
-                <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{overallScore}</p>
-              </div>
-              <div className="rounded-lg bg-[#00d97e15] p-2 text-[#00d97e]">
-                <BarChart3 className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
-              <div className="h-full rounded-full bg-[#00d97e]" style={{ width: `${overallScore}%` }} />
-            </div>
-            <p className="mt-2 text-[11px] text-[#8b8bb3]">A mix of completions, consistency, time invested, and logged failures.</p>
-          </div>
-
-          <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">This week</p>
-                <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{analytics.totals.completions}</p>
-              </div>
-              <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
-                <TrendingUp className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#8b8bb3]">
-              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-2 py-2">
-                <p className="text-[10px] text-[#52527a]">Done</p>
-                <p className="mt-1 text-sm font-bold text-[#00d97e]">{analytics.totals.completions}</p>
-              </div>
-              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-2 py-2">
-                <p className="text-[10px] text-[#52527a]">Fails</p>
-                <p className="mt-1 text-sm font-bold text-[#ff6b6b]">{analytics.totals.failures}</p>
-              </div>
-              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-2 py-2">
-                <p className="text-[10px] text-[#52527a]">Time</p>
-                <p className="mt-1 text-sm font-bold text-[#f7a04f]">{formatMinutes(analytics.totals.minutes) || '0m'}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Today misses</p>
-                <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{todayFocus.misses.length}</p>
-              </div>
-              <div className="rounded-lg bg-[#ff6b6b18] p-2 text-[#ff6b6b]">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 space-y-2">
-              {todayFocus.misses.length ? (
-                todayFocus.misses.map((activity) => (
-                  <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
-                    <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
-                    <p className="mt-1 text-[11px] text-[#8b8bb3]">
-                      {activity.reason ? activity.reason : 'Missed'}
-                      {activity.note ? ` · ${activity.note}` : ''}
-                      {' · '}
-                      {formatDateShort(activity.createdAt)}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
-                  No misses today.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-        </>
       ) : null}
 
       {scope === 'weekly' ? (
@@ -1363,8 +1258,8 @@ export function SgGoalsApp() {
                     <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
                     <p className="mt-1 text-[11px] text-[#8b8bb3]">
                       {activity.reason || 'Missed'}
-                      {activity.note ? ` · ${activity.note}` : ''}
-                      {' · '}
+                      {activity.note ? ` - ${activity.note}` : ''}
+                      {' - '}
                       {formatDateShort(activity.createdAt)}
                     </p>
                   </div>
@@ -1378,6 +1273,64 @@ export function SgGoalsApp() {
           </div>
         </aside>
       </section>
+
+      <div className={`fixed inset-0 z-[99996] flex items-end justify-center bg-black/70 px-4 transition ${scoreOpen ? 'visible opacity-100' : 'pointer-events-none invisible opacity-0'}`}>
+        <div className="w-full max-w-md rounded-t-3xl border border-[#1a1a30] bg-[#12122a] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)]">
+          <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#1a1a30]" />
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Score details</p>
+              <h2 className="mt-1 text-base font-bold text-[#e8e8f5]">Today and week snapshot</h2>
+            </div>
+            <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
+              <BarChart3 className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-4 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Overall score</p>
+                <p className="mt-1 text-3xl font-bold text-[#e8e8f5]">{overallScore}</p>
+              </div>
+              <div className="rounded-lg bg-[#00d97e15] p-2 text-[#00d97e]">
+                <BarChart3 className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
+              <div className="h-full rounded-full bg-[#00d97e]" style={{ width: `${overallScore}%` }} />
+            </div>
+            <p className="mt-2 text-[11px] text-[#8b8bb3]">A mix of completions, consistency, time invested, and logged failures.</p>
+          </div>
+          <div className="mt-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">This week</p>
+                <p className="mt-1 text-3xl font-bold text-[#e8e8f5]">{analytics.totals.completions}</p>
+              </div>
+              <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
+                <TrendingUp className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#8b8bb3]">
+              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-2 py-2">
+                <p className="text-[10px] text-[#52527a]">Done</p>
+                <p className="mt-1 text-sm font-bold text-[#00d97e]">{analytics.totals.completions}</p>
+              </div>
+              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-2 py-2">
+                <p className="text-[10px] text-[#52527a]">Fails</p>
+                <p className="mt-1 text-sm font-bold text-[#ff6b6b]">{analytics.totals.failures}</p>
+              </div>
+              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-2 py-2">
+                <p className="text-[10px] text-[#52527a]">Time</p>
+                <p className="mt-1 text-sm font-bold text-[#f7a04f]">{formatMinutes(analytics.totals.minutes) || '0m'}</p>
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setScoreOpen(false)} className="mt-4 w-full rounded-xl border border-[#1a1a30] px-3 py-3 text-sm text-[#8b8bb3]">
+            Close
+          </button>
+        </div>
+      </div>
 
       <div className={`fixed inset-0 z-[99997] flex items-end justify-center bg-black/70 px-4 transition ${calendarOpen ? 'visible opacity-100' : 'pointer-events-none invisible opacity-0'}`}>
         <div className="w-full max-w-md rounded-t-3xl border border-[#1a1a30] bg-[#12122a] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)]">
