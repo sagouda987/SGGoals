@@ -42,10 +42,24 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v5';
+const APP_VERSION = 'cloud-sync-v6';
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+type AnalyticsWindow = {
+  scorecard: Array<{
+    priority: Priority;
+    score: number;
+    completions: number;
+    failures: number;
+    undos: number;
+    minutes: number;
+    series: number[];
+  }>;
+  failures: GoalActivity[];
+  totals: { completions: number; failures: number; undos: number; minutes: number };
+};
 
 const priorities: Record<Priority, { label: string; color: string; soft: string }> = {
   health: { label: 'Health', color: '#00d97e', soft: 'rgba(0,217,126,.12)' },
@@ -171,6 +185,71 @@ function formatDateShort(dateValue: string) {
 function formatTimeShort(dateValue?: string) {
   if (!dateValue) return '';
   return new Date(dateValue).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 6): AnalyticsWindow {
+  const byPriority = Object.fromEntries(
+    (Object.keys(priorities) as Priority[]).map((priority) => [priority, { completions: 0, failures: 0, undos: 0, minutes: 0, daysHit: new Set<string>(), series: Array(days.length).fill(0) }])
+  ) as Record<Priority, { completions: number; failures: number; undos: number; minutes: number; daysHit: Set<string>; series: number[] }>;
+
+  const keys = days.map(toISODate);
+  const keySet = new Set(keys);
+  const recent = activities.filter((activity) => keySet.has(dateKeyFromValue(activity.createdAt)));
+
+  recent.forEach((activity) => {
+    const bucket = byPriority[activity.priority];
+    const key = dateKeyFromValue(activity.createdAt);
+    const dayIndex = keys.indexOf(key);
+    const signedValue = activity.kind === 'failure' || activity.kind === 'undo' ? -1 : 1;
+    if (dayIndex >= 0) bucket.series[dayIndex] += signedValue;
+    if (activity.kind === 'completion') {
+      bucket.completions += 1;
+      bucket.minutes += activity.minutes || 0;
+      bucket.daysHit.add(key);
+    } else if (activity.kind === 'failure') {
+      bucket.failures += 1;
+    } else if (activity.kind === 'undo') {
+      bucket.undos += 1;
+    }
+  });
+
+  const scorecard = (Object.keys(priorities) as Priority[]).map((priority) => {
+    const data = byPriority[priority];
+    const totalActions = data.completions + data.failures + data.undos;
+    const consistency = days.length ? data.daysHit.size / days.length : 0;
+    const completionRate = totalActions ? data.completions / totalActions : 0;
+    const weeklyTargets: Record<Priority, number> = { health: 180, career: 300, communication: 90, looks: 45 };
+    const timeTarget = Math.max(1, Math.round((weeklyTargets[priority] / 7) * Math.max(days.length, 1)));
+    const timeScore = Math.min(data.minutes / timeTarget, 1);
+    const raw = completionRate * 0.45 + consistency * 0.35 + timeScore * 0.2;
+    return {
+      priority,
+      score: Math.round(raw * 100),
+      completions: data.completions,
+      failures: data.failures,
+      undos: data.undos,
+      minutes: data.minutes,
+      series: data.series
+    };
+  });
+
+  return {
+    scorecard,
+    failures: recent
+      .filter((activity) => activity.kind === 'failure')
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, maxFailures),
+    totals: recent.reduce(
+      (acc, activity) => {
+        if (activity.kind === 'completion') acc.completions += 1;
+        if (activity.kind === 'failure') acc.failures += 1;
+        if (activity.kind === 'undo') acc.undos += 1;
+        if (activity.kind === 'completion') acc.minutes += activity.minutes || 0;
+        return acc;
+      },
+      { completions: 0, failures: 0, undos: 0, minutes: 0 }
+    )
+  };
 }
 
 export function SgGoalsApp() {
@@ -329,76 +408,20 @@ export function SgGoalsApp() {
     return days;
   }, []);
 
-  const analytics = useMemo(() => {
-    const byPriority = Object.fromEntries(
-      (Object.keys(priorities) as Priority[]).map((priority) => [priority, { completions: 0, failures: 0, undos: 0, minutes: 0, daysHit: new Set<string>(), series: Array(7).fill(0) }])
-    ) as Record<
-      Priority,
-      { completions: number; failures: number; undos: number; minutes: number; daysHit: Set<string>; series: number[] }
-    >;
+  const monthWindow = useMemo(() => {
+    const today = new Date(`${currentDateKey}T00:00:00`);
+    const days: Date[] = [];
+    const daysInMonth = today.getDate();
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      const date = new Date(today.getFullYear(), today.getMonth(), day);
+      date.setHours(0, 0, 0, 0);
+      days.push(date);
+    }
+    return days;
+  }, [currentDateKey]);
 
-    const recent = activities.filter((activity) => {
-      const created = new Date(activity.createdAt);
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - 6);
-      windowStart.setHours(0, 0, 0, 0);
-      return created >= windowStart;
-    });
-
-    recent.forEach((activity) => {
-      const bucket = byPriority[activity.priority];
-      const created = new Date(activity.createdAt);
-      const dayIndex = trendWindow.findIndex((day) => toISODate(day) === toISODate(created));
-      const signedValue = activity.kind === 'failure' ? -1 : activity.kind === 'undo' ? -1 : 1;
-      if (dayIndex >= 0) bucket.series[dayIndex] += signedValue;
-      if (activity.kind === 'completion') {
-        bucket.completions += 1;
-        bucket.minutes += activity.minutes || 0;
-        bucket.daysHit.add(toISODate(created));
-      } else if (activity.kind === 'failure') {
-        bucket.failures += 1;
-      } else if (activity.kind === 'undo') {
-        bucket.undos += 1;
-      }
-    });
-
-    const scorecard = (Object.keys(priorities) as Priority[]).map((priority) => {
-      const data = byPriority[priority];
-      const totalActions = data.completions + data.failures + data.undos;
-      const consistency = data.daysHit.size / 7;
-      const completionRate = totalActions ? data.completions / totalActions : 0;
-      const minuteTargets: Record<Priority, number> = { health: 180, career: 300, communication: 90, looks: 45 };
-      const timeScore = Math.min(data.minutes / minuteTargets[priority], 1);
-      const raw = completionRate * 0.45 + consistency * 0.35 + timeScore * 0.2;
-      return {
-        priority,
-        score: Math.round(raw * 100),
-        completions: data.completions,
-        failures: data.failures,
-        undos: data.undos,
-        minutes: data.minutes,
-        series: data.series
-      };
-    });
-
-    return {
-      scorecard,
-      failures: recent
-        .filter((activity) => activity.kind === 'failure')
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 6),
-      totals: recent.reduce(
-        (acc, activity) => {
-          if (activity.kind === 'completion') acc.completions += 1;
-          if (activity.kind === 'failure') acc.failures += 1;
-          if (activity.kind === 'undo') acc.undos += 1;
-          if (activity.kind === 'completion') acc.minutes += activity.minutes || 0;
-          return acc;
-        },
-        { completions: 0, failures: 0, undos: 0, minutes: 0 }
-      )
-    };
-  }, [activities, trendWindow]);
+  const analytics = useMemo(() => buildAnalytics(activities, trendWindow), [activities, trendWindow]);
+  const monthlyAnalytics = useMemo(() => buildAnalytics(activities, monthWindow, 10), [activities, monthWindow]);
 
   const overallScore = useMemo(() => {
     if (!analytics.scorecard.length) return 0;
@@ -441,6 +464,17 @@ export function SgGoalsApp() {
       .map(([reason, count]) => ({ reason, count }))
       .sort((a, b) => b.count - a.count);
   }, [analytics.failures]);
+
+  const monthlyFailurePatterns = useMemo(() => {
+    const counts = new Map<string, number>();
+    monthlyAnalytics.failures.forEach((activity) => {
+      const key = activity.reason || 'Missed';
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [monthlyAnalytics.failures]);
 
   const mainGoal = useMemo(() => {
     const selected = store.today.find((task) => task.id === mainGoalId);
@@ -787,6 +821,132 @@ export function SgGoalsApp() {
     tasks: activeTasks.filter((task) => task.priority === priority)
   }));
 
+  const sideMissLog = scope === 'monthly' ? monthlyAnalytics.failures : scope === 'today' ? todayFocus.misses : analytics.failures;
+  const sideMissLogTitle = scope === 'monthly' ? 'Monthly miss log' : scope === 'today' ? 'Today miss log' : '7-day miss log';
+
+  function renderTrendSection(title: string, subtitle: string, windowDays: Date[], data: AnalyticsWindow) {
+    return (
+      <section className="mx-auto max-w-4xl px-5 pb-2">
+        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Priority trends</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{title}</h2>
+              <p className="mt-1 text-xs text-[#8b8bb3]">{subtitle}</p>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-[#52527a]">
+              <span className="h-2 w-2 rounded-full bg-[#00d97e]" />Positive
+              <span className="ml-2 h-2 w-2 rounded-full bg-[#ff6b6b]" />Misses
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {data.scorecard.map((row) => (
+              <div key={row.priority} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">{priorities[row.priority].label}</p>
+                    <p className="mt-1 text-lg font-bold" style={{ color: priorities[row.priority].color }}>
+                      {row.score}
+                    </p>
+                  </div>
+                  <div className="text-right text-[11px] text-[#8b8bb3]">
+                    <p>{row.completions} done</p>
+                    <p>{row.failures} failed</p>
+                    <p>{formatMinutes(row.minutes) || '0m'} invested</p>
+                  </div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
+                  <div className="h-full rounded-full" style={{ width: `${row.score}%`, background: priorities[row.priority].color }} />
+                </div>
+                <div className="mt-3 flex h-16 items-end gap-1">
+                  {row.series.map((value, index) => {
+                    const height = Math.min(56, Math.max(10, Math.abs(value) * 14 + 10));
+                    const color = value >= 0 ? priorities[row.priority].color : '#ff6b6b';
+                    const day = windowDays[index];
+                    return (
+                      <div key={`${row.priority}-${day.toISOString()}`} className="flex flex-1 flex-col items-center justify-end gap-1">
+                        <div className="flex h-14 w-full items-end">
+                          <div
+                            className="w-full rounded-t"
+                            style={{
+                              height: `${height}px`,
+                              background: value === 0 ? '#2b2b49' : color,
+                              opacity: value === 0 ? 0.7 : 1
+                            }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-[#52527a]">{windowDays.length > 10 ? day.getDate() : day.toLocaleDateString([], { weekday: 'narrow' })}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  function renderFailurePatternsSection(title: string, subtitle: string, data: AnalyticsWindow, patterns: Array<{ reason: string; count: number }>) {
+    return (
+      <section className="mx-auto max-w-4xl px-5 pb-2">
+        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">{title}</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{subtitle}</h2>
+            </div>
+            <div className="rounded-lg bg-[#ff6b6b18] p-2 text-[#ff6b6b]">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[.8fr,1.2fr]">
+            <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Reasons</p>
+              <div className="mt-3 space-y-2">
+                {patterns.length ? (
+                  patterns.map((item) => (
+                    <div key={item.reason} className="flex items-center justify-between rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-xs">
+                      <span className="text-[#8b8bb3]">{item.reason}</span>
+                      <span className="font-bold text-[#ff6b6b]">{item.count}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
+                    No misses in this period.
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Pattern log</p>
+              <div className="mt-3 space-y-2">
+                {data.failures.length ? (
+                  data.failures.map((activity) => (
+                    <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                      <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
+                      <p className="mt-1 text-[11px] text-[#8b8bb3]">
+                        {activity.reason || 'Missed'}
+                        {activity.note ? ` - ${activity.note}` : ''}
+                        {' - '}
+                        {formatDateShort(activity.createdAt)}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
+                    Nothing to review yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#07070f] pb-24 text-[#e8e8f5]">
       <section className="border-b border-[#1a1a30] bg-[#0b0b1c] px-5 pb-5 pt-10">
@@ -862,6 +1022,7 @@ export function SgGoalsApp() {
         </div>
       </section>
 
+      {scope === 'today' ? (
       <section className="mx-auto max-w-4xl px-5 pb-2">
         <div className="grid gap-3 md:grid-cols-[1.2fr,.8fr]">
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
@@ -924,7 +1085,10 @@ export function SgGoalsApp() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {scope === 'today' ? (
+        <>
       <section className="mx-auto max-w-4xl px-5 pb-2">
         <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1036,120 +1200,22 @@ export function SgGoalsApp() {
           </div>
         </div>
       </section>
+        </>
+      ) : null}
 
-      <section className="mx-auto max-w-4xl px-5 pb-2">
-        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Priority trends</p>
-              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Last 7 days per area</h2>
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-[#52527a]">
-              <span className="h-2 w-2 rounded-full bg-[#00d97e]" />Positive
-              <span className="ml-2 h-2 w-2 rounded-full bg-[#ff6b6b]" />Misses
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {analytics.scorecard.map((row) => (
-              <div key={row.priority} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">{priorities[row.priority].label}</p>
-                    <p className="mt-1 text-lg font-bold" style={{ color: priorities[row.priority].color }}>
-                      {row.score}
-                    </p>
-                  </div>
-                  <div className="text-right text-[11px] text-[#8b8bb3]">
-                    <p>{row.completions} done</p>
-                    <p>{row.failures} failed</p>
-                    <p>{formatMinutes(row.minutes) || '0m'} invested</p>
-                  </div>
-                </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
-                  <div className="h-full rounded-full" style={{ width: `${row.score}%`, background: priorities[row.priority].color }} />
-                </div>
-                <div className="mt-3 flex h-16 items-end gap-1">
-                  {row.series.map((value, index) => {
-                    const height = Math.min(56, Math.max(10, Math.abs(value) * 14 + 10));
-                    const color = value >= 0 ? priorities[row.priority].color : '#ff6b6b';
-                    const day = trendWindow[index];
-                    return (
-                      <div key={day.toISOString()} className="flex flex-1 flex-col items-center justify-end gap-1">
-                        <div className="flex h-14 w-full items-end">
-                          <div
-                            className="w-full rounded-t"
-                            style={{
-                              height: `${height}px`,
-                              background: value === 0 ? '#2b2b49' : color,
-                              opacity: value === 0 ? 0.7 : 1
-                            }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-[#52527a]">{day.toLocaleDateString([], { weekday: 'narrow' })}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {scope === 'weekly' ? (
+        <>
+          {renderTrendSection('Last 7 days per area', 'Weekly progress from completions, misses, and time invested.', trendWindow, analytics)}
+          {renderFailurePatternsSection('7-day failure patterns', 'Learn from misses without carrying them into today.', analytics, failurePatterns)}
+        </>
+      ) : null}
 
-      <section className="mx-auto max-w-4xl px-5 pb-2">
-        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">7-day failure patterns</p>
-              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Learn from misses without carrying them into today</h2>
-            </div>
-            <div className="rounded-lg bg-[#ff6b6b18] p-2 text-[#ff6b6b]">
-              <AlertTriangle className="h-5 w-5" />
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[.8fr,1.2fr]">
-            <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
-              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Reasons</p>
-              <div className="mt-3 space-y-2">
-                {failurePatterns.length ? (
-                  failurePatterns.map((item) => (
-                    <div key={item.reason} className="flex items-center justify-between rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-xs">
-                      <span className="text-[#8b8bb3]">{item.reason}</span>
-                      <span className="font-bold text-[#ff6b6b]">{item.count}</span>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
-                    No 7-day misses yet.
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
-              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Recent pattern log</p>
-              <div className="mt-3 space-y-2">
-                {analytics.failures.length ? (
-                  analytics.failures.map((activity) => (
-                    <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
-                      <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
-                      <p className="mt-1 text-[11px] text-[#8b8bb3]">
-                        {activity.reason || 'Missed'}
-                        {activity.note ? ` - ${activity.note}` : ''}
-                        {' - '}
-                        {formatDateShort(activity.createdAt)}
-                      </p>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
-                    Nothing to review yet.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+      {scope === 'monthly' ? (
+        <>
+          {renderTrendSection(`${MONTH_LABELS[new Date().getMonth()]} trends per area`, 'Current month progress from completions, misses, and time invested.', monthWindow, monthlyAnalytics)}
+          {renderFailurePatternsSection('Monthly failure patterns', 'Review recurring misses for this month without mixing them into today.', monthlyAnalytics, monthlyFailurePatterns)}
+        </>
+      ) : null}
 
       <section className="mx-auto grid max-w-4xl gap-4 px-5 md:grid-cols-[1fr,320px]">
         <div className="space-y-4">
@@ -1289,10 +1355,10 @@ export function SgGoalsApp() {
           </div>
 
           <div className="mt-5 border-t border-[#1a1a30] pt-4">
-            <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">7-day miss log</h3>
+            <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">{sideMissLogTitle}</h3>
             <div className="mt-3 space-y-2">
-              {analytics.failures.length ? (
-                analytics.failures.map((activity) => (
+              {sideMissLog.length ? (
+                sideMissLog.map((activity) => (
                   <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
                     <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
                     <p className="mt-1 text-[11px] text-[#8b8bb3]">
