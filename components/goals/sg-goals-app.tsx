@@ -193,6 +193,7 @@ export function SgGoalsApp() {
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
+  const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
   const [draft, setDraft] = useState({ text: '', note: '', priority: 'career' as Priority, block: 'morning' as Block });
 
   useEffect(() => {
@@ -270,6 +271,13 @@ export function SgGoalsApp() {
         // The app still works normally when service worker registration is unavailable.
       });
     }
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setCurrentDateKey(toISODate(new Date()));
+    }, 60000);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -397,6 +405,43 @@ export function SgGoalsApp() {
     return Math.round(analytics.scorecard.reduce((sum, item) => sum + item.score, 0) / analytics.scorecard.length);
   }, [analytics.scorecard]);
 
+  const todayKey = currentDateKey;
+  const yesterdayKey = useMemo(() => {
+    const date = new Date(`${currentDateKey}T00:00:00`);
+    date.setDate(date.getDate() - 1);
+    return toISODate(date);
+  }, [currentDateKey]);
+
+  const todayFocus = useMemo(() => {
+    const todayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === todayKey);
+    const misses = todayActivities.filter((activity) => activity.kind === 'failure');
+    const minutes = todayActivities.reduce((total, activity) => (activity.kind === 'completion' ? total + (activity.minutes || 0) : total), 0);
+    return { misses, minutes };
+  }, [activities, todayKey]);
+
+  const yesterdaySummary = useMemo(() => {
+    const yesterdayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === yesterdayKey);
+    const completed = yesterdayActivities.reduce((total, activity) => {
+      if (activity.kind === 'completion') return total + 1;
+      if (activity.kind === 'undo') return Math.max(0, total - 1);
+      return total;
+    }, 0);
+    const failures = yesterdayActivities.filter((activity) => activity.kind === 'failure').length;
+    const minutes = yesterdayActivities.reduce((total, activity) => (activity.kind === 'completion' ? total + (activity.minutes || 0) : total), 0);
+    return { completed, failures, minutes, hadActivity: yesterdayActivities.length > 0 };
+  }, [activities, yesterdayKey]);
+
+  const failurePatterns = useMemo(() => {
+    const counts = new Map<string, number>();
+    analytics.failures.forEach((activity) => {
+      const key = activity.reason || 'Missed';
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return Array.from(counts.entries())
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [analytics.failures]);
+
   const mainGoal = useMemo(() => {
     const selected = store.today.find((task) => task.id === mainGoalId);
     if (selected) return selected;
@@ -405,7 +450,6 @@ export function SgGoalsApp() {
 
   const dailyStatus = useMemo(() => {
     const status: Record<string, { completed: number; failures: number; total: number; state: 'green' | 'red' | 'none' }> = {};
-    const todayKey = toISODate(new Date());
     const todayTotal = store.today.length;
     const todayDone = store.today.filter((task) => task.done).length;
     if (todayTotal) {
@@ -435,7 +479,7 @@ export function SgGoalsApp() {
     });
 
     return status;
-  }, [activities, store.today]);
+  }, [activities, store.today, todayKey]);
 
   const calendarDays = useMemo(() => {
     const year = calendarCursor.getFullYear();
@@ -704,6 +748,11 @@ export function SgGoalsApp() {
       '',
       `Overall score: ${overallScore}`,
       `Today completion: ${completion.done}/${completion.total} (${completion.pct}%)`,
+      `Today misses: ${todayFocus.misses.length}`,
+      `Today time invested: ${formatMinutes(todayFocus.minutes) || '0m'}`,
+      yesterdaySummary.hadActivity
+        ? `Yesterday: ${yesterdaySummary.completed} completed, ${yesterdaySummary.failures} missed, ${formatMinutes(yesterdaySummary.minutes) || '0m'} invested`
+        : 'Yesterday: no activity recorded',
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
       `Main goal today: ${mainGoal ? mainGoal.text : 'Not selected'}`,
@@ -716,6 +765,9 @@ export function SgGoalsApp() {
       '',
       'Recent failures',
       ...failureLines,
+      '',
+      '7-day failure patterns',
+      ...(failurePatterns.length ? failurePatterns.map((item) => `${item.reason}: ${item.count}`) : ['No failure patterns yet']),
       '',
       'Please coach me: identify my pattern, biggest bottleneck, and the next 3 actions for tomorrow.'
     ].join('\n');
@@ -874,6 +926,41 @@ export function SgGoalsApp() {
       </section>
 
       <section className="mx-auto max-w-4xl px-5 pb-2">
+        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Today reset</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Fresh day, clean dashboard</h2>
+              <p className="mt-1 text-xs text-[#8b8bb3]">
+                Yesterday is kept in patterns and calendar history, not mixed into today.
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-[11px] md:min-w-[320px]">
+              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+                <p className="text-[10px] text-[#52527a]">Today misses</p>
+                <p className="mt-1 text-sm font-bold text-[#ff6b6b]">{todayFocus.misses.length}</p>
+              </div>
+              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+                <p className="text-[10px] text-[#52527a]">Today time</p>
+                <p className="mt-1 text-sm font-bold text-[#f7a04f]">{formatMinutes(todayFocus.minutes) || '0m'}</p>
+              </div>
+              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+                <p className="text-[10px] text-[#52527a]">Yesterday</p>
+                <p className="mt-1 text-sm font-bold text-[#4f8ef7]">
+                  {yesterdaySummary.hadActivity ? `${yesterdaySummary.completed}/${Math.max(store.today.length, yesterdaySummary.completed)}` : '-'}
+                </p>
+              </div>
+            </div>
+          </div>
+          {yesterdaySummary.hadActivity ? (
+            <div className="mt-3 rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-xs text-[#8b8bb3]">
+              Yesterday: {yesterdaySummary.completed} completed, {yesterdaySummary.failures} missed, {formatMinutes(yesterdaySummary.minutes) || '0m'} invested.
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-4xl px-5 pb-2">
         <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-center justify-between">
@@ -920,16 +1007,16 @@ export function SgGoalsApp() {
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Recent misses</p>
-                <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{analytics.failures.length}</p>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Today misses</p>
+                <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{todayFocus.misses.length}</p>
               </div>
               <div className="rounded-lg bg-[#ff6b6b18] p-2 text-[#ff6b6b]">
                 <AlertTriangle className="h-5 w-5" />
               </div>
             </div>
             <div className="mt-3 space-y-2">
-              {analytics.failures.length ? (
-                analytics.failures.map((activity) => (
+              {todayFocus.misses.length ? (
+                todayFocus.misses.map((activity) => (
                   <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
                     <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
                     <p className="mt-1 text-[11px] text-[#8b8bb3]">
@@ -942,7 +1029,7 @@ export function SgGoalsApp() {
                 ))
               ) : (
                 <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
-                  No failures logged yet.
+                  No misses today.
                 </div>
               )}
             </div>
@@ -1005,6 +1092,61 @@ export function SgGoalsApp() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-4xl px-5 pb-2">
+        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">7-day failure patterns</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Learn from misses without carrying them into today</h2>
+            </div>
+            <div className="rounded-lg bg-[#ff6b6b18] p-2 text-[#ff6b6b]">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[.8fr,1.2fr]">
+            <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Reasons</p>
+              <div className="mt-3 space-y-2">
+                {failurePatterns.length ? (
+                  failurePatterns.map((item) => (
+                    <div key={item.reason} className="flex items-center justify-between rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-xs">
+                      <span className="text-[#8b8bb3]">{item.reason}</span>
+                      <span className="font-bold text-[#ff6b6b]">{item.count}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
+                    No 7-day misses yet.
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Recent pattern log</p>
+              <div className="mt-3 space-y-2">
+                {analytics.failures.length ? (
+                  analytics.failures.map((activity) => (
+                    <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                      <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
+                      <p className="mt-1 text-[11px] text-[#8b8bb3]">
+                        {activity.reason || 'Missed'}
+                        {activity.note ? ` - ${activity.note}` : ''}
+                        {' - '}
+                        {formatDateShort(activity.createdAt)}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
+                    Nothing to review yet.
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -1147,7 +1289,7 @@ export function SgGoalsApp() {
           </div>
 
           <div className="mt-5 border-t border-[#1a1a30] pt-4">
-            <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">Failure log</h3>
+            <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">7-day miss log</h3>
             <div className="mt-3 space-y-2">
               {analytics.failures.length ? (
                 analytics.failures.map((activity) => (
