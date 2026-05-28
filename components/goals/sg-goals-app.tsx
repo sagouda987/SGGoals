@@ -42,7 +42,7 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v7';
+const APP_VERSION = 'cloud-sync-v8';
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -172,6 +172,12 @@ function toISODate(date: Date) {
 
 function dateKeyFromValue(dateValue: string) {
   return toISODate(new Date(dateValue));
+}
+
+function shouldKeepTodayTask(task: GoalTask, todayKey: string) {
+  if (!task.done) return true;
+  if (!task.completedAt) return true;
+  return dateKeyFromValue(task.completedAt) >= todayKey;
 }
 
 function activityId() {
@@ -371,6 +377,21 @@ export function SgGoalsApp() {
   useEffect(() => {
     if (ready) window.localStorage.setItem(MAIN_GOAL_KEY, mainGoalId);
   }, [mainGoalId, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    setStore((current) => {
+      const nextToday = current.today.filter((task) => shouldKeepTodayTask(task, currentDateKey));
+      if (nextToday.length === current.today.length) return current;
+      return { ...current, today: nextToday };
+    });
+  }, [currentDateKey, ready]);
+
+  useEffect(() => {
+    if (!ready || !mainGoalId) return;
+    const selected = store.today.find((task) => task.id === mainGoalId);
+    if (!selected) setMainGoalId('');
+  }, [mainGoalId, ready, store.today]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
