@@ -42,7 +42,7 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v10';
+const APP_VERSION = 'cloud-sync-v11';
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -857,14 +857,46 @@ export function SgGoalsApp() {
     window.setTimeout(() => setReportCopied(false), 1800);
   }
 
-  const groupedToday = (Object.keys(blocks) as Block[]).map((block) => ({
-    block,
-    tasks: activeTasks.filter((task) => task.block === block)
-  }));
+  const completedToday = scope === 'today' ? activeTasks.filter((task) => task.done) : [];
+
+  const groupedToday = (Object.keys(blocks) as Block[]).map((block) => {
+    const blockTasks = activeTasks.filter((task) => task.block === block);
+    return {
+      id: block,
+      title: blocks[block].label,
+      sub: blocks[block].time,
+      color: '#4f8ef7',
+      tasks: blockTasks.filter((task) => !task.done),
+      done: blockTasks.filter((task) => task.done).length,
+      total: blockTasks.length
+    };
+  });
+
+  const todayDisplayGroups = [
+    ...groupedToday,
+    ...(completedToday.length
+      ? [
+          {
+            id: 'completed',
+            title: 'Completed tasks',
+            sub: 'Finished today',
+            color: '#00d97e',
+            tasks: completedToday,
+            done: completedToday.length,
+            total: completedToday.length
+          }
+        ]
+      : [])
+  ];
 
   const groupedPriority = (Object.keys(priorities) as Priority[]).map((priority) => ({
-    priority,
-    tasks: activeTasks.filter((task) => task.priority === priority)
+    id: priority,
+    title: priorities[priority].label,
+    sub: 'Priority group',
+    color: priorities[priority].color,
+    tasks: activeTasks.filter((task) => task.priority === priority),
+    done: activeTasks.filter((task) => task.priority === priority && task.done).length,
+    total: activeTasks.filter((task) => task.priority === priority).length
   }));
 
   const sideMissLog = scope === 'monthly' ? monthlyAnalytics.failures : scope === 'today' ? todayFocus.misses : analytics.failures;
@@ -1159,19 +1191,15 @@ export function SgGoalsApp() {
 
       <section className="mx-auto grid max-w-4xl gap-4 px-5 md:grid-cols-[1fr,320px]">
         <div className="space-y-4">
-          {(scope === 'today' ? groupedToday : groupedPriority).map((group) => {
-            const isToday = 'block' in group;
-            const title = isToday ? blocks[group.block].label : priorities[group.priority].label;
-            const sub = isToday ? blocks[group.block].time : 'Priority group';
-            const color = isToday ? '#4f8ef7' : priorities[group.priority].color;
+          {(scope === 'today' ? todayDisplayGroups : groupedPriority).map((group) => {
             return (
-              <div key={isToday ? group.block : group.priority} className="overflow-hidden rounded-xl border border-[#1a1a30] bg-[#0f0f1d]">
+              <div key={group.id} className="overflow-hidden rounded-xl border border-[#1a1a30] bg-[#0f0f1d]">
                 <div className="flex items-center justify-between border-b border-[#1a1a30] px-4 py-3">
                   <div>
-                    <h2 className="text-sm font-bold" style={{ color }}>{title}</h2>
-                    <p className="text-[11px] text-[#52527a]">{sub}</p>
+                    <h2 className="text-sm font-bold" style={{ color: group.color }}>{group.title}</h2>
+                    <p className="text-[11px] text-[#52527a]">{group.sub}</p>
                   </div>
-                  <span className="text-xs font-bold" style={{ color }}>{group.tasks.filter((task) => task.done).length}/{group.tasks.length}</span>
+                  <span className="text-xs font-bold" style={{ color: group.color }}>{group.done}/{group.total}</span>
                 </div>
 
                 {group.tasks.length ? (
