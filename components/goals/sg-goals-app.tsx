@@ -42,7 +42,7 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v8';
+const APP_VERSION = 'cloud-sync-v9';
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -191,6 +191,10 @@ function formatDateShort(dateValue: string) {
 function formatTimeShort(dateValue?: string) {
   if (!dateValue) return '';
   return new Date(dateValue).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatClock(date: Date) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 6): AnalyticsWindow {
@@ -657,8 +661,9 @@ export function SgGoalsApp() {
     setTimingTask(currentTask);
     setTimingScope(scope);
     const guessed = new Date(Date.now() - 30 * 60 * 1000);
-    setTimingStart(`${String(guessed.getHours()).padStart(2, '0')}:${String(guessed.getMinutes()).padStart(2, '0')}`);
-    setTimingPreview('-');
+    const guessedValue = formatClock(guessed);
+    setTimingStart(guessedValue);
+    updateTimingPreview(guessedValue);
   }
 
   function updateTimingPreview(nextValue = timingStart) {
@@ -677,7 +682,14 @@ export function SgGoalsApp() {
       setTimingPreview('Start time is in the future');
       return;
     }
-    setTimingPreview(`Invested ${formatMinutes(Math.max(1, Math.round(diffMs / 60000)))}`);
+    setTimingPreview(`Start ${nextValue} - End ${formatClock(now)} - Invested ${formatMinutes(Math.max(1, Math.round(diffMs / 60000)))}`);
+  }
+
+  function clearCompletedDailyTasks() {
+    persist((current) => ({
+      ...current,
+      today: current.today.filter((task) => !task.done)
+    }));
   }
 
   function confirmTiming() {
@@ -1222,25 +1234,50 @@ export function SgGoalsApp() {
               placeholder="Note (optional)"
               className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
             />
-            <select
-              value={draft.priority}
-              onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value as Priority }))}
-              className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
-            >
-              {Object.entries(priorities).map(([key, value]) => (
-                <option key={key} value={key}>{value.label}</option>
-              ))}
-            </select>
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Priority</p>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(priorities).map(([key, value]) => {
+                  const isActive = draft.priority === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setDraft((current) => ({ ...current, priority: key as Priority }))}
+                      className="rounded-lg border px-3 py-2 text-xs font-bold transition"
+                      style={{
+                        borderColor: isActive ? value.color : '#1a1a30',
+                        background: isActive ? value.soft : '#0f0f1d',
+                        color: isActive ? value.color : '#8b8bb3'
+                      }}
+                    >
+                      {value.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {scope === 'today' ? (
-              <select
-                value={draft.block}
-                onChange={(event) => setDraft((current) => ({ ...current, block: event.target.value as Block }))}
-                className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
-              >
-                {Object.entries(blocks).map(([key, value]) => (
-                  <option key={key} value={key}>{value.label}</option>
-                ))}
-              </select>
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Time block</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {Object.entries(blocks).map(([key, value]) => {
+                    const isActive = draft.block === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setDraft((current) => ({ ...current, block: key as Block }))}
+                        className={`rounded-lg border px-2 py-2 text-xs font-bold transition ${
+                          isActive ? 'border-[#4f8ef7] bg-[#4f8ef715] text-[#4f8ef7]' : 'border-[#1a1a30] bg-[#0f0f1d] text-[#8b8bb3]'
+                        }`}
+                      >
+                        {value.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ) : null}
             <button onClick={saveTask} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#00d97e] px-3 py-3 text-sm font-bold text-black">
               <Save className="h-4 w-4" />
@@ -1248,6 +1285,11 @@ export function SgGoalsApp() {
             </button>
             {editing ? (
               <button onClick={resetDraft} className="w-full rounded-lg border border-[#1a1a30] px-3 py-2 text-sm text-[#8b8bb3]">Cancel edit</button>
+            ) : null}
+            {scope === 'today' && store.today.some((task) => task.done) ? (
+              <button onClick={clearCompletedDailyTasks} className="w-full rounded-lg border border-[#ff6b6b44] px-3 py-2 text-sm font-bold text-[#ff6b6b]">
+                Clear completed daily tasks
+              </button>
             ) : null}
           </div>
 
@@ -1421,6 +1463,16 @@ export function SgGoalsApp() {
           <div className="text-[10px] font-bold uppercase tracking-[.28em] text-[#8b8bb3]">Task completed</div>
           <div className="mt-2 text-base font-bold text-[#e8e8f5]">{timingTask?.text}</div>
           <div className="mt-4 text-[11px] text-[#8b8bb3]">When did you start this task?</div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+            <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+              <p className="text-[#52527a]">Start</p>
+              <p className="mt-1 font-bold text-[#e8e8f5]">{timingStart || '-'}</p>
+            </div>
+            <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+              <p className="text-[#52527a]">End</p>
+              <p className="mt-1 font-bold text-[#00d97e]">{formatClock(new Date())}</p>
+            </div>
+          </div>
           <input
             type="time"
             value={timingStart}
@@ -1435,7 +1487,7 @@ export function SgGoalsApp() {
             <button
               onClick={() => {
                 const now = new Date();
-                const value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                const value = formatClock(now);
                 setTimingStart(value);
                 updateTimingPreview(value);
               }}
