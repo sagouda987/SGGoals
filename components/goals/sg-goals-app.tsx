@@ -42,7 +42,7 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v9';
+const APP_VERSION = 'cloud-sync-v10';
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -170,6 +170,10 @@ function toISODate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+function parseTodayTime(timeValue: string) {
+  return parseStartDate(timeValue);
+}
+
 function dateKeyFromValue(dateValue: string) {
   return toISODate(new Date(dateValue));
 }
@@ -273,6 +277,7 @@ export function SgGoalsApp() {
   const [timingTask, setTimingTask] = useState<GoalTask | null>(null);
   const [timingScope, setTimingScope] = useState<Scope>('today');
   const [timingStart, setTimingStart] = useState('');
+  const [timingEnd, setTimingEnd] = useState('');
   const [timingPreview, setTimingPreview] = useState('-');
   const [failureTask, setFailureTask] = useState<GoalTask | null>(null);
   const [failureScope, setFailureScope] = useState<Scope>('today');
@@ -660,29 +665,31 @@ export function SgGoalsApp() {
 
     setTimingTask(currentTask);
     setTimingScope(scope);
+    const nowValue = formatClock(new Date());
     const guessed = new Date(Date.now() - 30 * 60 * 1000);
     const guessedValue = formatClock(guessed);
     setTimingStart(guessedValue);
-    updateTimingPreview(guessedValue);
+    setTimingEnd(nowValue);
+    updateTimingPreview(guessedValue, nowValue);
   }
 
-  function updateTimingPreview(nextValue = timingStart) {
-    if (!nextValue) {
+  function updateTimingPreview(nextStart = timingStart, nextEnd = timingEnd) {
+    if (!nextStart || !nextEnd) {
       setTimingPreview('-');
       return;
     }
-    const start = parseStartDate(nextValue);
-    if (!start) {
+    const start = parseTodayTime(nextStart);
+    const end = parseTodayTime(nextEnd);
+    if (!start || !end) {
       setTimingPreview('Invalid time');
       return;
     }
-    const now = new Date();
-    const diffMs = now.getTime() - start.getTime();
+    const diffMs = end.getTime() - start.getTime();
     if (diffMs < 0) {
-      setTimingPreview('Start time is in the future');
+      setTimingPreview('End time must be after start time');
       return;
     }
-    setTimingPreview(`Start ${nextValue} - End ${formatClock(now)} - Invested ${formatMinutes(Math.max(1, Math.round(diffMs / 60000)))}`);
+    setTimingPreview(`Start ${nextStart} - End ${nextEnd} - Invested ${formatMinutes(Math.max(1, Math.round(diffMs / 60000)))}`);
   }
 
   function clearCompletedDailyTasks() {
@@ -694,8 +701,12 @@ export function SgGoalsApp() {
 
   function confirmTiming() {
     if (!timingTask) return;
-    const startedAt = parseStartDate(timingStart);
-    const completedAt = new Date();
+    const startedAt = parseTodayTime(timingStart);
+    const completedAt = parseTodayTime(timingEnd) || new Date();
+    if (startedAt && completedAt.getTime() < startedAt.getTime()) {
+      setTimingPreview('End time must be after start time');
+      return;
+    }
     const investedMinutes = startedAt ? Math.max(1, Math.round((completedAt.getTime() - startedAt.getTime()) / 60000)) : undefined;
     persist((current) => ({
       ...current,
@@ -727,6 +738,7 @@ export function SgGoalsApp() {
     setTimingTask(null);
     setTimingScope('today');
     setTimingStart('');
+    setTimingEnd('');
     setTimingPreview('-');
   }
 
@@ -1470,18 +1482,35 @@ export function SgGoalsApp() {
             </div>
             <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
               <p className="text-[#52527a]">End</p>
-              <p className="mt-1 font-bold text-[#00d97e]">{formatClock(new Date())}</p>
+              <p className="mt-1 font-bold text-[#00d97e]">{timingEnd || '-'}</p>
             </div>
           </div>
-          <input
-            type="time"
-            value={timingStart}
-            onChange={(event) => {
-              setTimingStart(event.target.value);
-              updateTimingPreview(event.target.value);
-            }}
-            className="mt-2 w-full rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-4 py-3 text-center text-lg text-[#e8e8f5] outline-none focus:border-[#00d97e]"
-          />
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Start time</span>
+              <input
+                type="time"
+                value={timingStart}
+                onChange={(event) => {
+                  setTimingStart(event.target.value);
+                  updateTimingPreview(event.target.value, timingEnd);
+                }}
+                className="mt-1 w-full rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-3 text-center text-base text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">End time</span>
+              <input
+                type="time"
+                value={timingEnd}
+                onChange={(event) => {
+                  setTimingEnd(event.target.value);
+                  updateTimingPreview(timingStart, event.target.value);
+                }}
+                className="mt-1 w-full rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-3 text-center text-base text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+              />
+            </label>
+          </div>
           <div className="mt-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-4 py-3 text-sm text-[#8b8bb3]">{timingPreview}</div>
           <div className="mt-4 flex gap-2">
             <button
@@ -1489,7 +1518,8 @@ export function SgGoalsApp() {
                 const now = new Date();
                 const value = formatClock(now);
                 setTimingStart(value);
-                updateTimingPreview(value);
+                setTimingEnd(value);
+                updateTimingPreview(value, value);
               }}
               className="flex-1 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-3 text-sm text-[#8b8bb3]"
             >
@@ -1504,6 +1534,7 @@ export function SgGoalsApp() {
               setTimingTask(null);
               setTimingScope('today');
               setTimingStart('');
+              setTimingEnd('');
               setTimingPreview('-');
             }}
             className="mt-2 w-full rounded-xl px-3 py-3 text-sm text-[#52527a]"
