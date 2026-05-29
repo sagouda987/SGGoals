@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-type Scope = 'today' | 'weekly' | 'monthly' | 'yearly';
+type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
 type GoalTaskInput = {
   id: string;
   text: string;
@@ -16,13 +16,13 @@ type GoalTaskInput = {
 };
 type GoalsStoreInput = Record<Scope, GoalTaskInput[]>;
 
-const scopes: Scope[] = ['today', 'weekly', 'monthly', 'yearly'];
+const scopes: Scope[] = ['today', 'weekly', 'monthly', 'yearly', 'tomorrow'];
 const ownerKey = 'default';
 
 export const dynamic = 'force-dynamic';
 
 function emptyStore(): GoalsStoreInput {
-  return { today: [], weekly: [], monthly: [], yearly: [] };
+  return { today: [], weekly: [], monthly: [], yearly: [], tomorrow: [] };
 }
 
 function isGoalStore(value: unknown): value is GoalsStoreInput {

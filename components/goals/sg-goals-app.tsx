@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BarChart3, CalendarDays, Check, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 
-type Scope = 'today' | 'weekly' | 'monthly' | 'yearly';
+type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
 type Block = 'morning' | 'afternoon' | 'evening';
 
@@ -41,8 +41,10 @@ type GoalsStore = Record<Scope, GoalTask[]>;
 const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
+const NOTIFICATION_PREF_KEY = 'sg-goals-notifications-v1';
+const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v13';
+const APP_VERSION = 'cloud-sync-v14';
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -102,7 +104,8 @@ const starterStore: GoalsStore = {
     makeTask('Change job - 40 LPA package', undefined, 'career'),
     makeTask('Improve personality and communication significantly', undefined, 'communication'),
     makeTask('Learn Kannada fluently', undefined, 'looks')
-  ]
+  ],
+  tomorrow: []
 };
 
 function makeTask(text: string, note: string | undefined, priority: Priority, block?: Block): GoalTask {
@@ -162,7 +165,8 @@ function loadStore(): GoalsStore {
       today: Array.isArray(parsed.today) ? parsed.today : starterStore.today,
       weekly: Array.isArray(parsed.weekly) ? parsed.weekly : starterStore.weekly,
       monthly: Array.isArray(parsed.monthly) ? parsed.monthly : starterStore.monthly,
-      yearly: Array.isArray(parsed.yearly) ? parsed.yearly : starterStore.yearly
+      yearly: Array.isArray(parsed.yearly) ? parsed.yearly : starterStore.yearly,
+      tomorrow: Array.isArray(parsed.tomorrow) ? parsed.tomorrow : starterStore.tomorrow
     };
   } catch {
     return starterStore;
@@ -302,9 +306,11 @@ export function SgGoalsApp() {
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [scoreOpen, setScoreOpen] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block });
+  const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
 
   useEffect(() => {
     let cancelled = false;
@@ -313,6 +319,7 @@ export function SgGoalsApp() {
     setStore(localStore);
     setActivities(localActivities);
     setMainGoalId(window.localStorage.getItem(MAIN_GOAL_KEY) || '');
+    setNotificationsEnabled(window.localStorage.getItem(NOTIFICATION_PREF_KEY) === 'on');
 
     async function loadCloudStore() {
       try {
@@ -528,6 +535,38 @@ export function SgGoalsApp() {
     return store.today.find((task) => !task.done) || store.today[0] || null;
   }, [mainGoalId, store.today]);
 
+  useEffect(() => {
+    if (!ready || !notificationsEnabled || !('Notification' in window) || Notification.permission !== 'granted') return;
+
+    function maybeNotify() {
+      const now = new Date();
+      const hour = now.getHours();
+      if (hour < 6 || hour > 22 || hour % 2 !== 0) return;
+      const key = `${toISODate(now)}-${hour}`;
+      if (window.localStorage.getItem(NOTIFICATION_LAST_KEY) === key) return;
+      const body = mainGoal ? `Main goal: ${mainGoal.text}` : 'Choose your main goal for today.';
+      window.localStorage.setItem(NOTIFICATION_LAST_KEY, key);
+      if ('serviceWorker' in navigator) {
+        void navigator.serviceWorker.ready
+          .then((registration) =>
+            registration.showNotification('SG Goals check-in', {
+              body,
+              icon: '/sg-goals-icon.svg',
+              badge: '/sg-goals-icon.svg',
+              tag: `sg-goals-${key}`
+            })
+          )
+          .catch(() => new Notification('SG Goals check-in', { body, icon: '/sg-goals-icon.svg' }));
+      } else {
+        new Notification('SG Goals check-in', { body, icon: '/sg-goals-icon.svg' });
+      }
+    }
+
+    maybeNotify();
+    const interval = window.setInterval(maybeNotify, 60000);
+    return () => window.clearInterval(interval);
+  }, [mainGoal, notificationsEnabled, ready]);
+
   const dailyStatus = useMemo(() => {
     const status: Record<string, { completed: number; failures: number; total: number; state: 'green' | 'red' | 'none' }> = {};
     const todayTotal = store.today.length;
@@ -647,6 +686,40 @@ export function SgGoalsApp() {
       return next;
     });
     resetDraft();
+  }
+
+  function addTomorrowTask() {
+    const text = tomorrowDraft.text.trim();
+    if (!text) return;
+    const note = composeTaskNote(tomorrowDraft.note.trim() || undefined, tomorrowDraft.dueTime);
+    persist((current) => ({
+      ...current,
+      tomorrow: [...current.tomorrow, makeTask(text, note, 'other')]
+    }));
+    setTomorrowDraft({ text: '', note: '', dueTime: '' });
+  }
+
+  function deleteTomorrowTask(taskId: string) {
+    persist((current) => ({
+      ...current,
+      tomorrow: current.tomorrow.filter((task) => task.id !== taskId)
+    }));
+  }
+
+  async function enableGentleNotifications() {
+    if (!('Notification' in window)) {
+      alert('Notifications are not supported in this browser.');
+      return;
+    }
+    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+    if (permission !== 'granted') return;
+    window.localStorage.setItem(NOTIFICATION_PREF_KEY, 'on');
+    setNotificationsEnabled(true);
+  }
+
+  function disableGentleNotifications() {
+    window.localStorage.setItem(NOTIFICATION_PREF_KEY, 'off');
+    setNotificationsEnabled(false);
   }
 
   function beginEdit(task: GoalTask) {
@@ -819,7 +892,8 @@ export function SgGoalsApp() {
           today: parsed.today || [],
           weekly: parsed.weekly || [],
           monthly: parsed.monthly || [],
-          yearly: parsed.yearly || []
+          yearly: parsed.yearly || [],
+          tomorrow: parsed.tomorrow || []
         });
       } catch {
         alert('That backup file could not be imported.');
@@ -893,8 +967,7 @@ export function SgGoalsApp() {
 
   const todayDisplayGroups = groupedToday;
 
-  const tomorrowTasks = store.today
-    .filter((task) => !task.done)
+  const tomorrowTasks = store.tomorrow
     .map((task) => ({ task, noteInfo: splitTaskNote(task.note) }))
     .sort((a, b) => (a.noteInfo.dueTime || '99:99').localeCompare(b.noteInfo.dueTime || '99:99'));
 
@@ -1085,6 +1158,14 @@ export function SgGoalsApp() {
                 {syncState === 'saved' ? 'Cloud saved' : syncState === 'saving' ? 'Saving' : syncState === 'loading' ? 'Loading' : 'Local only'}
               </span>
               <span className="text-[10px] text-[#52527a]">{APP_VERSION}</span>
+              <button
+                onClick={notificationsEnabled ? disableGentleNotifications : enableGentleNotifications}
+                className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                  notificationsEnabled ? 'border-[#4f8ef740] text-[#4f8ef7]' : 'border-[#1a1a30] text-[#52527a]'
+                }`}
+              >
+                {notificationsEnabled ? 'Reminders on' : 'Reminders off'}
+              </button>
             </div>
           </div>
 
@@ -1192,8 +1273,8 @@ export function SgGoalsApp() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Tomorrow work</p>
-                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Pending daily tasks to carry forward</h2>
-                  <p className="mt-1 text-xs text-[#8b8bb3]">This is only a planning view. It does not change today&apos;s data.</p>
+                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Manual reminders for the upcoming day</h2>
+                  <p className="mt-1 text-xs text-[#8b8bb3]">Add this yourself. It does not pull from today&apos;s tasks.</p>
                 </div>
                 <div className="rounded-lg bg-[#4f8ef715] px-3 py-2 text-sm font-bold text-[#4f8ef7]">{tomorrowTasks.length}</div>
               </div>
@@ -1215,14 +1296,43 @@ export function SgGoalsApp() {
                             By {noteInfo.dueTime}
                           </span>
                         ) : null}
+                        <button onClick={() => deleteTomorrowTask(task.id)} className="shrink-0 rounded-lg border border-[#ff6b6b44] px-2 py-1 text-[11px] font-bold text-[#ff6b6b]">
+                          Remove
+                        </button>
                       </div>
                     </div>
                   ))
                 ) : (
                   <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a]">
-                    No pending daily tasks for tomorrow.
+                    No tomorrow reminders yet.
                   </div>
                 )}
+              </div>
+              <div className="mt-4 grid gap-2 border-t border-[#1a1a30] pt-4 md:grid-cols-[1fr,140px]">
+                <input
+                  value={tomorrowDraft.text}
+                  onChange={(event) => setTomorrowDraft((current) => ({ ...current, text: event.target.value }))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') addTomorrowTask();
+                  }}
+                  placeholder="Add tomorrow work..."
+                  className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
+                />
+                <input
+                  type="time"
+                  value={tomorrowDraft.dueTime}
+                  onChange={(event) => setTomorrowDraft((current) => ({ ...current, dueTime: event.target.value }))}
+                  className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
+                />
+                <input
+                  value={tomorrowDraft.note}
+                  onChange={(event) => setTomorrowDraft((current) => ({ ...current, note: event.target.value }))}
+                  placeholder="Note (optional)"
+                  className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm outline-none focus:border-[#00d97e] md:col-span-2"
+                />
+                <button onClick={addTomorrowTask} className="rounded-lg bg-[#00d97e] px-3 py-2 text-sm font-bold text-black md:col-span-2">
+                  Add tomorrow reminder
+                </button>
               </div>
             </div>
           </section>
