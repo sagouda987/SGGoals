@@ -41,10 +41,9 @@ type GoalsStore = Record<Scope, GoalTask[]>;
 const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
-const NOTIFICATION_PREF_KEY = 'sg-goals-notifications-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v14';
+const APP_VERSION = 'cloud-sync-v15';
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -306,7 +305,6 @@ export function SgGoalsApp() {
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [scoreOpen, setScoreOpen] = useState(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block });
@@ -319,7 +317,6 @@ export function SgGoalsApp() {
     setStore(localStore);
     setActivities(localActivities);
     setMainGoalId(window.localStorage.getItem(MAIN_GOAL_KEY) || '');
-    setNotificationsEnabled(window.localStorage.getItem(NOTIFICATION_PREF_KEY) === 'on');
 
     async function loadCloudStore() {
       try {
@@ -536,12 +533,12 @@ export function SgGoalsApp() {
   }, [mainGoalId, store.today]);
 
   useEffect(() => {
-    if (!ready || !notificationsEnabled || !('Notification' in window) || Notification.permission !== 'granted') return;
+    if (!ready || !('Notification' in window) || Notification.permission !== 'granted') return;
 
     function maybeNotify() {
       const now = new Date();
       const hour = now.getHours();
-      if (hour < 6 || hour > 22 || hour % 2 !== 0) return;
+      if (hour < 6 || hour > 23 || hour % 2 !== 0) return;
       const key = `${toISODate(now)}-${hour}`;
       if (window.localStorage.getItem(NOTIFICATION_LAST_KEY) === key) return;
       const body = mainGoal ? `Main goal: ${mainGoal.text}` : 'Choose your main goal for today.';
@@ -565,7 +562,7 @@ export function SgGoalsApp() {
     maybeNotify();
     const interval = window.setInterval(maybeNotify, 60000);
     return () => window.clearInterval(interval);
-  }, [mainGoal, notificationsEnabled, ready]);
+  }, [mainGoal, ready]);
 
   const dailyStatus = useMemo(() => {
     const status: Record<string, { completed: number; failures: number; total: number; state: 'green' | 'red' | 'none' }> = {};
@@ -706,20 +703,10 @@ export function SgGoalsApp() {
     }));
   }
 
-  async function enableGentleNotifications() {
-    if (!('Notification' in window)) {
-      alert('Notifications are not supported in this browser.');
-      return;
+  function requestMainGoalNotificationPermission() {
+    if ('Notification' in window && Notification.permission === 'default') {
+      void Notification.requestPermission();
     }
-    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-    if (permission !== 'granted') return;
-    window.localStorage.setItem(NOTIFICATION_PREF_KEY, 'on');
-    setNotificationsEnabled(true);
-  }
-
-  function disableGentleNotifications() {
-    window.localStorage.setItem(NOTIFICATION_PREF_KEY, 'off');
-    setNotificationsEnabled(false);
   }
 
   function beginEdit(task: GoalTask) {
@@ -1158,14 +1145,6 @@ export function SgGoalsApp() {
                 {syncState === 'saved' ? 'Cloud saved' : syncState === 'saving' ? 'Saving' : syncState === 'loading' ? 'Loading' : 'Local only'}
               </span>
               <span className="text-[10px] text-[#52527a]">{APP_VERSION}</span>
-              <button
-                onClick={notificationsEnabled ? disableGentleNotifications : enableGentleNotifications}
-                className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                  notificationsEnabled ? 'border-[#4f8ef740] text-[#4f8ef7]' : 'border-[#1a1a30] text-[#52527a]'
-                }`}
-              >
-                {notificationsEnabled ? 'Reminders on' : 'Reminders off'}
-              </button>
             </div>
           </div>
 
@@ -1273,7 +1252,7 @@ export function SgGoalsApp() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Tomorrow work</p>
-                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Manual reminders for the upcoming day</h2>
+                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Manual work for the upcoming day</h2>
                   <p className="mt-1 text-xs text-[#8b8bb3]">Add this yourself. It does not pull from today&apos;s tasks.</p>
                 </div>
                 <div className="rounded-lg bg-[#4f8ef715] px-3 py-2 text-sm font-bold text-[#4f8ef7]">{tomorrowTasks.length}</div>
@@ -1304,7 +1283,7 @@ export function SgGoalsApp() {
                   ))
                 ) : (
                   <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a]">
-                    No tomorrow reminders yet.
+                    No tomorrow work yet.
                   </div>
                 )}
               </div>
@@ -1331,7 +1310,7 @@ export function SgGoalsApp() {
                   className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm outline-none focus:border-[#00d97e] md:col-span-2"
                 />
                 <button onClick={addTomorrowTask} className="rounded-lg bg-[#00d97e] px-3 py-2 text-sm font-bold text-black md:col-span-2">
-                  Add tomorrow reminder
+                  Add tomorrow work
                 </button>
               </div>
             </div>
@@ -1399,7 +1378,10 @@ export function SgGoalsApp() {
                       {scope === 'today' ? (
                         <button
                           aria-label="Set main goal"
-                          onClick={() => setMainGoalId(task.id)}
+                          onClick={() => {
+                            setMainGoalId(task.id);
+                            requestMainGoalNotificationPermission();
+                          }}
                           className={`w-11 border-l border-[#1a1a30] ${mainGoal?.id === task.id ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
                         >
                           <Star className="mx-auto h-4 w-4" />
