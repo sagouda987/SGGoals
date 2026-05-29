@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 
 const ownerKey = 'default';
 const scopes = ['today', 'weekly', 'monthly', 'yearly'] as const;
-const priorities = ['health', 'career', 'communication', 'looks'] as const;
+const priorities = ['health', 'career', 'communication', 'looks', 'other'] as const;
 
 export const dynamic = 'force-dynamic';
 

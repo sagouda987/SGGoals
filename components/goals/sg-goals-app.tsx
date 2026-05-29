@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BarChart3, CalendarDays, Check, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 
 type Scope = 'today' | 'weekly' | 'monthly' | 'yearly';
-type Priority = 'health' | 'career' | 'communication' | 'looks';
+type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
 type Block = 'morning' | 'afternoon' | 'evening';
 
 type GoalTask = {
@@ -42,7 +42,8 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v11';
+const APP_VERSION = 'cloud-sync-v12';
+const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -65,7 +66,8 @@ const priorities: Record<Priority, { label: string; color: string; soft: string 
   health: { label: 'Health', color: '#00d97e', soft: 'rgba(0,217,126,.12)' },
   career: { label: 'Career', color: '#4f8ef7', soft: 'rgba(79,142,247,.12)' },
   communication: { label: 'Communication', color: '#f7a04f', soft: 'rgba(247,160,79,.12)' },
-  looks: { label: 'Looks', color: '#c084fc', soft: 'rgba(192,132,252,.12)' }
+  looks: { label: 'Looks', color: '#c084fc', soft: 'rgba(192,132,252,.12)' },
+  other: { label: 'Other', color: '#8b8bb3', soft: 'rgba(139,139,179,.12)' }
 };
 
 const blocks: Record<Block, { label: string; time: string }> = {
@@ -113,6 +115,19 @@ function makeTask(text: string, note: string | undefined, priority: Priority, bl
     done: false,
     updatedAt: new Date().toISOString()
   };
+}
+
+function splitTaskNote(note?: string) {
+  const match = note?.match(DUE_NOTE_PATTERN);
+  if (!match) return { note, dueTime: '' };
+  const visibleNote = note?.replace(DUE_NOTE_PATTERN, '').trim() || undefined;
+  return { note: visibleNote, dueTime: match[1] };
+}
+
+function composeTaskNote(note: string | undefined, dueTime?: string) {
+  const cleanNote = note?.trim();
+  if (!dueTime) return cleanNote || undefined;
+  return `[due:${dueTime}]${cleanNote ? `\n${cleanNote}` : ''}`;
 }
 
 function formatMinutes(mins?: number) {
@@ -232,7 +247,7 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
     const totalActions = data.completions + data.failures + data.undos;
     const consistency = days.length ? data.daysHit.size / days.length : 0;
     const completionRate = totalActions ? data.completions / totalActions : 0;
-    const weeklyTargets: Record<Priority, number> = { health: 180, career: 300, communication: 90, looks: 45 };
+    const weeklyTargets: Record<Priority, number> = { health: 180, career: 300, communication: 90, looks: 45, other: 60 };
     const timeTarget = Math.max(1, Math.round((weeklyTargets[priority] / 7) * Math.max(days.length, 1)));
     const timeScore = Math.min(data.minutes / timeTarget, 1);
     const raw = completionRate * 0.45 + consistency * 0.35 + timeScore * 0.2;
@@ -289,7 +304,7 @@ export function SgGoalsApp() {
   const [scoreOpen, setScoreOpen] = useState(false);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
-  const [draft, setDraft] = useState({ text: '', note: '', priority: 'career' as Priority, block: 'morning' as Block });
+  const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block });
 
   useEffect(() => {
     let cancelled = false;
@@ -611,13 +626,13 @@ export function SgGoalsApp() {
 
   function resetDraft() {
     setEditing(null);
-    setDraft({ text: '', note: '', priority: 'career', block: 'morning' });
+    setDraft({ text: '', note: '', dueTime: '', priority: 'career', block: 'morning' });
   }
 
   function saveTask() {
     const text = draft.text.trim();
     if (!text) return;
-    const note = draft.note.trim() || undefined;
+    const note = composeTaskNote(draft.note.trim() || undefined, scope === 'today' ? draft.dueTime : '');
     persist((current) => {
       const next = { ...current };
       if (editing) {
@@ -635,8 +650,9 @@ export function SgGoalsApp() {
   }
 
   function beginEdit(task: GoalTask) {
+    const noteInfo = splitTaskNote(task.note);
     setEditing(task);
-    setDraft({ text: task.text, note: task.note || '', priority: task.priority, block: task.block || 'morning' });
+    setDraft({ text: task.text, note: noteInfo.note || '', dueTime: noteInfo.dueTime, priority: task.priority, block: task.block || 'morning' });
   }
 
   function toggleTask(taskId: string) {
@@ -657,7 +673,7 @@ export function SgGoalsApp() {
         priority: currentTask.priority,
         taskText: currentTask.text,
         kind: 'undo',
-        note: currentTask.note,
+        note: splitTaskNote(currentTask.note).note,
         createdAt: new Date().toISOString()
       });
       return;
@@ -729,7 +745,7 @@ export function SgGoalsApp() {
       priority: timingTask.priority,
       taskText: timingTask.text,
       kind: 'completion',
-      note: timingTask.note,
+      note: splitTaskNote(timingTask.note).note,
       minutes: investedMinutes,
       startedAt: startedAt ? startedAt.toISOString() : undefined,
       completedAt: completedAt.toISOString(),
@@ -813,7 +829,10 @@ export function SgGoalsApp() {
   }
 
   async function copyCoachingReport() {
-    const todayTasks = store.today.map((task) => `${task.done ? 'Done' : 'Pending'} - ${task.text}${task.investedMinutes ? ` (${formatMinutes(task.investedMinutes)})` : ''}`);
+  const todayTasks = store.today.map((task) => {
+    const noteInfo = splitTaskNote(task.note);
+    return `${task.done ? 'Done' : 'Pending'} - ${task.text}${noteInfo.dueTime ? ` by ${noteInfo.dueTime}` : ''}${task.investedMinutes ? ` (${formatMinutes(task.investedMinutes)})` : ''}`;
+  });
     const scoreLines = analytics.scorecard.map((item) => {
       const meta = priorities[item.priority];
       return `${meta.label}: score ${item.score}, ${item.completions} done, ${item.failures} failed, ${formatMinutes(item.minutes) || '0m'} invested`;
@@ -888,6 +907,11 @@ export function SgGoalsApp() {
         ]
       : [])
   ];
+
+  const tomorrowTasks = store.today
+    .filter((task) => !task.done)
+    .map((task) => ({ task, noteInfo: splitTaskNote(task.note) }))
+    .sort((a, b) => (a.noteInfo.dueTime || '99:99').localeCompare(b.noteInfo.dueTime || '99:99'));
 
   const groupedPriority = (Object.keys(priorities) as Priority[]).map((priority) => ({
     id: priority,
@@ -1121,7 +1145,8 @@ export function SgGoalsApp() {
                 {mainGoal ? (
                   <p className="mt-1 text-xs text-[#8b8bb3]">
                     {priorities[mainGoal.priority].label}
-                    {mainGoal.note ? ` - ${mainGoal.note}` : ''}
+                    {splitTaskNote(mainGoal.note).dueTime ? ` - By ${splitTaskNote(mainGoal.note).dueTime}` : ''}
+                    {splitTaskNote(mainGoal.note).note ? ` - ${splitTaskNote(mainGoal.note).note}` : ''}
                   </p>
                 ) : null}
               </div>
@@ -1177,6 +1202,45 @@ export function SgGoalsApp() {
 
       {scope === 'weekly' ? (
         <>
+          <section className="mx-auto max-w-4xl px-5 pb-2">
+            <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Tomorrow work</p>
+                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Pending daily tasks to carry forward</h2>
+                  <p className="mt-1 text-xs text-[#8b8bb3]">This is only a planning view. It does not change today&apos;s data.</p>
+                </div>
+                <div className="rounded-lg bg-[#4f8ef715] px-3 py-2 text-sm font-bold text-[#4f8ef7]">{tomorrowTasks.length}</div>
+              </div>
+              <div className="mt-4 space-y-2">
+                {tomorrowTasks.length ? (
+                  tomorrowTasks.map(({ task, noteInfo }) => (
+                    <div key={task.id} className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[#e8e8f5]">{task.text}</p>
+                          <p className="mt-1 text-[11px] text-[#8b8bb3]">
+                            <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
+                            {task.block ? ` - ${blocks[task.block].label}` : ''}
+                            {noteInfo.note ? ` - ${noteInfo.note}` : ''}
+                          </p>
+                        </div>
+                        {noteInfo.dueTime ? (
+                          <span className="shrink-0 rounded-full border border-[#00d97e40] px-2 py-1 text-[11px] font-bold text-[#00d97e]">
+                            By {noteInfo.dueTime}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a]">
+                    No pending daily tasks for tomorrow.
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
           {renderTrendSection('Last 7 days per area', 'Weekly progress from completions, misses, and time invested.', trendWindow, analytics)}
           {renderFailurePatternsSection('7-day failure patterns', 'Learn from misses without carrying them into today.', analytics, failurePatterns)}
         </>
@@ -1205,6 +1269,9 @@ export function SgGoalsApp() {
                 {group.tasks.length ? (
                   group.tasks.map((task) => (
                     <article key={task.id} className="flex items-stretch border-b border-[#1a1a30] last:border-b-0">
+                      {(() => {
+                        const noteInfo = splitTaskNote(task.note);
+                        return (
                       <button onClick={() => toggleTask(task.id)} className="flex flex-1 items-start gap-3 px-4 py-3 text-left">
                         <span
                           className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border"
@@ -1216,7 +1283,8 @@ export function SgGoalsApp() {
                           <span className={`block text-sm ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</span>
                           <span className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#52527a]">
                             <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
-                            {task.note ? <span>{task.note}</span> : null}
+                            {noteInfo.dueTime ? <span style={{ color: '#00d97e' }}>By {noteInfo.dueTime}</span> : null}
+                            {noteInfo.note ? <span>{noteInfo.note}</span> : null}
                             {task.done && task.investedMinutes != null ? (
                               <span style={{ color: priorities[task.priority].color }}>{formatMinutes(task.investedMinutes)} invested</span>
                             ) : null}
@@ -1228,6 +1296,8 @@ export function SgGoalsApp() {
                           </span>
                         </span>
                       </button>
+                        );
+                      })()}
                       <button aria-label="Edit task" onClick={() => beginEdit(task)} className="w-11 border-l border-[#1a1a30] text-[#4f8ef7]">
                         <Edit3 className="mx-auto h-4 w-4" />
                       </button>
@@ -1318,6 +1388,17 @@ export function SgGoalsApp() {
                   })}
                 </div>
               </div>
+            ) : null}
+            {scope === 'today' ? (
+              <label className="block">
+                <span className="mb-2 block text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Complete by</span>
+                <input
+                  type="time"
+                  value={draft.dueTime}
+                  onChange={(event) => setDraft((current) => ({ ...current, dueTime: event.target.value }))}
+                  className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
+                />
+              </label>
             ) : null}
             <button onClick={saveTask} className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#00d97e] px-3 py-3 text-sm font-bold text-black">
               <Save className="h-4 w-4" />
