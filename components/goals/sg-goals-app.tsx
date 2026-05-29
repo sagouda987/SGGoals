@@ -42,7 +42,7 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v12';
+const APP_VERSION = 'cloud-sync-v13';
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -891,22 +891,7 @@ export function SgGoalsApp() {
     };
   });
 
-  const todayDisplayGroups = [
-    ...groupedToday,
-    ...(completedToday.length
-      ? [
-          {
-            id: 'completed',
-            title: 'Completed tasks',
-            sub: 'Finished today',
-            color: '#00d97e',
-            tasks: completedToday,
-            done: completedToday.length,
-            total: completedToday.length
-          }
-        ]
-      : [])
-  ];
+  const todayDisplayGroups = groupedToday;
 
   const tomorrowTasks = store.today
     .filter((task) => !task.done)
@@ -1455,6 +1440,34 @@ export function SgGoalsApp() {
               )}
             </div>
           </div>
+
+          {scope === 'today' && completedToday.length ? (
+            <div className="mt-5 border-t border-[#1a1a30] pt-4">
+              <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">Completed tasks</h3>
+              <div className="mt-3 space-y-2">
+                {completedToday.map((task) => {
+                  const noteInfo = splitTaskNote(task.note);
+                  return (
+                    <div key={task.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm text-[#e8e8f5]">{task.text}</p>
+                          <p className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#8b8bb3]">
+                            <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
+                            {noteInfo.dueTime ? <span className="text-[#00d97e]">By {noteInfo.dueTime}</span> : null}
+                            {task.investedMinutes != null ? <span>{formatMinutes(task.investedMinutes)} invested</span> : null}
+                          </p>
+                        </div>
+                        <button onClick={() => toggleTask(task.id)} className="shrink-0 rounded-lg border border-[#1a1a30] px-2 py-1 text-[11px] font-bold text-[#8b8bb3]">
+                          Undo
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </aside>
       </section>
 
