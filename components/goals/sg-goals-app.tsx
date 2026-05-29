@@ -43,7 +43,7 @@ const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v15';
+const APP_VERSION = 'cloud-sync-v16';
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -669,16 +669,17 @@ export function SgGoalsApp() {
     const text = draft.text.trim();
     if (!text) return;
     const note = composeTaskNote(draft.note.trim() || undefined, scope === 'today' ? draft.dueTime : '');
+    const priority = scope === 'today' && !editing ? 'other' : draft.priority;
     persist((current) => {
       const next = { ...current };
       if (editing) {
         next[scope] = current[scope].map((task) =>
           task.id === editing.id
-            ? { ...task, text, note, priority: draft.priority, block: scope === 'today' ? draft.block : undefined, updatedAt: new Date().toISOString() }
+            ? { ...task, text, note, priority, block: scope === 'today' ? draft.block : undefined, updatedAt: new Date().toISOString() }
             : task
         );
       } else {
-        next[scope] = [...current[scope], makeTask(text, note, draft.priority, scope === 'today' ? draft.block : undefined)];
+        next[scope] = [...current[scope], makeTask(text, note, priority, scope === 'today' ? draft.block : undefined)];
       }
       return next;
     });
@@ -1421,29 +1422,31 @@ export function SgGoalsApp() {
               placeholder="Note (optional)"
               className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
             />
-            <div>
-              <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Priority</p>
-              <div className="grid grid-cols-2 gap-2">
-                {Object.entries(priorities).map(([key, value]) => {
-                  const isActive = draft.priority === key;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setDraft((current) => ({ ...current, priority: key as Priority }))}
-                      className="rounded-lg border px-3 py-2 text-xs font-bold transition"
-                      style={{
-                        borderColor: isActive ? value.color : '#1a1a30',
-                        background: isActive ? value.soft : '#0f0f1d',
-                        color: isActive ? value.color : '#8b8bb3'
-                      }}
-                    >
-                      {value.label}
-                    </button>
-                  );
-                })}
+            {scope !== 'today' ? (
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Priority</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(priorities).map(([key, value]) => {
+                    const isActive = draft.priority === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setDraft((current) => ({ ...current, priority: key as Priority }))}
+                        className="rounded-lg border px-3 py-2 text-xs font-bold transition"
+                        style={{
+                          borderColor: isActive ? value.color : '#1a1a30',
+                          background: isActive ? value.soft : '#0f0f1d',
+                          color: isActive ? value.color : '#8b8bb3'
+                        }}
+                      >
+                        {value.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            ) : null}
             {scope === 'today' ? (
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Time block</p>
