@@ -43,7 +43,7 @@ const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v16';
+const APP_VERSION = 'cloud-sync-v17';
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -972,70 +972,6 @@ export function SgGoalsApp() {
   const sideMissLog = scope === 'monthly' ? monthlyAnalytics.failures : scope === 'today' ? todayFocus.misses : analytics.failures;
   const sideMissLogTitle = scope === 'monthly' ? 'Monthly miss log' : scope === 'today' ? 'Today miss log' : '7-day miss log';
 
-  function renderTrendSection(title: string, subtitle: string, windowDays: Date[], data: AnalyticsWindow) {
-    return (
-      <section className="mx-auto max-w-4xl px-5 pb-2">
-        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Priority trends</p>
-              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{title}</h2>
-              <p className="mt-1 text-xs text-[#8b8bb3]">{subtitle}</p>
-            </div>
-            <div className="flex items-center gap-2 text-[11px] text-[#52527a]">
-              <span className="h-2 w-2 rounded-full bg-[#00d97e]" />Positive
-              <span className="ml-2 h-2 w-2 rounded-full bg-[#ff6b6b]" />Misses
-            </div>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {data.scorecard.map((row) => (
-              <div key={row.priority} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">{priorities[row.priority].label}</p>
-                    <p className="mt-1 text-lg font-bold" style={{ color: priorities[row.priority].color }}>
-                      {row.score}
-                    </p>
-                  </div>
-                  <div className="text-right text-[11px] text-[#8b8bb3]">
-                    <p>{row.completions} done</p>
-                    <p>{row.failures} failed</p>
-                    <p>{formatMinutes(row.minutes) || '0m'} invested</p>
-                  </div>
-                </div>
-                <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
-                  <div className="h-full rounded-full" style={{ width: `${row.score}%`, background: priorities[row.priority].color }} />
-                </div>
-                <div className="mt-3 flex h-16 items-end gap-1">
-                  {row.series.map((value, index) => {
-                    const height = Math.min(56, Math.max(10, Math.abs(value) * 14 + 10));
-                    const color = value >= 0 ? priorities[row.priority].color : '#ff6b6b';
-                    const day = windowDays[index];
-                    return (
-                      <div key={`${row.priority}-${day.toISOString()}`} className="flex flex-1 flex-col items-center justify-end gap-1">
-                        <div className="flex h-14 w-full items-end">
-                          <div
-                            className="w-full rounded-t"
-                            style={{
-                              height: `${height}px`,
-                              background: value === 0 ? '#2b2b49' : color,
-                              opacity: value === 0 ? 0.7 : 1
-                            }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-[#52527a]">{windowDays.length > 10 ? day.getDate() : day.toLocaleDateString([], { weekday: 'narrow' })}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-    );
-  }
-
   function renderFailurePatternsSection(title: string, subtitle: string, data: AnalyticsWindow, patterns: Array<{ reason: string; count: number }>) {
     return (
       <section className="mx-auto max-w-4xl px-5 pb-2">
@@ -1316,14 +1252,12 @@ export function SgGoalsApp() {
               </div>
             </div>
           </section>
-          {renderTrendSection('Last 7 days per area', 'Weekly progress from completions, misses, and time invested.', trendWindow, analytics)}
           {renderFailurePatternsSection('7-day failure patterns', 'Learn from misses without carrying them into today.', analytics, failurePatterns)}
         </>
       ) : null}
 
       {scope === 'monthly' ? (
         <>
-          {renderTrendSection(`${MONTH_LABELS[new Date().getMonth()]} trends per area`, 'Current month progress from completions, misses, and time invested.', monthWindow, monthlyAnalytics)}
           {renderFailurePatternsSection('Monthly failure patterns', 'Review recurring misses for this month without mixing them into today.', monthlyAnalytics, monthlyFailurePatterns)}
         </>
       ) : null}
