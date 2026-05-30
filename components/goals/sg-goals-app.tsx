@@ -43,7 +43,7 @@ const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v18';
+const APP_VERSION = 'cloud-sync-v19';
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -842,6 +842,9 @@ export function SgGoalsApp() {
   function saveFailure() {
     if (!failureTask) return;
     const now = new Date().toISOString();
+    const noteInfo = splitTaskNote(failureTask.note);
+    const failureDetails = [`Missed today: ${failureReason}`, failureNote.trim()].filter(Boolean).join(' - ');
+    const tomorrowNote = [noteInfo.note, failureDetails].filter(Boolean).join(' | ');
     appendActivity({
       id: activityId(),
       scope: failureScope,
@@ -852,6 +855,19 @@ export function SgGoalsApp() {
       note: failureNote.trim() || undefined,
       createdAt: now
     });
+    if (failureScope === 'today') {
+      persist((current) => {
+        const alreadyPlanned = current.tomorrow.some((task) => task.text.trim().toLowerCase() === failureTask.text.trim().toLowerCase());
+        return {
+          ...current,
+          today: current.today.filter((task) => task.id !== failureTask.id),
+          tomorrow: alreadyPlanned
+            ? current.tomorrow
+            : [...current.tomorrow, makeTask(failureTask.text, composeTaskNote(tomorrowNote || undefined, noteInfo.dueTime), failureTask.priority)]
+        };
+      });
+      if (editing?.id === failureTask.id) resetDraft();
+    }
     setFailureTask(null);
     setFailureScope('today');
     setFailureReason('Tired');
@@ -1734,7 +1750,7 @@ export function SgGoalsApp() {
               className="min-h-24 w-full rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-4 py-3 text-sm text-[#e8e8f5] outline-none focus:border-[#ff6b6b]"
             />
             <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-4 py-3 text-[11px] text-[#8b8bb3]">
-              This will go into the failure log and show up in trends.
+              Today failures move into tomorrow work and stay visible in your failure log.
             </div>
           </div>
           <div className="mt-4 flex gap-2">
