@@ -43,7 +43,7 @@ const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v17';
+const APP_VERSION = 'cloud-sync-v18';
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -742,9 +742,22 @@ export function SgGoalsApp() {
 
     setTimingTask(currentTask);
     setTimingScope(scope);
-    const nowValue = formatClock(new Date());
+    const now = new Date();
+    const nowValue = formatClock(now);
+    const todayKeyForTiming = toISODate(now);
+    const previousCompletion = store[scope]
+      .filter(
+        (task) =>
+          task.id !== taskId &&
+          task.done &&
+          task.completedAt &&
+          dateKeyFromValue(task.completedAt) === todayKeyForTiming
+      )
+      .map((task) => new Date(task.completedAt as string))
+      .filter((date) => !Number.isNaN(date.getTime()) && date.getTime() <= now.getTime())
+      .sort((a, b) => b.getTime() - a.getTime())[0];
     const guessed = new Date(Date.now() - 30 * 60 * 1000);
-    const guessedValue = formatClock(guessed);
+    const guessedValue = previousCompletion ? formatClock(previousCompletion) : formatClock(guessed);
     setTimingStart(guessedValue);
     setTimingEnd(nowValue);
     updateTimingPreview(guessedValue, nowValue);
