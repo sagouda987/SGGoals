@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, CalendarDays, Check, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 
 type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
@@ -42,8 +42,11 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
+const TARGET_TIMER_KEY = 'sg-goals-target-timer-v1';
+const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v19';
+const APP_VERSION = 'cloud-sync-v20';
+const TARGET_DURATION_MS = 50 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -139,6 +142,13 @@ function formatMinutes(mins?: number) {
   const rem = mins % 60;
   if (!rem) return `${hours}h`;
   return `${hours}h ${rem}m`;
+}
+
+function formatCountdown(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
 function parseStartDate(timeValue: string) {
@@ -302,6 +312,8 @@ export function SgGoalsApp() {
   const [failureReason, setFailureReason] = useState<(typeof FAILURE_REASONS)[number]>('Tired');
   const [failureNote, setFailureNote] = useState('');
   const [mainGoalId, setMainGoalId] = useState('');
+  const [targetEndAt, setTargetEndAt] = useState('');
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [scoreOpen, setScoreOpen] = useState(false);
@@ -310,6 +322,24 @@ export function SgGoalsApp() {
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
 
+  const showGoalNotification = useCallback((title: string, body: string, tag: string) => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    if ('serviceWorker' in navigator) {
+      void navigator.serviceWorker.ready
+        .then((registration) =>
+          registration.showNotification(title, {
+            body,
+            icon: '/sg-goals-icon.svg',
+            badge: '/sg-goals-icon.svg',
+            tag
+          })
+        )
+        .catch(() => new Notification(title, { body, icon: '/sg-goals-icon.svg', tag }));
+      return;
+    }
+    new Notification(title, { body, icon: '/sg-goals-icon.svg', tag });
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     const localStore = loadStore();
@@ -317,6 +347,7 @@ export function SgGoalsApp() {
     setStore(localStore);
     setActivities(localActivities);
     setMainGoalId(window.localStorage.getItem(MAIN_GOAL_KEY) || '');
+    setTargetEndAt(window.localStorage.getItem(TARGET_TIMER_KEY) || '');
 
     async function loadCloudStore() {
       try {
@@ -408,6 +439,19 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if (!ready) return;
+    if (targetEndAt) window.localStorage.setItem(TARGET_TIMER_KEY, targetEndAt);
+    else window.localStorage.removeItem(TARGET_TIMER_KEY);
+  }, [ready, targetEndAt]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setTimerNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
     setStore((current) => {
       const nextToday = current.today.filter((task) => shouldKeepTodayTask(task, currentDateKey));
       if (nextToday.length === current.today.length) return current;
@@ -418,7 +462,10 @@ export function SgGoalsApp() {
   useEffect(() => {
     if (!ready || !mainGoalId) return;
     const selected = store.today.find((task) => task.id === mainGoalId);
-    if (!selected) setMainGoalId('');
+    if (!selected) {
+      setMainGoalId('');
+      setTargetEndAt('');
+    }
   }, [mainGoalId, ready, store.today]);
 
   useEffect(() => {
@@ -528,9 +575,21 @@ export function SgGoalsApp() {
 
   const mainGoal = useMemo(() => {
     const selected = store.today.find((task) => task.id === mainGoalId);
-    if (selected) return selected;
-    return store.today.find((task) => !task.done) || store.today[0] || null;
+    return selected || null;
   }, [mainGoalId, store.today]);
+
+  const targetTimer = useMemo(() => {
+    const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
+    const remainingMs = endTime ? Math.max(0, endTime - timerNow) : 0;
+    const progress = endTime ? Math.min(100, Math.max(0, Math.round(((TARGET_DURATION_MS - remainingMs) / TARGET_DURATION_MS) * 100))) : 0;
+    return {
+      active: Boolean(mainGoal && endTime),
+      complete: Boolean(mainGoal && endTime && remainingMs <= 0),
+      remainingMs,
+      progress,
+      label: endTime ? formatCountdown(remainingMs) : '50:00'
+    };
+  }, [mainGoal, targetEndAt, timerNow]);
 
   useEffect(() => {
     if (!ready || !('Notification' in window) || Notification.permission !== 'granted') return;
@@ -541,28 +600,23 @@ export function SgGoalsApp() {
       if (hour < 6 || hour > 23 || hour % 2 !== 0) return;
       const key = `${toISODate(now)}-${hour}`;
       if (window.localStorage.getItem(NOTIFICATION_LAST_KEY) === key) return;
-      const body = mainGoal ? `Main goal: ${mainGoal.text}` : 'Choose your main goal for today.';
+      const body = mainGoal ? `Next 50 min target: ${mainGoal.text}` : 'Choose your next 50 min target for today.';
       window.localStorage.setItem(NOTIFICATION_LAST_KEY, key);
-      if ('serviceWorker' in navigator) {
-        void navigator.serviceWorker.ready
-          .then((registration) =>
-            registration.showNotification('SG Goals check-in', {
-              body,
-              icon: '/sg-goals-icon.svg',
-              badge: '/sg-goals-icon.svg',
-              tag: `sg-goals-${key}`
-            })
-          )
-          .catch(() => new Notification('SG Goals check-in', { body, icon: '/sg-goals-icon.svg' }));
-      } else {
-        new Notification('SG Goals check-in', { body, icon: '/sg-goals-icon.svg' });
-      }
+      showGoalNotification('SG Goals check-in', body, `sg-goals-${key}`);
     }
 
     maybeNotify();
     const interval = window.setInterval(maybeNotify, 60000);
     return () => window.clearInterval(interval);
-  }, [mainGoal, ready]);
+  }, [mainGoal, ready, showGoalNotification]);
+
+  useEffect(() => {
+    if (!ready || !mainGoal || !targetEndAt || !targetTimer.complete) return;
+    const key = `${mainGoal.id}-${targetEndAt}`;
+    if (window.localStorage.getItem(TARGET_NOTIFICATION_KEY) === key) return;
+    window.localStorage.setItem(TARGET_NOTIFICATION_KEY, key);
+    showGoalNotification('50 min target complete', `Time is up for: ${mainGoal.text}`, `sg-goals-target-${mainGoal.id}`);
+  }, [mainGoal, ready, showGoalNotification, targetEndAt, targetTimer.complete]);
 
   const dailyStatus = useMemo(() => {
     const status: Record<string, { completed: number; failures: number; total: number; state: 'green' | 'red' | 'none' }> = {};
@@ -710,6 +764,13 @@ export function SgGoalsApp() {
     }
   }
 
+  function startNextTarget(taskId: string) {
+    setMainGoalId(taskId);
+    setTargetEndAt(new Date(Date.now() + TARGET_DURATION_MS).toISOString());
+    window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    requestMainGoalNotificationPermission();
+  }
+
   function beginEdit(task: GoalTask) {
     const noteInfo = splitTaskNote(task.note);
     setEditing(task);
@@ -825,6 +886,11 @@ export function SgGoalsApp() {
       completedAt: completedAt.toISOString(),
       createdAt: completedAt.toISOString()
     });
+    if (timingScope === 'today' && timingTask.id === mainGoalId) {
+      setMainGoalId('');
+      setTargetEndAt('');
+      window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    }
     setTimingTask(null);
     setTimingScope('today');
     setTimingStart('');
@@ -945,7 +1011,7 @@ export function SgGoalsApp() {
         : 'Yesterday: no activity recorded',
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
-      `Main goal today: ${mainGoal ? mainGoal.text : 'Not selected'}`,
+      `Next 50 min target: ${mainGoal ? mainGoal.text : 'Not selected'}`,
       '',
       'Scorecard',
       ...scoreLines,
@@ -1151,33 +1217,57 @@ export function SgGoalsApp() {
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Main goal of the day</p>
-                <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{mainGoal ? mainGoal.text : 'Add a daily task to choose your main goal'}</h2>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next 50 min target</p>
+                <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{mainGoal ? mainGoal.text : 'Select a task from Morning, Afternoon, or Evening'}</h2>
                 {mainGoal ? (
                   <p className="mt-1 text-xs text-[#8b8bb3]">
                     {priorities[mainGoal.priority].label}
+                    {mainGoal.block ? ` - ${blocks[mainGoal.block].label}` : ''}
                     {splitTaskNote(mainGoal.note).dueTime ? ` - By ${splitTaskNote(mainGoal.note).dueTime}` : ''}
                     {splitTaskNote(mainGoal.note).note ? ` - ${splitTaskNote(mainGoal.note).note}` : ''}
                   </p>
-                ) : null}
+                ) : (
+                  <p className="mt-1 text-xs text-[#8b8bb3]">Tap the star beside any Today task to place it here.</p>
+                )}
               </div>
               <div className="rounded-lg bg-[#ffd16615] p-2 text-[#ffd166]">
-                <Star className="h-5 w-5" />
+                <Clock className="h-5 w-5" />
               </div>
             </div>
             {mainGoal ? (
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  onClick={() => toggleTask(mainGoal.id)}
-                  className={`rounded-lg px-3 py-2 text-xs font-bold ${
-                    mainGoal.done ? 'border border-[#1a1a30] text-[#8b8bb3]' : 'bg-[#00d97e] text-black'
-                  }`}
-                >
-                  {mainGoal.done ? 'Mark pending' : 'Complete main goal'}
-                </button>
-                <button onClick={() => openFailure(mainGoal)} className="rounded-lg border border-[#f7a04f40] px-3 py-2 text-xs font-bold text-[#f7a04f]">
-                  Log failure
-                </button>
+              <div className="mt-4">
+                <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+                  <div className="flex items-end justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Timer</p>
+                      <p className={`mt-1 text-3xl font-bold ${targetTimer.complete ? 'text-[#f7a04f]' : 'text-[#00d97e]'}`}>
+                        {targetTimer.complete ? '00:00' : targetTimer.label}
+                      </p>
+                    </div>
+                    <p className="text-right text-[11px] text-[#8b8bb3]">
+                      {targetTimer.complete ? 'Time is up. Finish or log what happened.' : 'Stay focused until the reminder.'}
+                    </p>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
+                    <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${targetTimer.progress}%` }} />
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => toggleTask(mainGoal.id)}
+                    className={`rounded-lg px-3 py-2 text-xs font-bold ${
+                      mainGoal.done ? 'border border-[#1a1a30] text-[#8b8bb3]' : 'bg-[#00d97e] text-black'
+                    }`}
+                  >
+                    {mainGoal.done ? 'Mark pending' : 'Complete target'}
+                  </button>
+                  <button onClick={() => startNextTarget(mainGoal.id)} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
+                    Restart 50 min
+                  </button>
+                  <button onClick={() => openFailure(mainGoal)} className="rounded-lg border border-[#f7a04f40] px-3 py-2 text-xs font-bold text-[#f7a04f]">
+                    Log failure
+                  </button>
+                </div>
               </div>
             ) : null}
           </div>
@@ -1341,11 +1431,8 @@ export function SgGoalsApp() {
                       </button>
                       {scope === 'today' ? (
                         <button
-                          aria-label="Set main goal"
-                          onClick={() => {
-                            setMainGoalId(task.id);
-                            requestMainGoalNotificationPermission();
-                          }}
+                          aria-label="Set next 50 min target"
+                          onClick={() => startNextTarget(task.id)}
                           className={`w-11 border-l border-[#1a1a30] ${mainGoal?.id === task.id ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
                         >
                           <Star className="mx-auto h-4 w-4" />
