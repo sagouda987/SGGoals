@@ -42,10 +42,13 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
+const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
 const TARGET_TIMER_KEY = 'sg-goals-target-timer-v1';
+const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v1';
+const TARGET_RUNNING_KEY = 'sg-goals-target-running-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v20';
+const APP_VERSION = 'cloud-sync-v21';
 const TARGET_DURATION_MS = 50 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -312,7 +315,10 @@ export function SgGoalsApp() {
   const [failureReason, setFailureReason] = useState<(typeof FAILURE_REASONS)[number]>('Tired');
   const [failureNote, setFailureNote] = useState('');
   const [mainGoalId, setMainGoalId] = useState('');
+  const [targetTaskIds, setTargetTaskIds] = useState<string[]>([]);
   const [targetEndAt, setTargetEndAt] = useState('');
+  const [targetRunning, setTargetRunning] = useState(false);
+  const [targetRemainingMs, setTargetRemainingMs] = useState(TARGET_DURATION_MS);
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -344,10 +350,23 @@ export function SgGoalsApp() {
     let cancelled = false;
     const localStore = loadStore();
     const localActivities = loadActivities();
+    const legacyTargetId = window.localStorage.getItem(MAIN_GOAL_KEY) || '';
+    let savedTargetIds: string[] = [];
+    try {
+      const parsedTargets = JSON.parse(window.localStorage.getItem(TARGET_TASKS_KEY) || '[]') as string[];
+      savedTargetIds = Array.isArray(parsedTargets) ? parsedTargets.filter(Boolean) : [];
+    } catch {
+      savedTargetIds = [];
+    }
+    const savedEndAt = window.localStorage.getItem(TARGET_TIMER_KEY) || '';
+    const savedRemaining = Number(window.localStorage.getItem(TARGET_REMAINING_KEY));
     setStore(localStore);
     setActivities(localActivities);
-    setMainGoalId(window.localStorage.getItem(MAIN_GOAL_KEY) || '');
-    setTargetEndAt(window.localStorage.getItem(TARGET_TIMER_KEY) || '');
+    setMainGoalId(legacyTargetId);
+    setTargetTaskIds(savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : []);
+    setTargetEndAt(savedEndAt);
+    setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS);
+    setTargetRunning(window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt));
 
     async function loadCloudStore() {
       try {
@@ -439,9 +458,17 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if (!ready) return;
+    window.localStorage.setItem(TARGET_TASKS_KEY, JSON.stringify(targetTaskIds));
+    setMainGoalId(targetTaskIds[0] || '');
+  }, [ready, targetTaskIds]);
+
+  useEffect(() => {
+    if (!ready) return;
     if (targetEndAt) window.localStorage.setItem(TARGET_TIMER_KEY, targetEndAt);
     else window.localStorage.removeItem(TARGET_TIMER_KEY);
-  }, [ready, targetEndAt]);
+    window.localStorage.setItem(TARGET_REMAINING_KEY, String(Math.max(0, Math.round(targetRemainingMs))));
+    window.localStorage.setItem(TARGET_RUNNING_KEY, targetRunning ? 'true' : 'false');
+  }, [ready, targetEndAt, targetRemainingMs, targetRunning]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -460,13 +487,17 @@ export function SgGoalsApp() {
   }, [currentDateKey, ready]);
 
   useEffect(() => {
-    if (!ready || !mainGoalId) return;
-    const selected = store.today.find((task) => task.id === mainGoalId);
-    if (!selected) {
-      setMainGoalId('');
-      setTargetEndAt('');
+    if (!ready || !targetTaskIds.length) return;
+    const validIds = targetTaskIds.filter((taskId) => store.today.some((task) => task.id === taskId));
+    if (validIds.length !== targetTaskIds.length) {
+      setTargetTaskIds(validIds);
     }
-  }, [mainGoalId, ready, store.today]);
+    if (!validIds.length) {
+      setTargetEndAt('');
+      setTargetRunning(false);
+      setTargetRemainingMs(TARGET_DURATION_MS);
+    }
+  }, [ready, store.today, targetTaskIds]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -573,23 +604,26 @@ export function SgGoalsApp() {
       .sort((a, b) => b.count - a.count);
   }, [monthlyAnalytics.failures]);
 
-  const mainGoal = useMemo(() => {
-    const selected = store.today.find((task) => task.id === mainGoalId);
-    return selected || null;
-  }, [mainGoalId, store.today]);
+  const targetTasks = useMemo(() => {
+    return targetTaskIds.map((taskId) => store.today.find((task) => task.id === taskId)).filter((task): task is GoalTask => Boolean(task));
+  }, [store.today, targetTaskIds]);
+
+  const mainGoal = targetTasks[0] || null;
 
   const targetTimer = useMemo(() => {
     const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
-    const remainingMs = endTime ? Math.max(0, endTime - timerNow) : 0;
-    const progress = endTime ? Math.min(100, Math.max(0, Math.round(((TARGET_DURATION_MS - remainingMs) / TARGET_DURATION_MS) * 100))) : 0;
+    const runningRemainingMs = endTime ? Math.max(0, endTime - timerNow) : targetRemainingMs;
+    const remainingMs = targetRunning ? runningRemainingMs : targetRemainingMs;
+    const progress = targetTasks.length ? Math.min(100, Math.max(0, Math.round(((TARGET_DURATION_MS - remainingMs) / TARGET_DURATION_MS) * 100))) : 0;
     return {
-      active: Boolean(mainGoal && endTime),
-      complete: Boolean(mainGoal && endTime && remainingMs <= 0),
+      active: Boolean(targetTasks.length),
+      running: Boolean(targetTasks.length && targetRunning && endTime && remainingMs > 0),
+      complete: Boolean(targetTasks.length && remainingMs <= 0),
       remainingMs,
       progress,
-      label: endTime ? formatCountdown(remainingMs) : '50:00'
+      label: formatCountdown(remainingMs)
     };
-  }, [mainGoal, targetEndAt, timerNow]);
+  }, [targetEndAt, targetRemainingMs, targetRunning, targetTasks.length, timerNow]);
 
   useEffect(() => {
     if (!ready || !('Notification' in window) || Notification.permission !== 'granted') return;
@@ -600,7 +634,7 @@ export function SgGoalsApp() {
       if (hour < 6 || hour > 23 || hour % 2 !== 0) return;
       const key = `${toISODate(now)}-${hour}`;
       if (window.localStorage.getItem(NOTIFICATION_LAST_KEY) === key) return;
-      const body = mainGoal ? `Next 50 min target: ${mainGoal.text}` : 'Choose your next 50 min target for today.';
+      const body = targetTasks.length ? `Next 50 min target: ${targetTasks.map((task) => task.text).join(', ')}` : 'Choose your next 50 min target for today.';
       window.localStorage.setItem(NOTIFICATION_LAST_KEY, key);
       showGoalNotification('SG Goals check-in', body, `sg-goals-${key}`);
     }
@@ -608,15 +642,18 @@ export function SgGoalsApp() {
     maybeNotify();
     const interval = window.setInterval(maybeNotify, 60000);
     return () => window.clearInterval(interval);
-  }, [mainGoal, ready, showGoalNotification]);
+  }, [ready, showGoalNotification, targetTasks]);
 
   useEffect(() => {
-    if (!ready || !mainGoal || !targetEndAt || !targetTimer.complete) return;
-    const key = `${mainGoal.id}-${targetEndAt}`;
+    if (!ready || !targetTasks.length || !targetTimer.complete) return;
+    const key = `${targetTaskIds.join(',')}-${targetEndAt || 'paused'}-${toISODate(new Date())}`;
     if (window.localStorage.getItem(TARGET_NOTIFICATION_KEY) === key) return;
     window.localStorage.setItem(TARGET_NOTIFICATION_KEY, key);
-    showGoalNotification('50 min target complete', `Time is up for: ${mainGoal.text}`, `sg-goals-target-${mainGoal.id}`);
-  }, [mainGoal, ready, showGoalNotification, targetEndAt, targetTimer.complete]);
+    setTargetRunning(false);
+    setTargetEndAt('');
+    setTargetRemainingMs(0);
+    showGoalNotification('50 min target complete', `Time is up for: ${targetTasks.map((task) => task.text).join(', ')}`, 'sg-goals-target-complete');
+  }, [ready, showGoalNotification, targetEndAt, targetTaskIds, targetTasks, targetTimer.complete]);
 
   const dailyStatus = useMemo(() => {
     const status: Record<string, { completed: number; failures: number; total: number; state: 'green' | 'red' | 'none' }> = {};
@@ -764,11 +801,37 @@ export function SgGoalsApp() {
     }
   }
 
-  function startNextTarget(taskId: string) {
-    setMainGoalId(taskId);
-    setTargetEndAt(new Date(Date.now() + TARGET_DURATION_MS).toISOString());
+  function toggleTargetTask(taskId: string) {
+    setTargetTaskIds((current) => {
+      if (current.includes(taskId)) return current.filter((id) => id !== taskId);
+      return [...current, taskId];
+    });
+    setTargetRemainingMs((current) => (current <= 0 ? TARGET_DURATION_MS : current));
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
     requestMainGoalNotificationPermission();
+  }
+
+  function toggleTargetTimer() {
+    if (!targetTaskIds.length) return;
+    if (targetRunning) {
+      const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
+      setTargetRemainingMs(endTime ? Math.max(0, endTime - Date.now()) : targetRemainingMs);
+      setTargetEndAt('');
+      setTargetRunning(false);
+      return;
+    }
+    const nextRemaining = targetRemainingMs <= 0 ? TARGET_DURATION_MS : targetRemainingMs;
+    setTargetRemainingMs(nextRemaining);
+    setTargetEndAt(new Date(Date.now() + nextRemaining).toISOString());
+    setTargetRunning(true);
+    window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    requestMainGoalNotificationPermission();
+  }
+
+  function resetTargetTimer() {
+    setTargetRemainingMs(TARGET_DURATION_MS);
+    setTargetEndAt(targetRunning ? new Date(Date.now() + TARGET_DURATION_MS).toISOString() : '');
+    window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
   }
 
   function beginEdit(task: GoalTask) {
@@ -886,10 +949,17 @@ export function SgGoalsApp() {
       completedAt: completedAt.toISOString(),
       createdAt: completedAt.toISOString()
     });
-    if (timingScope === 'today' && timingTask.id === mainGoalId) {
-      setMainGoalId('');
-      setTargetEndAt('');
-      window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    if (timingScope === 'today' && targetTaskIds.includes(timingTask.id)) {
+      setTargetTaskIds((current) => {
+        const remaining = current.filter((taskId) => taskId !== timingTask.id);
+        if (!remaining.length) {
+          setTargetEndAt('');
+          setTargetRunning(false);
+          setTargetRemainingMs(TARGET_DURATION_MS);
+          window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+        }
+        return remaining;
+      });
     }
     setTimingTask(null);
     setTimingScope('today');
@@ -1011,7 +1081,7 @@ export function SgGoalsApp() {
         : 'Yesterday: no activity recorded',
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
-      `Next 50 min target: ${mainGoal ? mainGoal.text : 'Not selected'}`,
+      `Next 50 min target: ${targetTasks.length ? targetTasks.map((task) => task.text).join(', ') : 'Not selected'}`,
       '',
       'Scorecard',
       ...scoreLines,
@@ -1218,24 +1288,56 @@ export function SgGoalsApp() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next 50 min target</p>
-                <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{mainGoal ? mainGoal.text : 'Select a task from Morning, Afternoon, or Evening'}</h2>
+                <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{targetTasks.length ? `${targetTasks.length} task${targetTasks.length === 1 ? '' : 's'} selected` : 'Select tasks from Morning, Afternoon, or Evening'}</h2>
                 {mainGoal ? (
                   <p className="mt-1 text-xs text-[#8b8bb3]">
-                    {priorities[mainGoal.priority].label}
-                    {mainGoal.block ? ` - ${blocks[mainGoal.block].label}` : ''}
-                    {splitTaskNote(mainGoal.note).dueTime ? ` - By ${splitTaskNote(mainGoal.note).dueTime}` : ''}
-                    {splitTaskNote(mainGoal.note).note ? ` - ${splitTaskNote(mainGoal.note).note}` : ''}
+                    Current focus starts with {mainGoal.text}
                   </p>
                 ) : (
-                  <p className="mt-1 text-xs text-[#8b8bb3]">Tap the star beside any Today task to place it here.</p>
+                  <p className="mt-1 text-xs text-[#8b8bb3]">Tap the star beside Today tasks to add them here.</p>
                 )}
               </div>
               <div className="rounded-lg bg-[#ffd16615] p-2 text-[#ffd166]">
                 <Clock className="h-5 w-5" />
               </div>
             </div>
-            {mainGoal ? (
+            {targetTasks.length ? (
               <div className="mt-4">
+                <div className="mb-3 space-y-2">
+                  {targetTasks.map((task) => {
+                    const noteInfo = splitTaskNote(task.note);
+                    return (
+                      <div key={task.id} className="rounded-xl border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className={`text-sm font-bold ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</p>
+                            <p className="mt-1 text-[11px] text-[#8b8bb3]">
+                              {task.block ? blocks[task.block].label : priorities[task.priority].label}
+                              {noteInfo.dueTime ? ` - By ${noteInfo.dueTime}` : ''}
+                              {noteInfo.note ? ` - ${noteInfo.note}` : ''}
+                            </p>
+                          </div>
+                          <button onClick={() => toggleTargetTask(task.id)} className="shrink-0 rounded-lg border border-[#1a1a30] px-2 py-1 text-[11px] font-bold text-[#8b8bb3]">
+                            Remove
+                          </button>
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => toggleTask(task.id)}
+                            className={`rounded-lg px-3 py-2 text-xs font-bold ${
+                              task.done ? 'border border-[#1a1a30] text-[#8b8bb3]' : 'bg-[#00d97e] text-black'
+                            }`}
+                          >
+                            {task.done ? 'Mark pending' : 'Complete'}
+                          </button>
+                          <button onClick={() => openFailure(task)} className="rounded-lg border border-[#f7a04f40] px-3 py-2 text-xs font-bold text-[#f7a04f]">
+                            Log failure
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
                 <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
                   <div className="flex items-end justify-between gap-3">
                     <div>
@@ -1245,7 +1347,7 @@ export function SgGoalsApp() {
                       </p>
                     </div>
                     <p className="text-right text-[11px] text-[#8b8bb3]">
-                      {targetTimer.complete ? 'Time is up. Finish or log what happened.' : 'Stay focused until the reminder.'}
+                      {targetTimer.complete ? 'Time is up. Finish or log what happened.' : targetTimer.running ? 'Timer is running.' : 'Timer is paused.'}
                     </p>
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
@@ -1253,19 +1355,22 @@ export function SgGoalsApp() {
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
+                  <button onClick={toggleTargetTimer} className="rounded-lg bg-[#00d97e] px-3 py-2 text-xs font-bold text-black">
+                    {targetTimer.running ? 'Stop timer' : targetTimer.complete ? 'Start 50 min again' : 'Start timer'}
+                  </button>
+                  <button onClick={resetTargetTimer} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
+                    Reset 50 min
+                  </button>
                   <button
-                    onClick={() => toggleTask(mainGoal.id)}
-                    className={`rounded-lg px-3 py-2 text-xs font-bold ${
-                      mainGoal.done ? 'border border-[#1a1a30] text-[#8b8bb3]' : 'bg-[#00d97e] text-black'
-                    }`}
+                    onClick={() => {
+                      setTargetTaskIds([]);
+                      setTargetEndAt('');
+                      setTargetRunning(false);
+                      setTargetRemainingMs(TARGET_DURATION_MS);
+                    }}
+                    className="rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b]"
                   >
-                    {mainGoal.done ? 'Mark pending' : 'Complete target'}
-                  </button>
-                  <button onClick={() => startNextTarget(mainGoal.id)} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
-                    Restart 50 min
-                  </button>
-                  <button onClick={() => openFailure(mainGoal)} className="rounded-lg border border-[#f7a04f40] px-3 py-2 text-xs font-bold text-[#f7a04f]">
-                    Log failure
+                    Clear target
                   </button>
                 </div>
               </div>
@@ -1432,8 +1537,8 @@ export function SgGoalsApp() {
                       {scope === 'today' ? (
                         <button
                           aria-label="Set next 50 min target"
-                          onClick={() => startNextTarget(task.id)}
-                          className={`w-11 border-l border-[#1a1a30] ${mainGoal?.id === task.id ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
+                          onClick={() => toggleTargetTask(task.id)}
+                          className={`w-11 border-l border-[#1a1a30] ${targetTaskIds.includes(task.id) ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
                         >
                           <Star className="mx-auto h-4 w-4" />
                         </button>
