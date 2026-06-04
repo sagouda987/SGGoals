@@ -21,6 +21,8 @@ type GoalTask = {
 };
 
 type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset';
+type StrikeCode = 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'GYM' | 'BOOK' | 'STUDY2';
+type StrikeFamily = 'O' | 'L' | 'M' | 'GYM' | 'BOOK' | 'STUDY2';
 
 type GoalActivity = {
   id: string;
@@ -266,9 +268,12 @@ function formatClock(date: Date) {
 
 function normalizeStrikeCode(text: string) {
   const compact = text.trim().toUpperCase().replace(/\s+/g, '');
-  if (/^O[123]$/.test(compact)) return compact as 'O1' | 'O2' | 'O3';
-  if (/^L[123]$/.test(compact)) return compact as 'L1' | 'L2' | 'L3';
+  if (/^O[123]$/.test(compact)) return compact as Extract<StrikeCode, 'O1' | 'O2' | 'O3'>;
+  if (/^L[123]$/.test(compact)) return compact as Extract<StrikeCode, 'L1' | 'L2' | 'L3'>;
   if (compact === 'M') return 'M';
+  if (compact === 'GYM') return 'GYM';
+  if (compact === 'BOOKREAD') return 'BOOK';
+  if (compact === 'STUDY2HOUR') return 'STUDY2';
   return null;
 }
 
@@ -278,12 +283,20 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     if (!byDay.has(day)) byDay.set(day, new Set<string>());
     return byDay.get(day) as Set<string>;
   };
-  const resetAt: Record<'O' | 'L' | 'M', number> = { O: 0, L: 0, M: 0 };
+  const resetAt: Record<StrikeFamily, number> = { O: 0, L: 0, M: 0, GYM: 0, BOOK: 0, STUDY2: 0 };
+  const familyForCode = (code: StrikeCode): StrikeFamily => {
+    if (code.startsWith('O')) return 'O';
+    if (code.startsWith('L')) return 'L';
+    return code as StrikeFamily;
+  };
 
   activities
     .filter((activity) => activity.kind === 'strike-reset')
     .forEach((activity) => {
-      const family = activity.note === 'O' || activity.note === 'L' || activity.note === 'M' ? activity.note : null;
+      const family =
+        activity.note === 'O' || activity.note === 'L' || activity.note === 'M' || activity.note === 'GYM' || activity.note === 'BOOK' || activity.note === 'STUDY2'
+          ? activity.note
+          : null;
       if (!family) return;
       resetAt[family] = Math.max(resetAt[family], new Date(activity.createdAt).getTime());
     });
@@ -293,7 +306,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     .forEach((activity) => {
       const code = normalizeStrikeCode(activity.taskText);
       if (!code) return;
-      const family = code[0] as 'O' | 'L' | 'M';
+      const family = familyForCode(code);
       if (new Date(activity.createdAt).getTime() <= resetAt[family]) return;
       const day = dateKeyFromValue(activity.createdAt);
       const codes = ensureDay(day);
@@ -304,7 +317,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
   todayTasks.forEach((task) => {
     const code = normalizeStrikeCode(task.text);
     if (!code || !task.done) return;
-    const family = code[0] as 'O' | 'L' | 'M';
+    const family = familyForCode(code);
     const completedAt = task.completedAt ? new Date(task.completedAt).getTime() : Date.now();
     if (completedAt <= resetAt[family]) return;
     ensureDay(todayKey).add(code);
@@ -314,15 +327,21 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     day,
     o: ['O1', 'O2', 'O3'].every((code) => codes.has(code)),
     l: ['L1', 'L2', 'L3'].every((code) => codes.has(code)),
-    m: codes.has('M')
+    m: codes.has('M'),
+    gym: codes.has('GYM'),
+    book: codes.has('BOOK'),
+    study2: codes.has('STUDY2')
   }));
 
   return {
     o: dayResults.filter((day) => day.o).length,
     l: dayResults.filter((day) => day.l).length,
     m: dayResults.filter((day) => day.m).length,
+    gym: dayResults.filter((day) => day.gym).length,
+    book: dayResults.filter((day) => day.book).length,
+    study2: dayResults.filter((day) => day.study2).length,
     resetAt,
-    today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false }
+    today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false, gym: false, book: false, study2: false }
   };
 }
 
@@ -1020,7 +1039,7 @@ export function SgGoalsApp() {
     markTargetChanged();
   }
 
-  function resetStrikeCount(family: 'O' | 'L' | 'M') {
+  function resetStrikeCount(family: StrikeFamily) {
     const now = new Date().toISOString();
     appendActivity({
       id: activityId(),
@@ -1294,7 +1313,7 @@ export function SgGoalsApp() {
         : 'Yesterday: no activity recorded',
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}`,
       `Next 1.5 hour target: ${targetTasks.length ? targetTasks.map((task) => task.text).join(', ') : 'Not selected'}`,
       '',
       'Scorecard',
@@ -1509,7 +1528,10 @@ export function SgGoalsApp() {
             {[
               { key: 'O' as const, label: 'O count', rule: 'O1 + O2 + O3', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
               { key: 'L' as const, label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },
-              { key: 'M' as const, label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m }
+              { key: 'M' as const, label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m },
+              { key: 'GYM' as const, label: 'Gym count', rule: 'Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
+              { key: 'BOOK' as const, label: 'Book count', rule: 'Book read complete', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
+              { key: 'STUDY2' as const, label: 'Study count', rule: 'Study 2 hour complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 }
             ].map((item) => (
               <div key={item.key} className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
