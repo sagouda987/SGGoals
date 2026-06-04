@@ -56,7 +56,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v2';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v25';
+const APP_VERSION = 'cloud-sync-v26';
 const TARGET_DURATION_MS = 90 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -262,6 +262,52 @@ function formatRelativeTime(dateValue?: string, now = Date.now()) {
 
 function formatClock(date: Date) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function normalizeStrikeCode(text: string) {
+  const compact = text.trim().toUpperCase().replace(/\s+/g, '');
+  if (/^O[123]$/.test(compact)) return compact as 'O1' | 'O2' | 'O3';
+  if (/^L[123]$/.test(compact)) return compact as 'L1' | 'L2' | 'L3';
+  if (compact === 'M') return 'M';
+  return null;
+}
+
+function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], todayKey: string) {
+  const byDay = new Map<string, Set<string>>();
+  const ensureDay = (day: string) => {
+    if (!byDay.has(day)) byDay.set(day, new Set<string>());
+    return byDay.get(day) as Set<string>;
+  };
+
+  activities
+    .filter((activity) => activity.scope === 'today')
+    .forEach((activity) => {
+      const code = normalizeStrikeCode(activity.taskText);
+      if (!code) return;
+      const day = dateKeyFromValue(activity.createdAt);
+      const codes = ensureDay(day);
+      if (activity.kind === 'completion') codes.add(code);
+      if (activity.kind === 'undo') codes.delete(code);
+    });
+
+  todayTasks.forEach((task) => {
+    const code = normalizeStrikeCode(task.text);
+    if (code && task.done) ensureDay(todayKey).add(code);
+  });
+
+  const dayResults = Array.from(byDay.entries()).map(([day, codes]) => ({
+    day,
+    o: ['O1', 'O2', 'O3'].every((code) => codes.has(code)),
+    l: ['L1', 'L2', 'L3'].every((code) => codes.has(code)),
+    m: codes.has('M')
+  }));
+
+  return {
+    o: dayResults.filter((day) => day.o).length,
+    l: dayResults.filter((day) => day.l).length,
+    m: dayResults.filter((day) => day.m).length,
+    today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false }
+  };
 }
 
 function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 6): AnalyticsWindow {
@@ -697,6 +743,8 @@ export function SgGoalsApp() {
     const minutes = yesterdayActivities.reduce((total, activity) => (activity.kind === 'completion' ? total + (activity.minutes || 0) : total), 0);
     return { completed, failures, minutes, hadActivity: yesterdayActivities.length > 0 };
   }, [activities, yesterdayKey]);
+
+  const strikeCounts = useMemo(() => buildStrikeCounts(activities, store.today, todayKey), [activities, store.today, todayKey]);
 
   const failurePatterns = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1216,6 +1264,7 @@ export function SgGoalsApp() {
         : 'Yesterday: no activity recorded',
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}`,
       `Next 1.5 hour target: ${targetTasks.length ? targetTasks.map((task) => task.text).join(', ') : 'Not selected'}`,
       '',
       'Scorecard',
@@ -1424,6 +1473,25 @@ export function SgGoalsApp() {
             <div className="h-2 overflow-hidden rounded-full bg-[#1a1a30]">
               <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${completion.pct}%` }} />
             </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { key: 'o', label: 'O count', rule: 'O1 + O2 + O3', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
+              { key: 'l', label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },
+              { key: 'm', label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m }
+            ].map((item) => (
+              <div key={item.key} className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#52527a]">{item.label}</p>
+                  <span className="text-[10px] font-bold" style={{ color: item.todayDone ? '#00d97e' : '#52527a' }}>
+                    {item.todayDone ? 'Today +1' : 'Pending'}
+                  </span>
+                </div>
+                <p className="mt-1 text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
+                <p className="text-[10px] text-[#8b8bb3]">{item.rule}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
