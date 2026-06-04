@@ -20,7 +20,7 @@ type GoalTask = {
   updatedAt: string;
 };
 
-type ActivityKind = 'completion' | 'failure' | 'undo';
+type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset';
 
 type GoalActivity = {
   id: string;
@@ -56,7 +56,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v2';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v26';
+const APP_VERSION = 'cloud-sync-v27';
 const TARGET_DURATION_MS = 90 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -278,12 +278,23 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     if (!byDay.has(day)) byDay.set(day, new Set<string>());
     return byDay.get(day) as Set<string>;
   };
+  const resetAt: Record<'O' | 'L' | 'M', number> = { O: 0, L: 0, M: 0 };
+
+  activities
+    .filter((activity) => activity.kind === 'strike-reset')
+    .forEach((activity) => {
+      const family = activity.note === 'O' || activity.note === 'L' || activity.note === 'M' ? activity.note : null;
+      if (!family) return;
+      resetAt[family] = Math.max(resetAt[family], new Date(activity.createdAt).getTime());
+    });
 
   activities
     .filter((activity) => activity.scope === 'today')
     .forEach((activity) => {
       const code = normalizeStrikeCode(activity.taskText);
       if (!code) return;
+      const family = code[0] as 'O' | 'L' | 'M';
+      if (new Date(activity.createdAt).getTime() <= resetAt[family]) return;
       const day = dateKeyFromValue(activity.createdAt);
       const codes = ensureDay(day);
       if (activity.kind === 'completion') codes.add(code);
@@ -292,7 +303,11 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
 
   todayTasks.forEach((task) => {
     const code = normalizeStrikeCode(task.text);
-    if (code && task.done) ensureDay(todayKey).add(code);
+    if (!code || !task.done) return;
+    const family = code[0] as 'O' | 'L' | 'M';
+    const completedAt = task.completedAt ? new Date(task.completedAt).getTime() : Date.now();
+    if (completedAt <= resetAt[family]) return;
+    ensureDay(todayKey).add(code);
   });
 
   const dayResults = Array.from(byDay.entries()).map(([day, codes]) => ({
@@ -306,6 +321,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     o: dayResults.filter((day) => day.o).length,
     l: dayResults.filter((day) => day.l).length,
     m: dayResults.filter((day) => day.m).length,
+    resetAt,
     today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false }
   };
 }
@@ -320,6 +336,7 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
   const recent = activities.filter((activity) => keySet.has(dateKeyFromValue(activity.createdAt)));
 
   recent.forEach((activity) => {
+    if (activity.kind === 'strike-reset') return;
     const bucket = byPriority[activity.priority];
     const key = dateKeyFromValue(activity.createdAt);
     const dayIndex = keys.indexOf(key);
@@ -1003,6 +1020,19 @@ export function SgGoalsApp() {
     markTargetChanged();
   }
 
+  function resetStrikeCount(family: 'O' | 'L' | 'M') {
+    const now = new Date().toISOString();
+    appendActivity({
+      id: activityId(),
+      scope: 'today',
+      priority: 'other',
+      taskText: `${family} count reset`,
+      kind: 'strike-reset',
+      note: family,
+      createdAt: now
+    });
+  }
+
   function useCloudTargetConflict() {
     if (!targetConflict) return;
     applyTargetState(targetConflict);
@@ -1477,9 +1507,9 @@ export function SgGoalsApp() {
 
           <div className="grid grid-cols-3 gap-2">
             {[
-              { key: 'o', label: 'O count', rule: 'O1 + O2 + O3', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
-              { key: 'l', label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },
-              { key: 'm', label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m }
+              { key: 'O' as const, label: 'O count', rule: 'O1 + O2 + O3', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
+              { key: 'L' as const, label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },
+              { key: 'M' as const, label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m }
             ].map((item) => (
               <div key={item.key} className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
@@ -1489,7 +1519,12 @@ export function SgGoalsApp() {
                   </span>
                 </div>
                 <p className="mt-1 text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
-                <p className="text-[10px] text-[#8b8bb3]">{item.rule}</p>
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <p className="text-[10px] text-[#8b8bb3]">{item.rule}</p>
+                  <button onClick={() => resetStrikeCount(item.key)} className="rounded-md border border-[#ff6b6b44] px-2 py-1 text-[10px] font-bold text-[#ff6b6b]">
+                    Reset
+                  </button>
+                </div>
               </div>
             ))}
           </div>
