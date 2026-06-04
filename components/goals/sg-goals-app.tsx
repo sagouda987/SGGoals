@@ -53,9 +53,10 @@ const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
 const TARGET_TIMER_KEY = 'sg-goals-target-timer-v2';
 const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v2';
 const TARGET_RUNNING_KEY = 'sg-goals-target-running-v2';
+const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v23';
+const APP_VERSION = 'cloud-sync-v24';
 const TARGET_DURATION_MS = 90 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -339,7 +340,7 @@ export function SgGoalsApp() {
   const [targetEndAt, setTargetEndAt] = useState('');
   const [targetRunning, setTargetRunning] = useState(false);
   const [targetRemainingMs, setTargetRemainingMs] = useState(TARGET_DURATION_MS);
-  const [targetUpdatedAt, setTargetUpdatedAt] = useState(() => new Date().toISOString());
+  const [targetUpdatedAt, setTargetUpdatedAt] = useState(() => '1970-01-01T00:00:00.000Z');
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -393,6 +394,7 @@ export function SgGoalsApp() {
     }
     const savedEndAt = window.localStorage.getItem(TARGET_TIMER_KEY) || '';
     const savedRemaining = Number(window.localStorage.getItem(TARGET_REMAINING_KEY));
+    const savedTargetUpdatedAt = window.localStorage.getItem(TARGET_UPDATED_KEY) || '1970-01-01T00:00:00.000Z';
     setStore(localStore);
     setActivities(localActivities);
     setMainGoalId(legacyTargetId);
@@ -400,6 +402,7 @@ export function SgGoalsApp() {
     setTargetEndAt(savedEndAt);
     setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS);
     setTargetRunning(window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt));
+    setTargetUpdatedAt(savedTargetUpdatedAt);
 
     async function loadCloudStore() {
       try {
@@ -410,7 +413,14 @@ export function SgGoalsApp() {
         if (data.hasCloudData && data.store) {
           setStore(data.store);
           if (isTargetState(data.targetState)) {
-            applyTargetState(data.targetState);
+            const cloudTime = new Date(data.targetState.updatedAt).getTime();
+            const localTime = new Date(savedTargetUpdatedAt).getTime();
+            const localTaskIds = savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : [];
+            if (cloudTime >= localTime && (data.targetState.taskIds.length >= localTaskIds.length || localTime > 0)) {
+              applyTargetState(data.targetState);
+            } else if (localTaskIds.length) {
+              setTargetUpdatedAt(new Date().toISOString());
+            }
           }
         } else {
           await fetch('/api/goals', {
@@ -423,7 +433,7 @@ export function SgGoalsApp() {
                 endAt: savedEndAt,
                 running: window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt),
                 remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS,
-                updatedAt: new Date().toISOString()
+                updatedAt: savedTargetUpdatedAt
               }
             })
           });
@@ -513,7 +523,8 @@ export function SgGoalsApp() {
     else window.localStorage.removeItem(TARGET_TIMER_KEY);
     window.localStorage.setItem(TARGET_REMAINING_KEY, String(Math.max(0, Math.round(targetRemainingMs))));
     window.localStorage.setItem(TARGET_RUNNING_KEY, targetRunning ? 'true' : 'false');
-  }, [ready, targetEndAt, targetRemainingMs, targetRunning]);
+    window.localStorage.setItem(TARGET_UPDATED_KEY, targetUpdatedAt);
+  }, [ready, targetEndAt, targetRemainingMs, targetRunning, targetUpdatedAt]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {

@@ -60,6 +60,16 @@ function isTargetState(value: unknown): value is TargetStateInput {
   );
 }
 
+function parseTargetState(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isTargetState(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   try {
     const rows = await prisma.goalTask.findMany({
@@ -86,7 +96,7 @@ export async function GET() {
         updatedAt: row.updatedAt.toISOString()
       });
     });
-    const targetState = targetStateRow?.note ? JSON.parse(targetStateRow.note) : null;
+    const targetState = parseTargetState(targetStateRow?.note);
 
     return NextResponse.json({ store, targetState, hasCloudData: rows.length > 0 });
   } catch (error) {
@@ -126,25 +136,31 @@ export async function PUT(req: NextRequest) {
     );
     const operations = [prisma.goalTask.deleteMany({ where: { ownerKey, scope: { in: scopes } } }), ...creates];
     if (targetState) {
-      operations.push(
-        prisma.goalTask.upsert({
-          where: { id: targetStateId },
-          create: {
-            id: targetStateId,
-            ownerKey,
-            scope: targetStateScope,
-            text: 'Target timer state',
-            note: JSON.stringify(targetState),
-            priority: 'other',
-            done: false,
-            position: 0
-          },
-          update: {
-            note: JSON.stringify(targetState),
-            updatedAt: new Date()
-          }
-        })
-      );
+      const existingTarget = await prisma.goalTask.findUnique({ where: { id: targetStateId } });
+      const existingState = parseTargetState(existingTarget?.note);
+      const incomingTime = new Date(targetState.updatedAt).getTime();
+      const existingTime = existingState ? new Date(existingState.updatedAt).getTime() : 0;
+      if (!existingState || incomingTime >= existingTime) {
+        operations.push(
+          prisma.goalTask.upsert({
+            where: { id: targetStateId },
+            create: {
+              id: targetStateId,
+              ownerKey,
+              scope: targetStateScope,
+              text: 'Target timer state',
+              note: JSON.stringify(targetState),
+              priority: 'other',
+              done: false,
+              position: 0
+            },
+            update: {
+              note: JSON.stringify(targetState),
+              updatedAt: new Date()
+            }
+          })
+        );
+      }
     }
 
     await prisma.$transaction(operations);
