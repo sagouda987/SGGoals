@@ -15,9 +15,18 @@ type GoalTaskInput = {
   updatedAt?: string;
 };
 type GoalsStoreInput = Record<Scope, GoalTaskInput[]>;
+type TargetStateInput = {
+  taskIds: string[];
+  endAt: string;
+  running: boolean;
+  remainingMs: number;
+  updatedAt: string;
+};
 
 const scopes: Scope[] = ['today', 'weekly', 'monthly', 'yearly', 'tomorrow'];
 const ownerKey = 'default';
+const targetStateId = '__target_state__';
+const targetStateScope = '__meta__';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,11 +47,27 @@ function isGoalStore(value: unknown): value is GoalsStoreInput {
   );
 }
 
+function isTargetState(value: unknown): value is TargetStateInput {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<TargetStateInput>;
+  return (
+    Array.isArray(candidate.taskIds) &&
+    candidate.taskIds.every((taskId) => typeof taskId === 'string') &&
+    typeof candidate.endAt === 'string' &&
+    typeof candidate.running === 'boolean' &&
+    typeof candidate.remainingMs === 'number' &&
+    typeof candidate.updatedAt === 'string'
+  );
+}
+
 export async function GET() {
   try {
     const rows = await prisma.goalTask.findMany({
       where: { ownerKey },
       orderBy: [{ scope: 'asc' }, { position: 'asc' }]
+    });
+    const targetStateRow = await prisma.goalTask.findUnique({
+      where: { id: targetStateId }
     });
 
     const store = emptyStore();
@@ -61,8 +86,9 @@ export async function GET() {
         updatedAt: row.updatedAt.toISOString()
       });
     });
+    const targetState = targetStateRow?.note ? JSON.parse(targetStateRow.note) : null;
 
-    return NextResponse.json({ store, hasCloudData: rows.length > 0 });
+    return NextResponse.json({ store, targetState, hasCloudData: rows.length > 0 });
   } catch (error) {
     console.error('Failed to load goals', error);
     return NextResponse.json({ error: 'Database is not ready yet.' }, { status: 503 });
@@ -71,10 +97,11 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    const body = (await req.json()) as { store?: unknown };
+    const body = (await req.json()) as { store?: unknown; targetState?: unknown };
     if (!isGoalStore(body.store)) {
       return NextResponse.json({ error: 'Invalid goals payload.' }, { status: 400 });
     }
+    const targetState = isTargetState(body.targetState) ? body.targetState : null;
 
     const store = body.store;
     const creates = scopes.flatMap((scope) =>
@@ -97,8 +124,30 @@ export async function PUT(req: NextRequest) {
         })
       )
     );
+    const operations = [prisma.goalTask.deleteMany({ where: { ownerKey, scope: { in: scopes } } }), ...creates];
+    if (targetState) {
+      operations.push(
+        prisma.goalTask.upsert({
+          where: { id: targetStateId },
+          create: {
+            id: targetStateId,
+            ownerKey,
+            scope: targetStateScope,
+            text: 'Target timer state',
+            note: JSON.stringify(targetState),
+            priority: 'other',
+            done: false,
+            position: 0
+          },
+          update: {
+            note: JSON.stringify(targetState),
+            updatedAt: new Date()
+          }
+        })
+      );
+    }
 
-    await prisma.$transaction([prisma.goalTask.deleteMany({ where: { ownerKey } }), ...creates]);
+    await prisma.$transaction(operations);
 
     return NextResponse.json({ ok: true });
   } catch (error) {

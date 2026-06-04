@@ -37,18 +37,25 @@ type GoalActivity = {
 };
 
 type GoalsStore = Record<Scope, GoalTask[]>;
+type TargetState = {
+  taskIds: string[];
+  endAt: string;
+  running: boolean;
+  remainingMs: number;
+  updatedAt: string;
+};
 
 const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
-const TARGET_TIMER_KEY = 'sg-goals-target-timer-v1';
-const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v1';
-const TARGET_RUNNING_KEY = 'sg-goals-target-running-v1';
+const TARGET_TIMER_KEY = 'sg-goals-target-timer-v2';
+const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v2';
+const TARGET_RUNNING_KEY = 'sg-goals-target-running-v2';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v22';
+const APP_VERSION = 'cloud-sync-v23';
 const TARGET_DURATION_MS = 90 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -197,6 +204,19 @@ function loadActivities(): GoalActivity[] {
   }
 }
 
+function isTargetState(value: unknown): value is TargetState {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<TargetState>;
+  return (
+    Array.isArray(candidate.taskIds) &&
+    candidate.taskIds.every((taskId) => typeof taskId === 'string') &&
+    typeof candidate.endAt === 'string' &&
+    typeof candidate.running === 'boolean' &&
+    typeof candidate.remainingMs === 'number' &&
+    typeof candidate.updatedAt === 'string'
+  );
+}
+
 function toISODate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
@@ -319,6 +339,7 @@ export function SgGoalsApp() {
   const [targetEndAt, setTargetEndAt] = useState('');
   const [targetRunning, setTargetRunning] = useState(false);
   const [targetRemainingMs, setTargetRemainingMs] = useState(TARGET_DURATION_MS);
+  const [targetUpdatedAt, setTargetUpdatedAt] = useState(() => new Date().toISOString());
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -344,6 +365,18 @@ export function SgGoalsApp() {
       return;
     }
     new Notification(title, { body, icon: '/sg-goals-icon.svg', tag });
+  }, []);
+
+  const markTargetChanged = useCallback(() => {
+    setTargetUpdatedAt(new Date().toISOString());
+  }, []);
+
+  const applyTargetState = useCallback((targetState: TargetState) => {
+    setTargetTaskIds(targetState.taskIds);
+    setTargetEndAt(targetState.endAt);
+    setTargetRunning(targetState.running);
+    setTargetRemainingMs(Number.isFinite(targetState.remainingMs) && targetState.remainingMs >= 0 ? targetState.remainingMs : TARGET_DURATION_MS);
+    setTargetUpdatedAt(targetState.updatedAt);
   }, []);
 
   useEffect(() => {
@@ -372,15 +405,27 @@ export function SgGoalsApp() {
       try {
         const response = await fetch('/api/goals', { cache: 'no-store' });
         if (!response.ok) throw new Error('Cloud database is not ready.');
-        const data = (await response.json()) as { store?: GoalsStore; hasCloudData?: boolean };
+        const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; hasCloudData?: boolean };
         if (cancelled) return;
         if (data.hasCloudData && data.store) {
           setStore(data.store);
+          if (isTargetState(data.targetState)) {
+            applyTargetState(data.targetState);
+          }
         } else {
           await fetch('/api/goals', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ store: localStore })
+            body: JSON.stringify({
+              store: localStore,
+              targetState: {
+                taskIds: savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : [],
+                endAt: savedEndAt,
+                running: window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt),
+                remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS,
+                updatedAt: new Date().toISOString()
+              }
+            })
           });
         }
         setCloudReady(true);
@@ -427,7 +472,7 @@ export function SgGoalsApp() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyTargetState]);
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
@@ -496,8 +541,9 @@ export function SgGoalsApp() {
       setTargetEndAt('');
       setTargetRunning(false);
       setTargetRemainingMs(TARGET_DURATION_MS);
+      markTargetChanged();
     }
-  }, [ready, store.today, targetTaskIds]);
+  }, [markTargetChanged, ready, store.today, targetTaskIds]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -507,7 +553,16 @@ export function SgGoalsApp() {
         const response = await fetch('/api/goals', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ store })
+          body: JSON.stringify({
+            store,
+            targetState: {
+              taskIds: targetTaskIds,
+              endAt: targetEndAt,
+              running: targetRunning,
+              remainingMs: targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs,
+              updatedAt: targetUpdatedAt
+            }
+          })
         });
         if (!response.ok) throw new Error('Save failed.');
         setSyncState('saved');
@@ -516,7 +571,25 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, ready, store]);
+  }, [cloudReady, ready, store, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetUpdatedAt]);
+
+  useEffect(() => {
+    if (!ready || !cloudReady) return;
+    const interval = window.setInterval(async () => {
+      try {
+        const response = await fetch('/api/goals', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = (await response.json()) as { targetState?: unknown };
+        if (!isTargetState(data.targetState)) return;
+        if (new Date(data.targetState.updatedAt).getTime() > new Date(targetUpdatedAt).getTime()) {
+          applyTargetState(data.targetState);
+        }
+      } catch {
+        // Keep the local timer running when background refresh is unavailable.
+      }
+    }, 10000);
+    return () => window.clearInterval(interval);
+  }, [applyTargetState, cloudReady, ready, targetUpdatedAt]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => {
@@ -652,8 +725,9 @@ export function SgGoalsApp() {
     setTargetRunning(false);
     setTargetEndAt('');
     setTargetRemainingMs(0);
+    markTargetChanged();
     showGoalNotification('1.5 hour target complete', `Time is up for: ${targetTasks.map((task) => task.text).join(', ')}`, 'sg-goals-target-complete');
-  }, [ready, showGoalNotification, targetEndAt, targetTaskIds, targetTasks, targetTimer.complete]);
+  }, [markTargetChanged, ready, showGoalNotification, targetEndAt, targetTaskIds, targetTasks, targetTimer.complete]);
 
   const dailyStatus = useMemo(() => {
     const status: Record<string, { completed: number; failures: number; total: number; state: 'green' | 'red' | 'none' }> = {};
@@ -808,6 +882,7 @@ export function SgGoalsApp() {
     });
     setTargetRemainingMs((current) => (current <= 0 ? TARGET_DURATION_MS : current));
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    markTargetChanged();
     requestMainGoalNotificationPermission();
   }
 
@@ -818,6 +893,7 @@ export function SgGoalsApp() {
       setTargetRemainingMs(endTime ? Math.max(0, endTime - Date.now()) : targetRemainingMs);
       setTargetEndAt('');
       setTargetRunning(false);
+      markTargetChanged();
       return;
     }
     const nextRemaining = targetRemainingMs <= 0 ? TARGET_DURATION_MS : targetRemainingMs;
@@ -825,6 +901,7 @@ export function SgGoalsApp() {
     setTargetEndAt(new Date(Date.now() + nextRemaining).toISOString());
     setTargetRunning(true);
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    markTargetChanged();
     requestMainGoalNotificationPermission();
   }
 
@@ -832,6 +909,7 @@ export function SgGoalsApp() {
     setTargetRemainingMs(TARGET_DURATION_MS);
     setTargetEndAt(targetRunning ? new Date(Date.now() + TARGET_DURATION_MS).toISOString() : '');
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    markTargetChanged();
   }
 
   function beginEdit(task: GoalTask) {
@@ -958,6 +1036,7 @@ export function SgGoalsApp() {
           setTargetRemainingMs(TARGET_DURATION_MS);
           window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
         }
+        markTargetChanged();
         return remaining;
       });
     }
@@ -1367,6 +1446,7 @@ export function SgGoalsApp() {
                       setTargetEndAt('');
                       setTargetRunning(false);
                       setTargetRemainingMs(TARGET_DURATION_MS);
+                      markTargetChanged();
                     }}
                     className="rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b]"
                   >
