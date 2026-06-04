@@ -56,7 +56,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v2';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v24';
+const APP_VERSION = 'cloud-sync-v25';
 const TARGET_DURATION_MS = 90 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -249,6 +249,17 @@ function formatTimeShort(dateValue?: string) {
   return new Date(dateValue).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function formatRelativeTime(dateValue?: string, now = Date.now()) {
+  if (!dateValue) return 'Not saved yet';
+  const diffSeconds = Math.max(0, Math.round((now - new Date(dateValue).getTime()) / 1000));
+  if (diffSeconds < 5) return 'Just now';
+  if (diffSeconds < 60) return `${diffSeconds} sec ago`;
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes} min ago`;
+  const diffHours = Math.round(diffMinutes / 60);
+  return `${diffHours} hr ago`;
+}
+
 function formatClock(date: Date) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
@@ -324,6 +335,9 @@ export function SgGoalsApp() {
   const [ready, setReady] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
   const [syncState, setSyncState] = useState<'loading' | 'local' | 'saving' | 'saved' | 'error'>('loading');
+  const [timerSyncState, setTimerSyncState] = useState<'loading' | 'local' | 'saving' | 'saved' | 'conflict' | 'error'>('loading');
+  const [lastSavedAt, setLastSavedAt] = useState('');
+  const [targetConflict, setTargetConflict] = useState<TargetState | null>(null);
   const [scope, setScope] = useState<Scope>('today');
   const [editing, setEditing] = useState<GoalTask | null>(null);
   const [timingTask, setTimingTask] = useState<GoalTask | null>(null);
@@ -440,10 +454,13 @@ export function SgGoalsApp() {
         }
         setCloudReady(true);
         setSyncState('saved');
+        setTimerSyncState('saved');
+        setLastSavedAt(new Date().toISOString());
       } catch {
         if (!cancelled) {
           setCloudReady(false);
           setSyncState('local');
+          setTimerSyncState('local');
         }
       } finally {
         if (!cancelled) setReady(true);
@@ -559,6 +576,7 @@ export function SgGoalsApp() {
   useEffect(() => {
     if (!ready || !cloudReady) return;
     setSyncState('saving');
+    setTimerSyncState('saving');
     const timeout = window.setTimeout(async () => {
       try {
         const response = await fetch('/api/goals', {
@@ -577,8 +595,11 @@ export function SgGoalsApp() {
         });
         if (!response.ok) throw new Error('Save failed.');
         setSyncState('saved');
+        setTimerSyncState('saved');
+        setLastSavedAt(new Date().toISOString());
       } catch {
         setSyncState('error');
+        setTimerSyncState('error');
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
@@ -593,14 +614,25 @@ export function SgGoalsApp() {
         const data = (await response.json()) as { targetState?: unknown };
         if (!isTargetState(data.targetState)) return;
         if (new Date(data.targetState.updatedAt).getTime() > new Date(targetUpdatedAt).getTime()) {
-          applyTargetState(data.targetState);
+          const cloudIds = data.targetState.taskIds.join('|');
+          const localIds = targetTaskIds.join('|');
+          const cloudRemaining = Math.round(data.targetState.remainingMs / 1000);
+          const localRemainingMs = targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs;
+          const localRemaining = Math.round(localRemainingMs / 1000);
+          if (cloudIds !== localIds || data.targetState.running !== targetRunning || Math.abs(cloudRemaining - localRemaining) > 5) {
+            setTargetConflict(data.targetState);
+            setTimerSyncState('conflict');
+          } else {
+            applyTargetState(data.targetState);
+            setTimerSyncState('saved');
+          }
         }
       } catch {
         // Keep the local timer running when background refresh is unavailable.
       }
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [applyTargetState, cloudReady, ready, targetUpdatedAt]);
+  }, [applyTargetState, cloudReady, ready, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetUpdatedAt]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => {
@@ -923,6 +955,19 @@ export function SgGoalsApp() {
     markTargetChanged();
   }
 
+  function useCloudTargetConflict() {
+    if (!targetConflict) return;
+    applyTargetState(targetConflict);
+    setTargetConflict(null);
+    setTimerSyncState('saved');
+  }
+
+  function keepLocalTargetConflict() {
+    setTargetConflict(null);
+    setTimerSyncState('saving');
+    markTargetChanged();
+  }
+
   function beginEdit(task: GoalTask) {
     const noteInfo = splitTaskNote(task.note);
     setEditing(task);
@@ -1226,6 +1271,31 @@ export function SgGoalsApp() {
 
   const sideMissLog = scope === 'monthly' ? monthlyAnalytics.failures : scope === 'today' ? todayFocus.misses : analytics.failures;
   const sideMissLogTitle = scope === 'monthly' ? 'Monthly miss log' : scope === 'today' ? 'Today miss log' : '7-day miss log';
+  const taskSyncLabel = syncState === 'saved' ? 'Tasks synced' : syncState === 'saving' ? 'Tasks saving' : syncState === 'loading' ? 'Tasks loading' : syncState === 'error' ? 'Tasks save failed' : 'Tasks local';
+  const timerSyncLabel =
+    timerSyncState === 'saved'
+      ? 'Timer synced'
+      : timerSyncState === 'saving'
+        ? 'Timer saving'
+        : timerSyncState === 'conflict'
+          ? 'Timer conflict'
+          : timerSyncState === 'loading'
+            ? 'Timer loading'
+            : timerSyncState === 'error'
+              ? 'Timer save failed'
+              : 'Timer local';
+  const syncSummary =
+    syncState === 'error' || timerSyncState === 'error'
+      ? 'Cloud save failed. Browser backup is still active.'
+      : timerSyncState === 'conflict'
+        ? 'Newer timer data found in another browser.'
+        : syncState === 'saved' && timerSyncState === 'saved'
+          ? `Tasks and timer synced. Last saved ${formatRelativeTime(lastSavedAt, timerNow)}.`
+          : syncState === 'saving' || timerSyncState === 'saving'
+            ? 'Saving tasks and timer to Supabase...'
+            : syncState === 'local' || timerSyncState === 'local'
+              ? 'Browser backup active. Supabase sync is not available.'
+              : 'Loading your saved goals...';
 
   function renderFailurePatternsSection(title: string, subtitle: string, data: AnalyticsWindow, patterns: Array<{ reason: string; count: number }>) {
     return (
@@ -1294,17 +1364,7 @@ export function SgGoalsApp() {
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[.3em] text-[#52527a]">SG Goals</p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight">Daily dashboard</h1>
-              <p className="mt-1 text-sm text-[#8b8bb3]">
-                {syncState === 'saved'
-                  ? 'Saved to Supabase and backed up in this browser.'
-                  : syncState === 'saving'
-                    ? 'Saving changes to Supabase...'
-                    : syncState === 'error'
-                      ? 'Cloud save failed. Browser backup is still active.'
-                      : syncState === 'local'
-                        ? 'Browser backup active. Add DATABASE_URL to enable Supabase sync.'
-                        : 'Loading your saved goals...'}
-              </p>
+              <p className="mt-1 text-sm text-[#8b8bb3]">{syncSummary}</p>
             </div>
             <div className="flex flex-col items-end gap-2">
               <div className="flex gap-2">
@@ -1325,17 +1385,33 @@ export function SgGoalsApp() {
                   <CalendarDays className="h-5 w-5" />
                 </button>
               </div>
-              <span
-                className={`rounded-full border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                  syncState === 'saved'
-                    ? 'border-[#00d97e40] text-[#00d97e]'
-                    : syncState === 'saving'
-                      ? 'border-[#4f8ef740] text-[#4f8ef7]'
-                      : 'border-[#ff6b6b44] text-[#ff6b6b]'
-                }`}
-              >
-                {syncState === 'saved' ? 'Cloud saved' : syncState === 'saving' ? 'Saving' : syncState === 'loading' ? 'Loading' : 'Local only'}
-              </span>
+              <div className="flex flex-col items-end gap-1 text-[10px]">
+                <span
+                  className={`rounded-full border px-2 py-1 font-bold uppercase tracking-wider ${
+                    syncState === 'saved'
+                      ? 'border-[#00d97e40] text-[#00d97e]'
+                      : syncState === 'saving' || syncState === 'loading'
+                        ? 'border-[#4f8ef740] text-[#4f8ef7]'
+                        : 'border-[#ff6b6b44] text-[#ff6b6b]'
+                  }`}
+                >
+                  {taskSyncLabel}
+                </span>
+                <span
+                  className={`rounded-full border px-2 py-1 font-bold uppercase tracking-wider ${
+                    timerSyncState === 'saved'
+                      ? 'border-[#00d97e40] text-[#00d97e]'
+                      : timerSyncState === 'saving' || timerSyncState === 'loading'
+                        ? 'border-[#4f8ef740] text-[#4f8ef7]'
+                        : timerSyncState === 'conflict'
+                          ? 'border-[#f7a04f40] text-[#f7a04f]'
+                          : 'border-[#ff6b6b44] text-[#ff6b6b]'
+                  }`}
+                >
+                  {timerSyncLabel}
+                </span>
+                <span className="text-[#52527a]">Last saved {formatRelativeTime(lastSavedAt, timerNow)}</span>
+              </div>
               <span className="text-[10px] text-[#52527a]">{APP_VERSION}</span>
             </div>
           </div>
@@ -2050,6 +2126,37 @@ export function SgGoalsApp() {
             </button>
             <button onClick={saveFailure} className="flex-1 rounded-xl bg-[#ff6b6b] px-3 py-3 text-sm font-bold text-black">
               Save failure
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`fixed inset-0 z-[100000] flex items-end justify-center bg-black/70 px-4 transition ${targetConflict ? 'visible opacity-100' : 'pointer-events-none invisible opacity-0'}`}>
+        <div className="w-full max-w-md rounded-t-3xl border border-[#1a1a30] bg-[#12122a] p-5 pb-[calc(env(safe-area-inset-bottom,0px)+20px)]">
+          <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-[#1a1a30]" />
+          <div className="text-[10px] font-bold uppercase tracking-[.28em] text-[#f7a04f]">Newer data found</div>
+          <h2 className="mt-2 text-base font-bold text-[#e8e8f5]">Another browser has a newer timer target.</h2>
+          <p className="mt-2 text-sm leading-6 text-[#8b8bb3]">
+            Keep your current target list, or use the cloud version from the other browser.
+          </p>
+          {targetConflict ? (
+            <div className="mt-4 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-3 text-xs text-[#8b8bb3]">
+              <div className="flex justify-between gap-3">
+                <span>Cloud target tasks</span>
+                <span className="font-bold text-[#e8e8f5]">{targetConflict.taskIds.length}</span>
+              </div>
+              <div className="mt-2 flex justify-between gap-3">
+                <span>Cloud timer</span>
+                <span className="font-bold text-[#e8e8f5]">{targetConflict.running ? 'Running' : 'Paused'} · {formatCountdown(targetConflict.remainingMs)}</span>
+              </div>
+            </div>
+          ) : null}
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button onClick={keepLocalTargetConflict} className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-3 text-sm font-bold text-[#8b8bb3]">
+              Keep mine
+            </button>
+            <button onClick={useCloudTargetConflict} className="rounded-xl bg-[#00d97e] px-3 py-3 text-sm font-bold text-black">
+              Use cloud
             </button>
           </div>
         </div>
