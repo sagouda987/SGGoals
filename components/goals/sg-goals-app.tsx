@@ -44,6 +44,7 @@ type TargetState = {
   endAt: string;
   running: boolean;
   remainingMs: number;
+  durationMs?: number;
   updatedAt: string;
 };
 
@@ -58,8 +59,9 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v29';
+const APP_VERSION = 'cloud-sync-v30';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
+const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -216,6 +218,7 @@ function isTargetState(value: unknown): value is TargetState {
     typeof candidate.endAt === 'string' &&
     typeof candidate.running === 'boolean' &&
     typeof candidate.remainingMs === 'number' &&
+    (candidate.durationMs === undefined || typeof candidate.durationMs === 'number') &&
     typeof candidate.updatedAt === 'string'
   );
 }
@@ -472,11 +475,20 @@ export function SgGoalsApp() {
   }, []);
 
   const applyTargetState = useCallback((targetState: TargetState) => {
+    const needsDurationUpgrade = targetState.durationMs !== TARGET_DURATION_MS;
+    const durationIncrease = Math.max(0, TARGET_DURATION_MS - (targetState.durationMs || PREVIOUS_TARGET_DURATION_MS));
+    const upgradedRemaining = needsDurationUpgrade
+      ? Math.min(TARGET_DURATION_MS, Math.max(0, targetState.remainingMs) + durationIncrease)
+      : targetState.remainingMs;
+    const upgradedEndAt =
+      needsDurationUpgrade && targetState.running && targetState.endAt
+        ? new Date(new Date(targetState.endAt).getTime() + durationIncrease).toISOString()
+        : targetState.endAt;
     setTargetTaskIds(targetState.taskIds);
-    setTargetEndAt(targetState.endAt);
+    setTargetEndAt(upgradedEndAt);
     setTargetRunning(targetState.running);
-    setTargetRemainingMs(Number.isFinite(targetState.remainingMs) && targetState.remainingMs >= 0 ? targetState.remainingMs : TARGET_DURATION_MS);
-    setTargetUpdatedAt(targetState.updatedAt);
+    setTargetRemainingMs(Number.isFinite(upgradedRemaining) && upgradedRemaining >= 0 ? upgradedRemaining : TARGET_DURATION_MS);
+    setTargetUpdatedAt(needsDurationUpgrade ? new Date().toISOString() : targetState.updatedAt);
   }, []);
 
   useEffect(() => {
@@ -532,6 +544,7 @@ export function SgGoalsApp() {
                 endAt: savedEndAt,
                 running: window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt),
                 remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS,
+                durationMs: TARGET_DURATION_MS,
                 updatedAt: savedTargetUpdatedAt
               }
             })
@@ -674,6 +687,7 @@ export function SgGoalsApp() {
               endAt: targetEndAt,
               running: targetRunning,
               remainingMs: targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs,
+              durationMs: TARGET_DURATION_MS,
               updatedAt: targetUpdatedAt
             }
           })

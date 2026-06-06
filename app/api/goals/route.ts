@@ -20,6 +20,7 @@ type TargetStateInput = {
   endAt: string;
   running: boolean;
   remainingMs: number;
+  durationMs?: number;
   updatedAt: string;
 };
 
@@ -56,6 +57,7 @@ function isTargetState(value: unknown): value is TargetStateInput {
     typeof candidate.endAt === 'string' &&
     typeof candidate.running === 'boolean' &&
     typeof candidate.remainingMs === 'number' &&
+    (candidate.durationMs === undefined || typeof candidate.durationMs === 'number') &&
     typeof candidate.updatedAt === 'string'
   );
 }
