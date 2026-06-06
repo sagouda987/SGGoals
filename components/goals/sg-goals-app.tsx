@@ -52,14 +52,14 @@ const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
-const TARGET_TIMER_KEY = 'sg-goals-target-timer-v2';
-const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v2';
-const TARGET_RUNNING_KEY = 'sg-goals-target-running-v2';
+const TARGET_TIMER_KEY = 'sg-goals-target-timer-v3';
+const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v3';
+const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v28';
-const TARGET_DURATION_MS = 90 * 60 * 1000;
+const APP_VERSION = 'cloud-sync-v29';
+const TARGET_DURATION_MS = 120 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -837,7 +837,7 @@ export function SgGoalsApp() {
       if (hour < 6 || hour > 23 || hour % 2 !== 0) return;
       const key = `${toISODate(now)}-${hour}`;
       if (window.localStorage.getItem(NOTIFICATION_LAST_KEY) === key) return;
-      const body = targetTasks.length ? `Next 1.5 hour target: ${targetTasks.map((task) => task.text).join(', ')}` : 'Choose your next 1.5 hour target for today.';
+      const body = targetTasks.length ? `Next 2 hour target: ${targetTasks.map((task) => task.text).join(', ')}` : 'Choose your next 2 hour target for today.';
       window.localStorage.setItem(NOTIFICATION_LAST_KEY, key);
       showGoalNotification('SG Goals check-in', body, `sg-goals-${key}`);
     }
@@ -856,7 +856,7 @@ export function SgGoalsApp() {
     setTargetEndAt('');
     setTargetRemainingMs(0);
     markTargetChanged();
-    showGoalNotification('1.5 hour target complete', `Time is up for: ${targetTasks.map((task) => task.text).join(', ')}`, 'sg-goals-target-complete');
+    showGoalNotification('2 hour target complete', `Time is up for: ${targetTasks.map((task) => task.text).join(', ')}`, 'sg-goals-target-complete');
   }, [markTargetChanged, ready, showGoalNotification, targetEndAt, targetTaskIds, targetTasks, targetTimer.complete]);
 
   const dailyStatus = useMemo(() => {
@@ -1317,7 +1317,7 @@ export function SgGoalsApp() {
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
       `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Sleep 11 to 6=${strikeCounts.sleep}`,
-      `Next 1.5 hour target: ${targetTasks.length ? targetTasks.map((task) => task.text).join(', ') : 'Not selected'}`,
+      `Next 2 hour target: ${targetTasks.length ? targetTasks.map((task) => task.text).join(', ') : 'Not selected'}`,
       '',
       'Scorecard',
       ...scoreLines,
@@ -1582,7 +1582,7 @@ export function SgGoalsApp() {
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next 1.5 hour target</p>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next 2 hour target</p>
                 <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{targetTasks.length ? `${targetTasks.length} task${targetTasks.length === 1 ? '' : 's'} selected` : 'Select tasks from Morning, Afternoon, or Evening'}</h2>
                 {mainGoal ? (
                   <p className="mt-1 text-xs text-[#8b8bb3]">
@@ -1651,10 +1651,10 @@ export function SgGoalsApp() {
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={toggleTargetTimer} className="rounded-lg bg-[#00d97e] px-3 py-2 text-xs font-bold text-black">
-                    {targetTimer.running ? 'Stop timer' : targetTimer.complete ? 'Start 1.5 hours again' : 'Start timer'}
+                    {targetTimer.running ? 'Stop timer' : targetTimer.complete ? 'Start 2 hours again' : 'Start timer'}
                   </button>
                   <button onClick={resetTargetTimer} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
-                    Reset 1.5 hours
+                    Reset 2 hours
                   </button>
                   <button
                     onClick={() => {
@@ -1832,7 +1832,7 @@ export function SgGoalsApp() {
                       </button>
                       {scope === 'today' ? (
                         <button
-                          aria-label="Set next 1.5 hour target"
+                          aria-label="Set next 2 hour target"
                           onClick={() => toggleTargetTask(task.id)}
                           className={`w-11 border-l border-[#1a1a30] ${targetTaskIds.includes(task.id) ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
                         >
