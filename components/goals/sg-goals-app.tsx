@@ -21,8 +21,8 @@ type GoalTask = {
 };
 
 type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset';
-type StrikeCode = 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'GYM' | 'BOOK' | 'STUDY2' | 'SLEEP';
-type StrikeFamily = 'O' | 'L' | 'M' | 'GYM' | 'BOOK' | 'STUDY2' | 'SLEEP';
+type StrikeCode = 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'GYM' | 'BOOK' | 'STUDY2' | 'SLEEP' | 'NOJUNK';
+type StrikeFamily = 'O' | 'L' | 'M' | 'GYM' | 'BOOK' | 'STUDY2' | 'SLEEP' | 'NOJUNK';
 
 type GoalActivity = {
   id: string;
@@ -59,7 +59,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v30';
+const APP_VERSION = 'cloud-sync-v31';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
@@ -278,6 +278,7 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'BOOKREAD') return 'BOOK';
   if (compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'SLEEP11TO6') return 'SLEEP';
+  if (compact === 'NOJUNKFOOD') return 'NOJUNK';
   return null;
 }
 
@@ -287,7 +288,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     if (!byDay.has(day)) byDay.set(day, new Set<string>());
     return byDay.get(day) as Set<string>;
   };
-  const resetAt: Record<StrikeFamily, number> = { O: 0, L: 0, M: 0, GYM: 0, BOOK: 0, STUDY2: 0, SLEEP: 0 };
+  const resetAt: Record<StrikeFamily, number> = { O: 0, L: 0, M: 0, GYM: 0, BOOK: 0, STUDY2: 0, SLEEP: 0, NOJUNK: 0 };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
     if (code.startsWith('L')) return 'L';
@@ -298,7 +299,14 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     .filter((activity) => activity.kind === 'strike-reset')
     .forEach((activity) => {
       const family =
-        activity.note === 'O' || activity.note === 'L' || activity.note === 'M' || activity.note === 'GYM' || activity.note === 'BOOK' || activity.note === 'STUDY2' || activity.note === 'SLEEP'
+        activity.note === 'O' ||
+        activity.note === 'L' ||
+        activity.note === 'M' ||
+        activity.note === 'GYM' ||
+        activity.note === 'BOOK' ||
+        activity.note === 'STUDY2' ||
+        activity.note === 'SLEEP' ||
+        activity.note === 'NOJUNK'
           ? activity.note
           : null;
       if (!family) return;
@@ -335,7 +343,8 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     gym: codes.has('GYM'),
     book: codes.has('BOOK'),
     study2: codes.has('STUDY2'),
-    sleep: codes.has('SLEEP')
+    sleep: codes.has('SLEEP'),
+    noJunk: codes.has('NOJUNK')
   }));
 
   return {
@@ -346,8 +355,9 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     book: dayResults.filter((day) => day.book).length,
     study2: dayResults.filter((day) => day.study2).length,
     sleep: dayResults.filter((day) => day.sleep).length,
+    noJunk: dayResults.filter((day) => day.noJunk).length,
     resetAt,
-    today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false, gym: false, book: false, study2: false, sleep: false }
+    today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false, gym: false, book: false, study2: false, sleep: false, noJunk: false }
   };
 }
 
@@ -1330,7 +1340,7 @@ export function SgGoalsApp() {
         : 'Yesterday: no activity recorded',
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Sleep 11 to 6=${strikeCounts.sleep}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Sleep 11 to 6=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}`,
       `Next 2 hour target: ${targetTasks.length ? targetTasks.map((task) => task.text).join(', ') : 'Not selected'}`,
       '',
       'Scorecard',
@@ -1549,7 +1559,8 @@ export function SgGoalsApp() {
               { key: 'GYM' as const, label: 'Gym count', rule: 'Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
               { key: 'BOOK' as const, label: 'Book count', rule: 'Book read complete', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
               { key: 'STUDY2' as const, label: 'Study count', rule: 'Study 2 hour complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
-              { key: 'SLEEP' as const, label: 'Sleep count', rule: 'Sleep 11 to 6 complete', color: '#a78bfa', todayDone: strikeCounts.today.sleep, value: strikeCounts.sleep }
+              { key: 'SLEEP' as const, label: 'Sleep count', rule: 'Sleep 11 to 6 complete', color: '#a78bfa', todayDone: strikeCounts.today.sleep, value: strikeCounts.sleep },
+              { key: 'NOJUNK' as const, label: 'No junk count', rule: 'No junk food complete', color: '#00bcd4', todayDone: strikeCounts.today.noJunk, value: strikeCounts.noJunk }
             ].map((item) => (
               <div key={item.key} className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
                 <div className="flex items-center justify-between gap-2">
