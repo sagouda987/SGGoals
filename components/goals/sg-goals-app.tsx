@@ -91,10 +91,10 @@ const priorities: Record<Priority, { label: string; color: string; soft: string 
 };
 
 const blocks: Record<Block, { label: string; time: string }> = {
+  habit: { label: 'Habit', time: 'Daily count checklist' },
   morning: { label: 'Morning', time: '6:00 AM - 12:00 PM' },
   afternoon: { label: 'Afternoon', time: '12:00 PM - 6:00 PM' },
-  evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' },
-  habit: { label: 'Habit', time: 'Daily count checklist' }
+  evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
 const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Gym', 'Book read', 'Study 2 hour', 'Sleep 11 to 6', 'No junk food', 'Manifestation'];
