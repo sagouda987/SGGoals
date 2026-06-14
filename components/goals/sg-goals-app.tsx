@@ -5,7 +5,7 @@ import { AlertTriangle, BarChart3, CalendarDays, Check, Clock, Copy, Download, E
 
 type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
-type Block = 'morning' | 'afternoon' | 'evening';
+type Block = 'morning' | 'afternoon' | 'evening' | 'habit';
 
 type GoalTask = {
   id: string;
@@ -59,7 +59,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v32';
+const APP_VERSION = 'cloud-sync-v33';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-06-08';
@@ -93,8 +93,11 @@ const priorities: Record<Priority, { label: string; color: string; soft: string 
 const blocks: Record<Block, { label: string; time: string }> = {
   morning: { label: 'Morning', time: '6:00 AM - 12:00 PM' },
   afternoon: { label: 'Afternoon', time: '12:00 PM - 6:00 PM' },
-  evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
+  evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' },
+  habit: { label: 'Habit', time: 'Daily count checklist' }
 };
+
+const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Gym', 'Book read', 'Study 2 hour', 'Sleep 11 to 6', 'No junk food', 'Manifestation'];
 
 const starterStore: GoalsStore = {
   today: [
@@ -282,6 +285,10 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
   if (compact === 'MANIFESTATION' || compact === 'MANIFESTNATION') return 'MANIFEST';
   return null;
+}
+
+function isHabitTask(text: string) {
+  return normalizeStrikeCode(text) !== null;
 }
 
 function buildDayCounter(todayKey: string) {
@@ -1002,16 +1009,17 @@ export function SgGoalsApp() {
     if (!text) return;
     const note = composeTaskNote(draft.note.trim() || undefined, scope === 'today' ? draft.dueTime : '');
     const priority = scope === 'today' && !editing ? 'other' : draft.priority;
+    const taskBlock = scope === 'today' ? (isHabitTask(text) ? 'habit' : draft.block) : undefined;
     persist((current) => {
       const next = { ...current };
       if (editing) {
         next[scope] = current[scope].map((task) =>
           task.id === editing.id
-            ? { ...task, text, note, priority, block: scope === 'today' ? draft.block : undefined, updatedAt: new Date().toISOString() }
+            ? { ...task, text, note, priority, block: taskBlock, updatedAt: new Date().toISOString() }
             : task
         );
       } else {
-        next[scope] = [...current[scope], makeTask(text, note, priority, scope === 'today' ? draft.block : undefined)];
+        next[scope] = [...current[scope], makeTask(text, note, priority, taskBlock)];
       }
       return next;
     });
@@ -1182,6 +1190,33 @@ export function SgGoalsApp() {
       ...current,
       today: current.today.filter((task) => !task.done)
     }));
+  }
+
+  function resetHabitTasks() {
+    persist((current) => {
+      const remainingTasks = current.today.filter((task) => !isHabitTask(task.text));
+      const existingHabits = new Map(
+        current.today
+          .filter((task) => isHabitTask(task.text))
+          .map((task) => [normalizeStrikeCode(task.text), task])
+      );
+      const freshHabits = HABIT_TASKS.map((text) => {
+        const existing = existingHabits.get(normalizeStrikeCode(text));
+        return existing
+          ? {
+              ...existing,
+              text,
+              block: 'habit' as const,
+              done: false,
+              startedAt: undefined,
+              completedAt: undefined,
+              investedMinutes: undefined,
+              updatedAt: new Date().toISOString()
+            }
+          : makeTask(text, undefined, 'other', 'habit');
+      });
+      return { ...current, today: [...remainingTasks, ...freshHabits] };
+    });
   }
 
   function confirmTiming() {
@@ -1380,12 +1415,15 @@ export function SgGoalsApp() {
   const completedToday = scope === 'today' ? activeTasks.filter((task) => task.done) : [];
 
   const groupedToday = (Object.keys(blocks) as Block[]).map((block) => {
-    const blockTasks = activeTasks.filter((task) => task.block === block);
+    const blockTasks = activeTasks.filter((task) => {
+      const effectiveBlock = isHabitTask(task.text) ? 'habit' : task.block;
+      return effectiveBlock === block;
+    });
     return {
       id: block,
       title: blocks[block].label,
       sub: blocks[block].time,
-      color: '#4f8ef7',
+      color: block === 'habit' ? '#00d97e' : '#4f8ef7',
       tasks: blockTasks.filter((task) => !task.done),
       done: blockTasks.filter((task) => task.done).length,
       total: blockTasks.length
@@ -1840,7 +1878,14 @@ export function SgGoalsApp() {
                     <h2 className="text-sm font-bold" style={{ color: group.color }}>{group.title}</h2>
                     <p className="text-[11px] text-[#52527a]">{group.sub}</p>
                   </div>
-                  <span className="text-xs font-bold" style={{ color: group.color }}>{group.done}/{group.total}</span>
+                  <div className="flex items-center gap-2">
+                    {scope === 'today' && group.id === 'habit' ? (
+                      <button onClick={resetHabitTasks} className="rounded-lg border border-[#00d97e40] px-2 py-1 text-[11px] font-bold text-[#00d97e]">
+                        Reset habits
+                      </button>
+                    ) : null}
+                    <span className="text-xs font-bold" style={{ color: group.color }}>{group.done}/{group.total}</span>
+                  </div>
                 </div>
 
                 {group.tasks.length ? (
@@ -1949,7 +1994,7 @@ export function SgGoalsApp() {
             {scope === 'today' ? (
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Time block</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {Object.entries(blocks).map(([key, value]) => {
                     const isActive = draft.block === key;
                     return (
