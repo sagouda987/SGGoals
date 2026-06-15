@@ -116,56 +116,63 @@ export async function PUT(req: NextRequest) {
     const targetState = isTargetState(body.targetState) ? body.targetState : null;
 
     const store = body.store;
-    const creates = scopes.flatMap((scope) =>
-      store[scope].map((task, index) =>
-        prisma.goalTask.create({
-          data: {
-            id: task.id,
-            ownerKey,
-            scope,
-            text: task.text,
-            note: task.note || null,
-            priority: task.priority,
-            block: task.block || null,
-            done: task.done,
-            startedAt: task.startedAt ? new Date(task.startedAt) : null,
-            completedAt: task.completedAt ? new Date(task.completedAt) : null,
-            investedMinutes: typeof task.investedMinutes === 'number' ? task.investedMinutes : null,
-            position: index
-          }
-        })
-      )
+    const rows = scopes.flatMap((scope) =>
+      store[scope].map((task, index) => ({
+        id: task.id,
+        ownerKey,
+        scope,
+        text: task.text,
+        note: task.note || null,
+        priority: task.priority,
+        block: task.block || null,
+        done: task.done,
+        startedAt: task.startedAt ? new Date(task.startedAt) : null,
+        completedAt: task.completedAt ? new Date(task.completedAt) : null,
+        investedMinutes: typeof task.investedMinutes === 'number' ? task.investedMinutes : null,
+        position: index
+      }))
     );
-    const operations = [prisma.goalTask.deleteMany({ where: { ownerKey, scope: { in: scopes } } }), ...creates];
-    if (targetState) {
-      const existingTarget = await prisma.goalTask.findUnique({ where: { id: targetStateId } });
-      const existingState = parseTargetState(existingTarget?.note);
-      const incomingTime = new Date(targetState.updatedAt).getTime();
-      const existingTime = existingState ? new Date(existingState.updatedAt).getTime() : 0;
-      if (!existingState || incomingTime >= existingTime) {
-        operations.push(
-          prisma.goalTask.upsert({
-            where: { id: targetStateId },
-            create: {
-              id: targetStateId,
-              ownerKey,
-              scope: targetStateScope,
-              text: 'Target timer state',
-              note: JSON.stringify(targetState),
-              priority: 'other',
-              done: false,
-              position: 0
-            },
-            update: {
-              note: JSON.stringify(targetState),
-              updatedAt: new Date()
-            }
-          })
-        );
-      }
+
+    const uniqueIds = new Set(rows.map((row) => row.id));
+    if (uniqueIds.size !== rows.length) {
+      return NextResponse.json({ error: 'Duplicate task IDs found. Refresh and try again.' }, { status: 409 });
     }
 
-    await prisma.$transaction(operations);
+    await prisma.$transaction(
+      async (tx) => {
+        // Prevent overlapping browser saves from deleting and recreating the same rows concurrently.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ownerKey}))`;
+        await tx.goalTask.deleteMany({ where: { ownerKey, scope: { in: scopes } } });
+        if (rows.length) await tx.goalTask.createMany({ data: rows });
+
+        if (targetState) {
+          const existingTarget = await tx.goalTask.findUnique({ where: { id: targetStateId } });
+          const existingState = parseTargetState(existingTarget?.note);
+          const incomingTime = new Date(targetState.updatedAt).getTime();
+          const existingTime = existingState ? new Date(existingState.updatedAt).getTime() : 0;
+          if (!existingState || incomingTime >= existingTime) {
+            await tx.goalTask.upsert({
+              where: { id: targetStateId },
+              create: {
+                id: targetStateId,
+                ownerKey,
+                scope: targetStateScope,
+                text: 'Target timer state',
+                note: JSON.stringify(targetState),
+                priority: 'other',
+                done: false,
+                position: 0
+              },
+              update: {
+                note: JSON.stringify(targetState),
+                updatedAt: new Date()
+              }
+            });
+          }
+        }
+      },
+      { maxWait: 15000, timeout: 15000 }
+    );
 
     return NextResponse.json({ ok: true });
   } catch (error) {
