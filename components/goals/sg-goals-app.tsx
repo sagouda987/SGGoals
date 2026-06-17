@@ -296,6 +296,20 @@ function isHabitTask(text: string) {
   return normalizeStrikeCode(text) !== null;
 }
 
+function ensureHabitTemplates(store: GoalsStore): GoalsStore {
+  const existingHabits = new Set(
+    store.today
+      .filter((task) => isHabitTask(task.text))
+      .map((task) => normalizeStrikeCode(task.text))
+  );
+  const missingHabits = HABIT_TASKS.filter((text) => !existingHabits.has(normalizeStrikeCode(text)));
+  if (!missingHabits.length) return store;
+  return {
+    ...store,
+    today: [...store.today, ...missingHabits.map((text) => makeTask(text, undefined, 'other', 'habit'))]
+  };
+}
+
 function buildDayCounter(todayKey: string) {
   const start = new Date(`${DAY_COUNTER_START_DATE}T00:00:00`);
   const today = new Date(`${todayKey}T00:00:00`);
@@ -542,7 +556,7 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     let cancelled = false;
-    const localStore = loadStore();
+    const localStore = ensureHabitTemplates(loadStore());
     const localActivities = loadActivities();
     const legacyTargetId = window.localStorage.getItem(MAIN_GOAL_KEY) || '';
     let savedTargetIds: string[] = [];
@@ -571,7 +585,7 @@ export function SgGoalsApp() {
         const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; hasCloudData?: boolean };
         if (cancelled) return;
         if (data.hasCloudData && data.store) {
-          setStore(data.store);
+          setStore(ensureHabitTemplates(data.store));
           if (isTargetState(data.targetState)) {
             const cloudTime = new Date(data.targetState.updatedAt).getTime();
             const localTime = new Date(savedTargetUpdatedAt).getTime();
