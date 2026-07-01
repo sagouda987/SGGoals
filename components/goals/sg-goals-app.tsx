@@ -41,6 +41,7 @@ type GoalActivity = {
 type GoalsStore = Record<Scope, GoalTask[]>;
 type TargetState = {
   taskIds: string[];
+  taskMinutes?: Record<string, number>;
   endAt: string;
   running: boolean;
   remainingMs: number;
@@ -53,13 +54,14 @@ const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
+const TARGET_TASK_MINUTES_KEY = 'sg-goals-target-task-minutes-v1';
 const TARGET_TIMER_KEY = 'sg-goals-target-timer-v3';
 const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v3';
 const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v40';
+const APP_VERSION = 'cloud-sync-v41';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-06-28';
@@ -219,11 +221,23 @@ function isTargetState(value: unknown): value is TargetState {
   return (
     Array.isArray(candidate.taskIds) &&
     candidate.taskIds.every((taskId) => typeof taskId === 'string') &&
+    (candidate.taskMinutes === undefined ||
+      (typeof candidate.taskMinutes === 'object' &&
+        candidate.taskMinutes !== null &&
+        Object.entries(candidate.taskMinutes).every(([taskId, minutes]) => typeof taskId === 'string' && typeof minutes === 'number'))) &&
     typeof candidate.endAt === 'string' &&
     typeof candidate.running === 'boolean' &&
     typeof candidate.remainingMs === 'number' &&
     (candidate.durationMs === undefined || typeof candidate.durationMs === 'number') &&
     typeof candidate.updatedAt === 'string'
+  );
+}
+
+function targetMinutesSignature(minutes: Record<string, number> | undefined) {
+  return JSON.stringify(
+    Object.entries(minutes || {})
+      .filter(([, value]) => typeof value === 'number' && value > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
   );
 }
 
@@ -519,6 +533,7 @@ export function SgGoalsApp() {
   const [failureNote, setFailureNote] = useState('');
   const [mainGoalId, setMainGoalId] = useState('');
   const [targetTaskIds, setTargetTaskIds] = useState<string[]>([]);
+  const [targetTaskMinutes, setTargetTaskMinutes] = useState<Record<string, number>>({});
   const [targetEndAt, setTargetEndAt] = useState('');
   const [targetRunning, setTargetRunning] = useState(false);
   const [targetRemainingMs, setTargetRemainingMs] = useState(TARGET_DURATION_MS);
@@ -565,6 +580,7 @@ export function SgGoalsApp() {
         ? new Date(new Date(targetState.endAt).getTime() + durationIncrease).toISOString()
         : targetState.endAt;
     setTargetTaskIds(targetState.taskIds);
+    setTargetTaskMinutes(targetState.taskMinutes || {});
     setTargetEndAt(upgradedEndAt);
     setTargetRunning(targetState.running);
     setTargetRemainingMs(Number.isFinite(upgradedRemaining) && upgradedRemaining >= 0 ? upgradedRemaining : TARGET_DURATION_MS);
@@ -583,6 +599,16 @@ export function SgGoalsApp() {
     } catch {
       savedTargetIds = [];
     }
+    let savedTargetMinutes: Record<string, number> = {};
+    try {
+      const parsedMinutes = JSON.parse(window.localStorage.getItem(TARGET_TASK_MINUTES_KEY) || '{}') as Record<string, number>;
+      savedTargetMinutes =
+        parsedMinutes && typeof parsedMinutes === 'object'
+          ? Object.fromEntries(Object.entries(parsedMinutes).filter(([taskId, minutes]) => taskId && typeof minutes === 'number' && minutes > 0))
+          : {};
+    } catch {
+      savedTargetMinutes = {};
+    }
     const savedEndAt = window.localStorage.getItem(TARGET_TIMER_KEY) || '';
     const savedRemaining = Number(window.localStorage.getItem(TARGET_REMAINING_KEY));
     const savedTargetUpdatedAt = window.localStorage.getItem(TARGET_UPDATED_KEY) || '1970-01-01T00:00:00.000Z';
@@ -590,6 +616,7 @@ export function SgGoalsApp() {
     setActivities(localActivities);
     setMainGoalId(legacyTargetId);
     setTargetTaskIds(savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : []);
+    setTargetTaskMinutes(savedTargetMinutes);
     setTargetEndAt(savedEndAt);
     setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS);
     setTargetRunning(window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt));
@@ -621,6 +648,7 @@ export function SgGoalsApp() {
               store: localStore,
               targetState: {
                 taskIds: savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : [],
+                taskMinutes: savedTargetMinutes,
                 endAt: savedEndAt,
                 running: window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt),
                 remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS,
@@ -714,6 +742,11 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if (!ready) return;
+    window.localStorage.setItem(TARGET_TASK_MINUTES_KEY, JSON.stringify(targetTaskMinutes));
+  }, [ready, targetTaskMinutes]);
+
+  useEffect(() => {
+    if (!ready) return;
     if (targetEndAt) window.localStorage.setItem(TARGET_TIMER_KEY, targetEndAt);
     else window.localStorage.removeItem(TARGET_TIMER_KEY);
     window.localStorage.setItem(TARGET_REMAINING_KEY, String(Math.max(0, Math.round(targetRemainingMs))));
@@ -742,6 +775,7 @@ export function SgGoalsApp() {
     const validIds = targetTaskIds.filter((taskId) => store.today.some((task) => task.id === taskId));
     if (validIds.length !== targetTaskIds.length) {
       setTargetTaskIds(validIds);
+      setTargetTaskMinutes((current) => Object.fromEntries(Object.entries(current).filter(([taskId]) => validIds.includes(taskId))));
     }
     if (!validIds.length) {
       setTargetEndAt('');
@@ -764,6 +798,7 @@ export function SgGoalsApp() {
             store,
             targetState: {
               taskIds: targetTaskIds,
+              taskMinutes: targetTaskMinutes,
               endAt: targetEndAt,
               running: targetRunning,
               remainingMs: targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs,
@@ -782,7 +817,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, ready, store, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetUpdatedAt]);
+  }, [cloudReady, ready, store, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -795,10 +830,12 @@ export function SgGoalsApp() {
         if (new Date(data.targetState.updatedAt).getTime() > new Date(targetUpdatedAt).getTime()) {
           const cloudIds = data.targetState.taskIds.join('|');
           const localIds = targetTaskIds.join('|');
+          const cloudMinutes = targetMinutesSignature(data.targetState.taskMinutes);
+          const localMinutes = targetMinutesSignature(targetTaskMinutes);
           const cloudRemaining = Math.round(data.targetState.remainingMs / 1000);
           const localRemainingMs = targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs;
           const localRemaining = Math.round(localRemainingMs / 1000);
-          if (cloudIds !== localIds || data.targetState.running !== targetRunning || Math.abs(cloudRemaining - localRemaining) > 5) {
+          if (cloudIds !== localIds || cloudMinutes !== localMinutes || data.targetState.running !== targetRunning || Math.abs(cloudRemaining - localRemaining) > 5) {
             setTargetConflict(data.targetState);
             setTimerSyncState('conflict');
           } else {
@@ -811,7 +848,7 @@ export function SgGoalsApp() {
       }
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [applyTargetState, cloudReady, ready, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetUpdatedAt]);
+  }, [applyTargetState, cloudReady, ready, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => {
@@ -905,6 +942,11 @@ export function SgGoalsApp() {
   const targetTasks = useMemo(() => {
     return targetTaskIds.map((taskId) => store.today.find((task) => task.id === taskId)).filter((task): task is GoalTask => Boolean(task));
   }, [store.today, targetTaskIds]);
+
+  const targetPlannedMinutes = useMemo(
+    () => targetTasks.reduce((total, task) => total + (targetTaskMinutes[task.id] || 0), 0),
+    [targetTaskMinutes, targetTasks]
+  );
 
   const mainGoal = targetTasks[0] || null;
 
@@ -1103,13 +1145,31 @@ export function SgGoalsApp() {
 
   function toggleTargetTask(taskId: string) {
     setTargetTaskIds((current) => {
-      if (current.includes(taskId)) return current.filter((id) => id !== taskId);
+      if (current.includes(taskId)) {
+        setTargetTaskMinutes((minutes) => {
+          const next = { ...minutes };
+          delete next[taskId];
+          return next;
+        });
+        return current.filter((id) => id !== taskId);
+      }
       return [...current, taskId];
     });
     setTargetRemainingMs((current) => (current <= 0 ? TARGET_DURATION_MS : current));
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
     markTargetChanged();
     requestMainGoalNotificationPermission();
+  }
+
+  function updateTargetTaskMinutes(taskId: string, value: string) {
+    const minutes = Number(value);
+    setTargetTaskMinutes((current) => {
+      const next = { ...current };
+      if (!value || !Number.isFinite(minutes) || minutes <= 0) delete next[taskId];
+      else next[taskId] = Math.min(120, Math.round(minutes));
+      return next;
+    });
+    markTargetChanged();
   }
 
   function toggleTargetTimer() {
@@ -1309,6 +1369,11 @@ export function SgGoalsApp() {
     if (timingScope === 'today' && targetTaskIds.includes(timingTask.id)) {
       setTargetTaskIds((current) => {
         const remaining = current.filter((taskId) => taskId !== timingTask.id);
+        setTargetTaskMinutes((minutes) => {
+          const remainingMinutes = { ...minutes };
+          delete remainingMinutes[timingTask.id];
+          return remainingMinutes;
+        });
         if (!remaining.length) {
           setTargetEndAt('');
           setTargetRunning(false);
@@ -1441,7 +1506,11 @@ export function SgGoalsApp() {
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
       `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Healthy drink morning=${strikeCounts.healthyDrinkMorning}, Healthy drink evening=${strikeCounts.healthyDrinkEvening}, Eye care=${strikeCounts.eyeCare}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Office course=${strikeCounts.officeCourse}, Chess improvement=${strikeCounts.chess}, Sleep 11 to 6=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
-      `Next 2 hour target: ${targetTasks.length ? targetTasks.map((task) => task.text).join(', ') : 'Not selected'}`,
+      `Next 2 hour target: ${
+        targetTasks.length
+          ? targetTasks.map((task) => `${task.text}${targetTaskMinutes[task.id] ? ` (${targetTaskMinutes[task.id]}m)` : ''}`).join(', ')
+          : 'Not selected'
+      }`,
       '',
       'Scorecard',
       ...scoreLines,
@@ -1755,6 +1824,20 @@ export function SgGoalsApp() {
                               {noteInfo.dueTime ? ` - By ${noteInfo.dueTime}` : ''}
                               {noteInfo.note ? ` - ${noteInfo.note}` : ''}
                             </p>
+                            <label className="mt-2 flex max-w-[190px] items-center gap-2 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-2 py-1 text-[11px] text-[#8b8bb3]">
+                              <span className="shrink-0">Plan</span>
+                              <input
+                                type="number"
+                                min="1"
+                                max="120"
+                                inputMode="numeric"
+                                value={targetTaskMinutes[task.id] ?? ''}
+                                onChange={(event) => updateTargetTaskMinutes(task.id, event.target.value)}
+                                placeholder="min"
+                                className="w-14 bg-transparent text-right font-bold text-[#e8e8f5] outline-none"
+                              />
+                              <span className="shrink-0">min</span>
+                            </label>
                           </div>
                           <button onClick={() => toggleTargetTask(task.id)} className="shrink-0 rounded-lg border border-[#1a1a30] px-2 py-1 text-[11px] font-bold text-[#8b8bb3]">
                             Remove
@@ -1787,6 +1870,7 @@ export function SgGoalsApp() {
                     </div>
                     <p className="text-right text-[11px] text-[#8b8bb3]">
                       {targetTimer.complete ? 'Time is up. Finish or log what happened.' : targetTimer.running ? 'Timer is running.' : 'Timer is paused.'}
+                      {targetPlannedMinutes ? ` Planned ${formatMinutes(targetPlannedMinutes)} / 2h.` : ''}
                     </p>
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
@@ -1803,6 +1887,7 @@ export function SgGoalsApp() {
                   <button
                     onClick={() => {
                       setTargetTaskIds([]);
+                      setTargetTaskMinutes({});
                       setTargetEndAt('');
                       setTargetRunning(false);
                       setTargetRemainingMs(TARGET_DURATION_MS);

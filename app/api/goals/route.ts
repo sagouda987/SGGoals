@@ -17,6 +17,7 @@ type GoalTaskInput = {
 type GoalsStoreInput = Record<Scope, GoalTaskInput[]>;
 type TargetStateInput = {
   taskIds: string[];
+  taskMinutes?: Record<string, number>;
   endAt: string;
   running: boolean;
   remainingMs: number;
@@ -54,6 +55,10 @@ function isTargetState(value: unknown): value is TargetStateInput {
   return (
     Array.isArray(candidate.taskIds) &&
     candidate.taskIds.every((taskId) => typeof taskId === 'string') &&
+    (candidate.taskMinutes === undefined ||
+      (typeof candidate.taskMinutes === 'object' &&
+        candidate.taskMinutes !== null &&
+        Object.entries(candidate.taskMinutes).every(([taskId, minutes]) => typeof taskId === 'string' && typeof minutes === 'number'))) &&
     typeof candidate.endAt === 'string' &&
     typeof candidate.running === 'boolean' &&
     typeof candidate.remainingMs === 'number' &&
