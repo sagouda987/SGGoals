@@ -59,7 +59,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v39';
+const APP_VERSION = 'cloud-sync-v40';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-06-28';
@@ -97,7 +97,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
   evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
-const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Book read', 'Study 2 hour', 'Office work 2 hour', 'Office course', 'Chess improvement', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
+const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Book read', 'Study 2 hour', 'Office work', 'Office course', 'Chess improvement', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
 
 const starterStore: GoalsStore = {
   today: [
@@ -283,7 +283,7 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
   if (compact === 'BOOKREAD') return 'BOOK';
   if (compact === 'STUDY2HOUR') return 'STUDY2';
-  if (compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
+  if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
   if (compact === 'SLEEP11TO6') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
   if (compact === 'NOSOCIALMEDIA') return 'NOSOCIAL';
@@ -299,16 +299,25 @@ function isHabitTask(text: string) {
 }
 
 function ensureHabitTemplates(store: GoalsStore): GoalsStore {
+  const canonicalHabitText = new Map(HABIT_TASKS.map((text) => [normalizeStrikeCode(text), text]));
+  let changed = false;
+  const today = store.today.map((task) => {
+    const code = normalizeStrikeCode(task.text);
+    const canonicalText = code ? canonicalHabitText.get(code) : undefined;
+    if (!canonicalText || task.text === canonicalText) return task;
+    changed = true;
+    return { ...task, text: canonicalText };
+  });
   const existingHabits = new Set(
-    store.today
+    today
       .filter((task) => isHabitTask(task.text))
       .map((task) => normalizeStrikeCode(task.text))
   );
   const missingHabits = HABIT_TASKS.filter((text) => !existingHabits.has(normalizeStrikeCode(text)));
-  if (!missingHabits.length) return store;
+  if (!missingHabits.length && !changed) return store;
   return {
     ...store,
-    today: [...store.today, ...missingHabits.map((text) => makeTask(text, undefined, 'other', 'habit'))]
+    today: [...today, ...missingHabits.map((text) => makeTask(text, undefined, 'other', 'habit'))]
   };
 }
 
@@ -1431,7 +1440,7 @@ export function SgGoalsApp() {
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Healthy drink morning=${strikeCounts.healthyDrinkMorning}, Healthy drink evening=${strikeCounts.healthyDrinkEvening}, Eye care=${strikeCounts.eyeCare}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work 2 hour=${strikeCounts.officeWork2}, Office course=${strikeCounts.officeCourse}, Chess improvement=${strikeCounts.chess}, Sleep 11 to 6=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Healthy drink morning=${strikeCounts.healthyDrinkMorning}, Healthy drink evening=${strikeCounts.healthyDrinkEvening}, Eye care=${strikeCounts.eyeCare}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Office course=${strikeCounts.officeCourse}, Chess improvement=${strikeCounts.chess}, Sleep 11 to 6=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
       `Next 2 hour target: ${targetTasks.length ? targetTasks.map((task) => task.text).join(', ') : 'Not selected'}`,
       '',
       'Scorecard',
@@ -1655,7 +1664,7 @@ export function SgGoalsApp() {
               { key: 'HEALTHYDRINKEVENING' as const, label: 'Drink PM count', rule: 'Healthy drink evening complete', color: '#f97316', todayDone: strikeCounts.today.healthyDrinkEvening, value: strikeCounts.healthyDrinkEvening },
               { key: 'BOOK' as const, label: 'Book count', rule: 'Book read complete', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
               { key: 'STUDY2' as const, label: 'Study count', rule: 'Study 2 hour complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
-              { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Office work 2 hour complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
+              { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Office work complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
               { key: 'SLEEP' as const, label: 'Sleep count', rule: 'Sleep 11 to 6 complete', color: '#a78bfa', todayDone: strikeCounts.today.sleep, value: strikeCounts.sleep },
               { key: 'NOJUNK' as const, label: 'No junk count', rule: 'No junk food complete', color: '#00bcd4', todayDone: strikeCounts.today.noJunk, value: strikeCounts.noJunk },
               { key: 'NOSOCIAL' as const, label: 'No social count', rule: 'No Social Media complete', color: '#38bdf8', todayDone: strikeCounts.today.noSocial, value: strikeCounts.noSocial },
