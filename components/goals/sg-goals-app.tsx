@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 
 type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
@@ -2077,21 +2077,12 @@ export function SgGoalsApp() {
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Streaks</p>
-                <p className="mt-2 text-2xl font-bold text-[#e8e8f5]">{streaks.current}</p>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Coaching report</p>
+                <p className="mt-2 text-sm font-bold text-[#e8e8f5]">Copy today&apos;s progress</p>
+                <p className="mt-1 text-xs text-[#8b8bb3]">Paste it into ChatGPT or Claude for feedback.</p>
               </div>
-              <div className="rounded-lg bg-[#f7a04f15] p-2 text-[#f7a04f]">
-                <Flame className="h-5 w-5" />
-              </div>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
-                <p className="text-[10px] text-[#52527a]">Current</p>
-                <p className="mt-1 text-sm font-bold text-[#00d97e]">{streaks.current} day(s)</p>
-              </div>
-              <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
-                <p className="text-[10px] text-[#52527a]">Best</p>
-                <p className="mt-1 text-sm font-bold text-[#f7a04f]">{streaks.best} day(s)</p>
+              <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
+                <Sparkles className="h-5 w-5" />
               </div>
             </div>
             <button onClick={copyCoachingReport} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
