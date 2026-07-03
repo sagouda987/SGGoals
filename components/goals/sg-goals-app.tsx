@@ -61,7 +61,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v43';
+const APP_VERSION = 'cloud-sync-v45';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-06-28';
@@ -100,6 +100,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
 };
 
 const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Book read', 'Study 2 hour', 'Office work', 'Office course', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
+const REMOVED_HABIT_TASKS = ['Chess improvement'];
 
 const starterStore: GoalsStore = {
   today: [
@@ -311,12 +312,21 @@ function isHabitTask(text: string) {
   return normalizeStrikeCode(text) !== null;
 }
 
+function isRemovedHabitTask(text: string) {
+  const normalized = text.replace(/[^a-z0-9]/gi, '').toUpperCase();
+  return REMOVED_HABIT_TASKS.some((task) => task.replace(/[^a-z0-9]/gi, '').toUpperCase() === normalized);
+}
+
 function ensureHabitTemplates(store: GoalsStore): GoalsStore {
   const canonicalHabitText = new Map(HABIT_TASKS.map((text) => [normalizeStrikeCode(text), text]));
   let changed = false;
   const seenHabitIndexes = new Map<string, number>();
   const today: GoalTask[] = [];
   store.today.forEach((task) => {
+    if (isRemovedHabitTask(task.text)) {
+      changed = true;
+      return;
+    }
     const code = normalizeStrikeCode(task.text);
     const canonicalText = code ? canonicalHabitText.get(code) : undefined;
     if (!code || !canonicalText) {
@@ -1184,6 +1194,18 @@ export function SgGoalsApp() {
     markTargetChanged();
   }
 
+  function adjustTargetTaskMinutes(taskId: string, delta: number) {
+    setTargetTaskMinutes((current) => {
+      const currentMinutes = current[taskId] || 0;
+      const nextMinutes = Math.min(120, Math.max(0, currentMinutes + delta));
+      const next = { ...current };
+      if (!nextMinutes) delete next[taskId];
+      else next[taskId] = nextMinutes;
+      return next;
+    });
+    markTargetChanged();
+  }
+
   function toggleTargetTimer() {
     if (!targetTaskIds.length) return;
     if (targetRunning) {
@@ -1317,7 +1339,7 @@ export function SgGoalsApp() {
 
   function resetHabitTasks() {
     persist((current) => {
-      const remainingTasks = current.today.filter((task) => !isHabitTask(task.text));
+      const remainingTasks = current.today.filter((task) => !isHabitTask(task.text) && !isRemovedHabitTask(task.text));
       const existingHabits = new Map(
         current.today
           .filter((task) => isHabitTask(task.text))
@@ -1835,20 +1857,40 @@ export function SgGoalsApp() {
                               {noteInfo.dueTime ? ` - By ${noteInfo.dueTime}` : ''}
                               {noteInfo.note ? ` - ${noteInfo.note}` : ''}
                             </p>
-                            <label className="mt-2 flex max-w-[190px] items-center gap-2 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-2 py-1 text-[11px] text-[#8b8bb3]">
-                              <span className="shrink-0">Plan</span>
-                              <input
-                                type="number"
-                                min="1"
-                                max="120"
-                                inputMode="numeric"
-                                value={targetTaskMinutes[task.id] ?? ''}
-                                onChange={(event) => updateTargetTaskMinutes(task.id, event.target.value)}
-                                placeholder="min"
-                                className="w-14 bg-transparent text-right font-bold text-[#e8e8f5] outline-none"
-                              />
-                              <span className="shrink-0">min</span>
-                            </label>
+                            <div className="mt-2 flex w-fit items-center gap-1 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] p-1 text-[11px] text-[#8b8bb3]">
+                              <span className="px-1">Plan</span>
+                              <button
+                                type="button"
+                                onClick={() => adjustTargetTaskMinutes(task.id, -5)}
+                                className="flex h-7 w-7 items-center justify-center rounded-md border border-[#1a1a30] text-[#8b8bb3]"
+                                aria-label={`Reduce planned time for ${task.text}`}
+                              >
+                                -
+                              </button>
+                              <div className="flex h-7 items-center rounded-md border border-[#1a1a30] bg-[#07070f] px-2">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="120"
+                                  inputMode="numeric"
+                                  value={targetTaskMinutes[task.id] ?? ''}
+                                  onChange={(event) => updateTargetTaskMinutes(task.id, event.target.value)}
+                                  placeholder="00"
+                                  className="w-9 bg-transparent text-right font-mono text-sm font-bold text-[#e8e8f5] outline-none"
+                                  aria-label={`Planned minutes for ${task.text}`}
+                                />
+                                <span className="font-mono text-sm font-bold text-[#52527a]">:00</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => adjustTargetTaskMinutes(task.id, 5)}
+                                className="flex h-7 w-7 items-center justify-center rounded-md border border-[#1a1a30] text-[#8b8bb3]"
+                                aria-label={`Increase planned time for ${task.text}`}
+                              >
+                                +
+                              </button>
+                              <span className="px-1">min</span>
+                            </div>
                           </div>
                           <button onClick={() => toggleTargetTask(task.id)} className="shrink-0 rounded-lg border border-[#1a1a30] px-2 py-1 text-[11px] font-bold text-[#8b8bb3]">
                             Remove
