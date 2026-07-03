@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 
 type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
@@ -61,7 +61,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v47';
+const APP_VERSION = 'cloud-sync-v48';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-06-28';
@@ -286,6 +286,16 @@ function formatRelativeTime(dateValue?: string, now = Date.now()) {
 
 function formatClock(date: Date) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function formatIstClock(timestamp: number) {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  }).format(new Date(timestamp));
 }
 
 function normalizeStrikeCode(text: string) {
@@ -568,6 +578,7 @@ export function SgGoalsApp() {
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
+  const targetPlanSignatureRef = useRef('');
 
   const showGoalNotification = useCallback((title: string, body: string, tag: string) => {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -984,20 +995,23 @@ export function SgGoalsApp() {
       .filter((item): item is { task: GoalTask; minutes: number; startMs: number; endMs: number; durationMs: number } => Boolean(item));
   }, [targetTaskMinutes, targetTasks]);
 
+  const targetPlannedDurationMs = targetPlannedMinutes > 0 ? targetPlannedMinutes * 60000 : TARGET_DURATION_MS;
+  const targetPlanSignature = `${targetTaskIds.join('|')}::${targetPlannedDurationMs}`;
+  const istClockLabel = useMemo(() => formatIstClock(timerNow), [timerNow]);
+
   const mainGoal = targetTasks[0] || null;
 
   const targetTimer = useMemo(() => {
-    const plannedTotalMs = targetPlannedMinutes > 0 ? targetPlannedMinutes * 60000 : TARGET_DURATION_MS;
     const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
     const runningRemainingMs = endTime ? Math.max(0, endTime - timerNow) : targetRemainingMs;
-    const remainingMs = Math.min(plannedTotalMs, targetRunning ? runningRemainingMs : targetRemainingMs);
-    const elapsedMs = Math.max(0, plannedTotalMs - remainingMs);
+    const remainingMs = Math.min(targetPlannedDurationMs, targetRunning ? runningRemainingMs : targetRemainingMs);
+    const elapsedMs = Math.max(0, targetPlannedDurationMs - remainingMs);
     const activeSegmentIndex = targetSequence.findIndex((segment) => elapsedMs < segment.endMs);
     const activeSegment =
       activeSegmentIndex >= 0 ? targetSequence[activeSegmentIndex] : targetSequence[targetSequence.length - 1] || null;
     const activeDisplayIndex = activeSegmentIndex >= 0 ? activeSegmentIndex : activeSegment ? targetSequence.length - 1 : -1;
     const activeTaskRemainingMs = activeSegment ? Math.max(0, activeSegment.endMs - elapsedMs) : remainingMs;
-    const progress = targetTasks.length ? Math.min(100, Math.max(0, Math.round(((plannedTotalMs - remainingMs) / plannedTotalMs) * 100))) : 0;
+    const progress = targetTasks.length ? Math.min(100, Math.max(0, Math.round(((targetPlannedDurationMs - remainingMs) / targetPlannedDurationMs) * 100))) : 0;
     return {
       active: Boolean(targetTasks.length),
       running: Boolean(targetTasks.length && targetRunning && endTime && remainingMs > 0),
@@ -1010,7 +1024,21 @@ export function SgGoalsApp() {
       progress,
       label: formatCountdown(activeSegment ? activeTaskRemainingMs : remainingMs)
     };
-  }, [targetEndAt, targetPlannedMinutes, targetRemainingMs, targetRunning, targetSequence, targetTasks.length, timerNow]);
+  }, [targetEndAt, targetPlannedDurationMs, targetRemainingMs, targetRunning, targetSequence, targetTasks.length, timerNow]);
+
+  useEffect(() => {
+    if (!ready) return;
+    if (!targetPlanSignatureRef.current) {
+      targetPlanSignatureRef.current = targetPlanSignature;
+      return;
+    }
+    if (targetPlanSignatureRef.current !== targetPlanSignature && !targetRunning) {
+      targetPlanSignatureRef.current = targetPlanSignature;
+      setTargetRemainingMs(targetPlannedDurationMs);
+      return;
+    }
+    targetPlanSignatureRef.current = targetPlanSignature;
+  }, [ready, targetPlanSignature, targetPlannedDurationMs, targetRunning]);
 
   useEffect(() => {
     if (!ready || !('Notification' in window) || Notification.permission !== 'granted') return;
@@ -1202,10 +1230,32 @@ export function SgGoalsApp() {
       }
       return [...current, taskId];
     });
-    setTargetRemainingMs((current) => (current <= 0 ? TARGET_DURATION_MS : current));
+    if (!targetRunning) {
+      setTargetEndAt('');
+      setTargetRemainingMs(targetPlannedDurationMs);
+    } else {
+      setTargetRemainingMs((current) => (current <= 0 ? targetPlannedDurationMs : current));
+    }
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
     markTargetChanged();
     requestMainGoalNotificationPermission();
+  }
+
+  function moveTargetTask(taskId: string, direction: -1 | 1) {
+    setTargetTaskIds((current) => {
+      const index = current.indexOf(taskId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+    if (!targetRunning) {
+      setTargetEndAt('');
+      setTargetRemainingMs(targetPlannedDurationMs);
+      window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    }
+    markTargetChanged();
   }
 
   function updateTargetTaskMinutes(taskId: string, value: string) {
@@ -1865,8 +1915,12 @@ export function SgGoalsApp() {
                   <p className="mt-1 text-xs text-[#8b8bb3]">Tap the star beside Today tasks to add them here.</p>
                 )}
               </div>
-              <div className="rounded-lg bg-[#ffd16615] p-2 text-[#ffd166]">
-                <Clock className="h-5 w-5" />
+              <div className="shrink-0 rounded-lg bg-[#ffd16615] px-3 py-2 text-right text-[#ffd166]">
+                <div className="flex items-center justify-end gap-1">
+                  <Clock className="h-4 w-4" />
+                  <span className="font-mono text-sm font-bold">{istClockLabel}</span>
+                </div>
+                <p className="mt-1 text-[9px] font-bold uppercase tracking-[.18em] text-[#8b8bb3]">IST</p>
               </div>
             </div>
             {targetTasks.length ? (
@@ -1927,9 +1981,33 @@ export function SgGoalsApp() {
                               <span className="px-1">min</span>
                             </div>
                           </div>
-                          <button onClick={() => toggleTargetTask(task.id)} className="shrink-0 rounded-lg border border-[#1a1a30] px-2 py-1 text-[11px] font-bold text-[#8b8bb3]">
-                            Remove
-                          </button>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => moveTargetTask(task.id, -1)}
+                              disabled={index === 0}
+                              className={`flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a1a30] ${
+                                index === 0 ? 'cursor-not-allowed text-[#38385a]' : 'text-[#8b8bb3]'
+                              }`}
+                              aria-label={`Move ${task.text} up`}
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveTargetTask(task.id, 1)}
+                              disabled={index === targetTasks.length - 1}
+                              className={`flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a1a30] ${
+                                index === targetTasks.length - 1 ? 'cursor-not-allowed text-[#38385a]' : 'text-[#8b8bb3]'
+                              }`}
+                              aria-label={`Move ${task.text} down`}
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </button>
+                            <button onClick={() => toggleTargetTask(task.id)} className="rounded-lg border border-[#1a1a30] px-2 py-1 text-[11px] font-bold text-[#8b8bb3]">
+                              Remove
+                            </button>
+                          </div>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
