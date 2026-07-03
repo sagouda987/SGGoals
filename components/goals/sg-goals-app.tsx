@@ -21,7 +21,7 @@ type GoalTask = {
 };
 
 type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset';
-type StrikeCode = 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'OFFICECOURSE' | 'CHESS' | 'EYECARE';
+type StrikeCode = 'O' | 'L1' | 'L2' | 'L3' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'OFFICECOURSE' | 'CHESS' | 'EYECARE';
 type StrikeFamily = 'O' | 'L' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'OFFICECOURSE' | 'CHESS' | 'EYECARE';
 
 type GoalActivity = {
@@ -61,7 +61,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v41';
+const APP_VERSION = 'cloud-sync-v42';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-06-28';
@@ -99,7 +99,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
   evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
-const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Book read', 'Study 2 hour', 'Office work', 'Office course', 'Chess improvement', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
+const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Book read', 'Study 2 hour', 'Office work', 'Office course', 'Chess improvement', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
 
 const starterStore: GoalsStore = {
   today: [
@@ -289,7 +289,7 @@ function formatClock(date: Date) {
 
 function normalizeStrikeCode(text: string) {
   const compact = text.trim().toUpperCase().replace(/\s+/g, '');
-  if (/^O[123]$/.test(compact)) return compact as Extract<StrikeCode, 'O1' | 'O2' | 'O3'>;
+  if (compact === 'O' || /^O[123]$/.test(compact)) return 'O';
   if (/^L[123]$/.test(compact)) return compact as Extract<StrikeCode, 'L1' | 'L2' | 'L3'>;
   if (compact === 'M') return 'M';
   if (compact === 'GYM') return 'GYM';
@@ -315,12 +315,28 @@ function isHabitTask(text: string) {
 function ensureHabitTemplates(store: GoalsStore): GoalsStore {
   const canonicalHabitText = new Map(HABIT_TASKS.map((text) => [normalizeStrikeCode(text), text]));
   let changed = false;
-  const today = store.today.map((task) => {
+  const seenHabitIndexes = new Map<string, number>();
+  const today: GoalTask[] = [];
+  store.today.forEach((task) => {
     const code = normalizeStrikeCode(task.text);
     const canonicalText = code ? canonicalHabitText.get(code) : undefined;
-    if (!canonicalText || task.text === canonicalText) return task;
+    if (!code || !canonicalText) {
+      today.push(task);
+      return;
+    }
+    const normalizedTask = task.text === canonicalText ? task : { ...task, text: canonicalText };
+    if (normalizedTask !== task) changed = true;
+    const existingIndex = seenHabitIndexes.get(code);
+    if (existingIndex === undefined) {
+      seenHabitIndexes.set(code, today.length);
+      today.push(normalizedTask);
+      return;
+    }
     changed = true;
-    return { ...task, text: canonicalText };
+    const existing = today[existingIndex];
+    if (normalizedTask.done && !existing.done) {
+      today[existingIndex] = normalizedTask;
+    }
   });
   const existingHabits = new Set(
     today
@@ -405,7 +421,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
 
   const dayResults = Array.from(byDay.entries()).map(([day, codes]) => ({
     day,
-    o: ['O1', 'O2', 'O3'].every((code) => codes.has(code)),
+    o: codes.has('O'),
     l: ['L1', 'L2', 'L3'].every((code) => codes.has(code)),
     m: codes.has('M'),
     gym: codes.has('GYM'),
@@ -1725,7 +1741,7 @@ export function SgGoalsApp() {
 
           <div className="grid grid-cols-3 gap-2">
             {[
-              { key: 'O' as const, label: 'O count', rule: 'O1 + O2 + O3', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
+              { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
               { key: 'L' as const, label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },
               { key: 'M' as const, label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m },
               { key: 'GYM' as const, label: 'Gym count', rule: 'Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
