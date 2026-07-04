@@ -39,6 +39,14 @@ type GoalActivity = {
 };
 
 type GoalsStore = Record<Scope, GoalTask[]>;
+type WeeklyPlan = {
+  mainGoal: string;
+  studyPlan: string;
+  workPlan: string;
+  healthPlan: string;
+  notes: string;
+  updatedAt: string;
+};
 type TargetState = {
   taskIds: string[];
   taskMinutes?: Record<string, number>;
@@ -51,6 +59,7 @@ type TargetState = {
 
 const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
+const WEEKLY_PLAN_KEY = 'sg-goals-weekly-plan-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
@@ -61,7 +70,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v48';
+const APP_VERSION = 'cloud-sync-v49';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-06-28';
@@ -130,6 +139,15 @@ const starterStore: GoalsStore = {
     makeTask('Learn Kannada fluently', undefined, 'looks')
   ],
   tomorrow: []
+};
+
+const emptyWeeklyPlan: WeeklyPlan = {
+  mainGoal: '',
+  studyPlan: '',
+  workPlan: '',
+  healthPlan: '',
+  notes: '',
+  updatedAt: '1970-01-01T00:00:00.000Z'
 };
 
 function makeTask(text: string, note: string | undefined, priority: Priority, block?: Block): GoalTask {
@@ -213,6 +231,31 @@ function loadActivities(): GoalActivity[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+function isWeeklyPlan(value: unknown): value is WeeklyPlan {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<WeeklyPlan>;
+  return (
+    typeof candidate.mainGoal === 'string' &&
+    typeof candidate.studyPlan === 'string' &&
+    typeof candidate.workPlan === 'string' &&
+    typeof candidate.healthPlan === 'string' &&
+    typeof candidate.notes === 'string' &&
+    typeof candidate.updatedAt === 'string'
+  );
+}
+
+function loadWeeklyPlan(): WeeklyPlan {
+  if (typeof window === 'undefined') return emptyWeeklyPlan;
+  const raw = window.localStorage.getItem(WEEKLY_PLAN_KEY);
+  if (!raw) return emptyWeeklyPlan;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isWeeklyPlan(parsed) ? parsed : emptyWeeklyPlan;
+  } catch {
+    return emptyWeeklyPlan;
   }
 }
 
@@ -546,6 +589,7 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
 export function SgGoalsApp() {
   const [store, setStore] = useState<GoalsStore>(starterStore);
   const [activities, setActivities] = useState<GoalActivity[]>([]);
+  const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(emptyWeeklyPlan);
   const [ready, setReady] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
   const [syncState, setSyncState] = useState<'loading' | 'local' | 'saving' | 'saved' | 'error'>('loading');
@@ -624,6 +668,7 @@ export function SgGoalsApp() {
     let cancelled = false;
     const localStore = ensureHabitTemplates(loadStore());
     const localActivities = loadActivities();
+    const localWeeklyPlan = loadWeeklyPlan();
     const legacyTargetId = window.localStorage.getItem(MAIN_GOAL_KEY) || '';
     let savedTargetIds: string[] = [];
     try {
@@ -647,6 +692,7 @@ export function SgGoalsApp() {
     const savedTargetUpdatedAt = window.localStorage.getItem(TARGET_UPDATED_KEY) || '1970-01-01T00:00:00.000Z';
     setStore(localStore);
     setActivities(localActivities);
+    setWeeklyPlan(localWeeklyPlan);
     setMainGoalId(legacyTargetId);
     setTargetTaskIds(savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : []);
     setTargetTaskMinutes(savedTargetMinutes);
@@ -659,10 +705,14 @@ export function SgGoalsApp() {
       try {
         const response = await fetch('/api/goals', { cache: 'no-store' });
         if (!response.ok) throw new Error('Cloud database is not ready.');
-        const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; hasCloudData?: boolean };
+        const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; weeklyPlan?: unknown; hasCloudData?: boolean };
         if (cancelled) return;
         if (data.hasCloudData && data.store) {
           setStore(ensureHabitTemplates(data.store));
+          if (isWeeklyPlan(data.weeklyPlan)) {
+            setWeeklyPlan(data.weeklyPlan);
+            window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(data.weeklyPlan));
+          }
           if (isTargetState(data.targetState)) {
             const cloudTime = new Date(data.targetState.updatedAt).getTime();
             const localTime = new Date(savedTargetUpdatedAt).getTime();
@@ -687,7 +737,8 @@ export function SgGoalsApp() {
                 remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS,
                 durationMs: TARGET_DURATION_MS,
                 updatedAt: savedTargetUpdatedAt
-              }
+              },
+              weeklyPlan: localWeeklyPlan
             })
           });
         }
@@ -764,6 +815,10 @@ export function SgGoalsApp() {
   }, [activities, ready]);
 
   useEffect(() => {
+    if (ready) window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(weeklyPlan));
+  }, [ready, weeklyPlan]);
+
+  useEffect(() => {
     if (ready) window.localStorage.setItem(MAIN_GOAL_KEY, mainGoalId);
   }, [mainGoalId, ready]);
 
@@ -837,7 +892,8 @@ export function SgGoalsApp() {
               remainingMs: targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs,
               durationMs: TARGET_DURATION_MS,
               updatedAt: targetUpdatedAt
-            }
+            },
+            weeklyPlan
           })
         });
         if (!response.ok) throw new Error('Save failed.');
@@ -850,7 +906,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, ready, store, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
+  }, [cloudReady, ready, store, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1170,6 +1226,21 @@ export function SgGoalsApp() {
   function resetDraft() {
     setEditing(null);
     setDraft({ text: '', note: '', dueTime: '', priority: 'career', block: 'morning' });
+  }
+
+  function updateWeeklyPlan(field: keyof Omit<WeeklyPlan, 'updatedAt'>, value: string) {
+    setWeeklyPlan((current) => ({
+      ...current,
+      [field]: value,
+      updatedAt: new Date().toISOString()
+    }));
+  }
+
+  function clearWeeklyPlan() {
+    setWeeklyPlan({
+      ...emptyWeeklyPlan,
+      updatedAt: new Date().toISOString()
+    });
   }
 
   function saveTask() {
@@ -1616,6 +1687,7 @@ export function SgGoalsApp() {
       `Current streak: ${streaks.current} day(s)`,
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
+      `Weekly plan: Main=${weeklyPlan.mainGoal || 'Not set'}; Study=${weeklyPlan.studyPlan || 'Not set'}; Work=${weeklyPlan.workPlan || 'Not set'}; Health=${weeklyPlan.healthPlan || 'Not set'}; Notes=${weeklyPlan.notes || 'None'}`,
       `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Healthy drink morning=${strikeCounts.healthyDrinkMorning}, Healthy drink evening=${strikeCounts.healthyDrinkEvening}, Eye care=${strikeCounts.eyeCare}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Office course=${strikeCounts.officeCourse}, Sleep 11 to 6=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
       `Next 2 hour target: ${
         targetTasks.length
@@ -2097,6 +2169,70 @@ export function SgGoalsApp() {
       {scope === 'weekly' ? (
         <>
           <section className="mx-auto max-w-4xl px-5 pb-2">
+            <div className="mb-4 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Weekly planning</p>
+                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Plan this week before the days get noisy</h2>
+                  <p className="mt-1 text-xs text-[#8b8bb3]">Write the main direction, then break it into study, work, and health focus.</p>
+                </div>
+                <button onClick={clearWeeklyPlan} className="shrink-0 rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b]">
+                  Clear
+                </button>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Main goal</span>
+                  <textarea
+                    value={weeklyPlan.mainGoal}
+                    onChange={(event) => updateWeeklyPlan('mainGoal', event.target.value)}
+                    placeholder="Example: Finish Spark module and stay consistent with gym."
+                    rows={3}
+                    className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Study plan</span>
+                  <textarea
+                    value={weeklyPlan.studyPlan}
+                    onChange={(event) => updateWeeklyPlan('studyPlan', event.target.value)}
+                    placeholder="Topics, hours, course modules, practice problems..."
+                    rows={3}
+                    className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Work plan</span>
+                  <textarea
+                    value={weeklyPlan.workPlan}
+                    onChange={(event) => updateWeeklyPlan('workPlan', event.target.value)}
+                    placeholder="Office work, course work, deep-work blocks..."
+                    rows={3}
+                    className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Health plan</span>
+                  <textarea
+                    value={weeklyPlan.healthPlan}
+                    onChange={(event) => updateWeeklyPlan('healthPlan', event.target.value)}
+                    placeholder="Gym days, food rules, sleep, water, recovery..."
+                    rows={3}
+                    className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                  />
+                </label>
+                <label className="block md:col-span-2">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Notes / risk</span>
+                  <textarea
+                    value={weeklyPlan.notes}
+                    onChange={(event) => updateWeeklyPlan('notes', event.target.value)}
+                    placeholder="What can block this week? What is the backup plan?"
+                    rows={3}
+                    className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                  />
+                </label>
+              </div>
+            </div>
             <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>

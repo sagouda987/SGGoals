@@ -15,6 +15,14 @@ type GoalTaskInput = {
   updatedAt?: string;
 };
 type GoalsStoreInput = Record<Scope, GoalTaskInput[]>;
+type WeeklyPlanInput = {
+  mainGoal: string;
+  studyPlan: string;
+  workPlan: string;
+  healthPlan: string;
+  notes: string;
+  updatedAt: string;
+};
 type TargetStateInput = {
   taskIds: string[];
   taskMinutes?: Record<string, number>;
@@ -28,6 +36,7 @@ type TargetStateInput = {
 const scopes: Scope[] = ['today', 'weekly', 'monthly', 'yearly', 'tomorrow'];
 const ownerKey = 'default';
 const targetStateId = '__target_state__';
+const weeklyPlanId = '__weekly_plan__';
 const targetStateScope = '__meta__';
 
 export const dynamic = 'force-dynamic';
@@ -67,11 +76,34 @@ function isTargetState(value: unknown): value is TargetStateInput {
   );
 }
 
+function isWeeklyPlan(value: unknown): value is WeeklyPlanInput {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<WeeklyPlanInput>;
+  return (
+    typeof candidate.mainGoal === 'string' &&
+    typeof candidate.studyPlan === 'string' &&
+    typeof candidate.workPlan === 'string' &&
+    typeof candidate.healthPlan === 'string' &&
+    typeof candidate.notes === 'string' &&
+    typeof candidate.updatedAt === 'string'
+  );
+}
+
 function parseTargetState(value: string | null | undefined) {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
     return isTargetState(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseWeeklyPlan(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isWeeklyPlan(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -85,6 +117,9 @@ export async function GET() {
     });
     const targetStateRow = await prisma.goalTask.findUnique({
       where: { id: targetStateId }
+    });
+    const weeklyPlanRow = await prisma.goalTask.findUnique({
+      where: { id: weeklyPlanId }
     });
 
     const store = emptyStore();
@@ -104,8 +139,9 @@ export async function GET() {
       });
     });
     const targetState = parseTargetState(targetStateRow?.note);
+    const weeklyPlan = parseWeeklyPlan(weeklyPlanRow?.note);
 
-    return NextResponse.json({ store, targetState, hasCloudData: rows.length > 0 });
+    return NextResponse.json({ store, targetState, weeklyPlan, hasCloudData: rows.length > 0 || Boolean(weeklyPlan) });
   } catch (error) {
     console.error('Failed to load goals', error);
     return NextResponse.json({ error: 'Database is not ready yet.' }, { status: 503 });
@@ -114,11 +150,12 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    const body = (await req.json()) as { store?: unknown; targetState?: unknown };
+    const body = (await req.json()) as { store?: unknown; targetState?: unknown; weeklyPlan?: unknown };
     if (!isGoalStore(body.store)) {
       return NextResponse.json({ error: 'Invalid goals payload.' }, { status: 400 });
     }
     const targetState = isTargetState(body.targetState) ? body.targetState : null;
+    const weeklyPlan = isWeeklyPlan(body.weeklyPlan) ? body.weeklyPlan : null;
 
     const store = body.store;
     const rows = scopes.flatMap((scope) =>
@@ -174,6 +211,26 @@ export async function PUT(req: NextRequest) {
               }
             });
           }
+        }
+
+        if (weeklyPlan) {
+          await tx.goalTask.upsert({
+            where: { id: weeklyPlanId },
+            create: {
+              id: weeklyPlanId,
+              ownerKey,
+              scope: targetStateScope,
+              text: 'Weekly planning state',
+              note: JSON.stringify(weeklyPlan),
+              priority: 'other',
+              done: false,
+              position: 1
+            },
+            update: {
+              note: JSON.stringify(weeklyPlan),
+              updatedAt: new Date()
+            }
+          });
         }
       },
       { maxWait: 15000, timeout: 15000 }
