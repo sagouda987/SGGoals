@@ -110,6 +110,28 @@ const blocks: Record<Block, { label: string; time: string }> = {
 
 const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Book read', 'Study 2 hour', 'Office work', 'Office course', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
 const REMOVED_HABIT_TASKS = ['Chess improvement'];
+const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
+const HABIT_MISS_ROLLOVER_KEY = 'sg-goals-habit-miss-rollover-v1';
+
+const habitLabels: Partial<Record<StrikeCode, string>> = {
+  O: 'O',
+  L1: 'L1',
+  L2: 'L2',
+  L3: 'L3',
+  M: 'M',
+  GYM: 'Gym',
+  HEALTHYDRINKMORNING: 'Healthy drink morning',
+  HEALTHYDRINKEVENING: 'Healthy drink evening',
+  BOOK: 'Book read',
+  STUDY2: 'Study 2 hour',
+  OFFICEWORK2: 'Office work',
+  SLEEP: 'Sleep 11 to 6',
+  NOJUNK: 'No junk food',
+  MANIFEST: 'Manifestation',
+  NOSOCIAL: 'No Social Media',
+  OFFICECOURSE: 'Office course',
+  EYECARE: 'Eye care'
+};
 
 const starterStore: GoalsStore = {
   today: [
@@ -289,6 +311,14 @@ function toISODate(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
+function toIstDateKey(date = new Date()) {
+  return toISODate(new Date(date.getTime() + 330 * 60000));
+}
+
+function istHour(date = new Date()) {
+  return new Date(date.getTime() + 330 * 60000).getUTCHours();
+}
+
 function parseTodayTime(timeValue: string) {
   return parseStartDate(timeValue);
 }
@@ -363,6 +393,31 @@ function normalizeStrikeCode(text: string) {
 
 function isHabitTask(text: string) {
   return normalizeStrikeCode(text) !== null;
+}
+
+function isAutoHabitMiss(activity: GoalActivity) {
+  return activity.kind === 'failure' && activity.note?.startsWith(AUTO_HABIT_MISS_NOTE);
+}
+
+function buildHabitMissCounts(activities: GoalActivity[], days: Date[]) {
+  const keySet = new Set(days.map(toISODate));
+  const counts = new Map<string, { label: string; count: number; lastMissedAt: string }>();
+  activities.forEach((activity) => {
+    if (!isAutoHabitMiss(activity)) return;
+    if (!keySet.has(dateKeyFromValue(activity.createdAt))) return;
+    const code = normalizeStrikeCode(activity.taskText);
+    const label = code ? habitLabels[code] || activity.taskText : activity.taskText;
+    const current = counts.get(label);
+    counts.set(label, {
+      label,
+      count: (current?.count || 0) + 1,
+      lastMissedAt:
+        !current || new Date(activity.createdAt).getTime() > new Date(current.lastMissedAt).getTime()
+          ? activity.createdAt
+          : current.lastMissedAt
+    });
+  });
+  return Array.from(counts.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 function isRemovedHabitTask(text: string) {
@@ -910,6 +965,27 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
+    const todayIst = toIstDateKey();
+    if (istHour() < 3) return;
+    if (window.localStorage.getItem(HABIT_MISS_ROLLOVER_KEY) === todayIst) return;
+    window.localStorage.setItem(HABIT_MISS_ROLLOVER_KEY, todayIst);
+    void fetch('/api/goals/rollover', { method: 'POST' })
+      .then((response) => (response.ok ? fetch('/api/goals/activities', { cache: 'no-store' }) : null))
+      .then(async (response) => {
+        if (!response) return;
+        const data = (await response.json()) as { activities?: GoalActivity[] };
+        if (Array.isArray(data.activities)) {
+          setActivities(data.activities);
+          window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(data.activities));
+        }
+      })
+      .catch(() => {
+        window.localStorage.removeItem(HABIT_MISS_ROLLOVER_KEY);
+      });
+  }, [cloudReady, ready]);
+
+  useEffect(() => {
+    if (!ready || !cloudReady) return;
     const interval = window.setInterval(async () => {
       try {
         const response = await fetch('/api/goals', { cache: 'no-store' });
@@ -971,6 +1047,8 @@ export function SgGoalsApp() {
 
   const analytics = useMemo(() => buildAnalytics(activities, trendWindow), [activities, trendWindow]);
   const monthlyAnalytics = useMemo(() => buildAnalytics(activities, monthWindow, 10), [activities, monthWindow]);
+  const weeklyHabitMissCounts = useMemo(() => buildHabitMissCounts(activities, trendWindow), [activities, trendWindow]);
+  const monthlyHabitMissCounts = useMemo(() => buildHabitMissCounts(activities, monthWindow), [activities, monthWindow]);
 
   const overallScore = useMemo(() => {
     if (!analytics.scorecard.length) return 0;
@@ -1836,6 +1914,40 @@ export function SgGoalsApp() {
     );
   }
 
+  function renderHabitMissCountsSection(title: string, subtitle: string, counts: Array<{ label: string; count: number; lastMissedAt: string }>) {
+    return (
+      <section className="mx-auto max-w-4xl px-5 pb-2">
+        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">{title}</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{subtitle}</h2>
+            </div>
+            <div className="rounded-lg bg-[#f7a04f15] px-3 py-2 text-sm font-bold text-[#f7a04f]">{counts.reduce((total, item) => total + item.count, 0)}</div>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {counts.length ? (
+              counts.map((item) => (
+                <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-[#e8e8f5]">{item.label}</p>
+                    <p className="mt-1 text-[11px] text-[#8b8bb3]">Last missed {formatDateShort(item.lastMissedAt)}</p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-[#ff6b6b18] px-2 py-1 text-xs font-bold text-[#ff6b6b]">{item.count}</span>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a] md:col-span-2">
+                No auto-counted habit misses in this period.
+              </div>
+            )}
+          </div>
+          <p className="mt-3 text-[11px] text-[#52527a]">Auto counted after 3:00 AM IST from the previous day&apos;s incomplete Habit tasks.</p>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#07070f] pb-24 text-[#e8e8f5]">
       <section className="border-b border-[#1a1a30] bg-[#0b0b1c] px-5 pb-5 pt-10">
@@ -2300,12 +2412,14 @@ export function SgGoalsApp() {
               </div>
             </div>
           </section>
+          {renderHabitMissCountsSection('Habit missed count', 'Auto-counted missed habits for the last 7 days.', weeklyHabitMissCounts)}
           {renderFailurePatternsSection('7-day failure patterns', 'Learn from misses without carrying them into today.', analytics, failurePatterns)}
         </>
       ) : null}
 
       {scope === 'monthly' ? (
         <>
+          {renderHabitMissCountsSection('Monthly habit missed count', 'Auto-counted missed habits for this month.', monthlyHabitMissCounts)}
           {renderFailurePatternsSection('Monthly failure patterns', 'Review recurring misses for this month without mixing them into today.', monthlyAnalytics, monthlyFailurePatterns)}
         </>
       ) : null}
