@@ -70,7 +70,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v53';
+const APP_VERSION = 'cloud-sync-v54';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
@@ -1985,7 +1985,7 @@ export function SgGoalsApp() {
     total: activeTasks.filter((task) => task.priority === priority).length
   }));
 
-  const sideMissLog = scope === 'monthly' ? monthlyAnalytics.failures : scope === 'today' ? todayFocus.misses : analytics.failures;
+  const sideMissLog = (scope === 'monthly' ? monthlyAnalytics.failures : scope === 'today' ? todayFocus.misses : analytics.failures).filter((activity) => !isAutoHabitMiss(activity));
   const sideMissLogTitle = scope === 'monthly' ? 'Monthly miss log' : scope === 'today' ? 'Today miss log' : '7-day miss log';
   const taskSyncLabel = syncState === 'saved' ? 'Tasks synced' : syncState === 'saving' ? 'Tasks saving' : syncState === 'loading' ? 'Tasks loading' : syncState === 'error' ? 'Tasks save failed' : 'Tasks local';
   const timerSyncLabel =
@@ -2014,6 +2014,8 @@ export function SgGoalsApp() {
               : 'Loading your saved goals...';
 
   function renderFailurePatternsSection(title: string, subtitle: string, data: AnalyticsWindow, patterns: Array<{ reason: string; count: number }>) {
+    const visibleFailures = data.failures.filter((activity) => !isAutoHabitMiss(activity));
+
     return (
       <section className="mx-auto max-w-4xl px-5 pb-2">
         <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
@@ -2047,8 +2049,8 @@ export function SgGoalsApp() {
             <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
               <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Pattern log</p>
               <div className="mt-3 space-y-2">
-                {data.failures.length ? (
-                  data.failures.map((activity) => (
+                {visibleFailures.length ? (
+                  visibleFailures.map((activity) => (
                     <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
                       <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
                       <p className="mt-1 text-[11px] text-[#8b8bb3]">
