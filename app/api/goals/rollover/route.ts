@@ -64,6 +64,7 @@ function normalizeHabitCode(text: string) {
 async function recordHabitMisses() {
   const missedDateKey = previousIstDateKey();
   const createdAt = istDateKeyToUtcDate(missedDateKey, 23, 59);
+  const autoMissNote = `${AUTO_HABIT_MISS_NOTE}:${missedDateKey}`;
   const habitTasks = await prisma.goalTask.findMany({
     where: {
       ownerKey,
@@ -71,25 +72,43 @@ async function recordHabitMisses() {
       OR: [{ block: 'habit' }, { text: { in: Object.values(habitLabels) } }]
     }
   });
+  const existingMisses = await prisma.goalActivity.findMany({
+    where: {
+      ownerKey,
+      scope: 'today',
+      kind: 'failure',
+      reason: 'Missed habit',
+      note: autoMissNote
+    },
+    select: {
+      id: true,
+      taskText: true
+    }
+  });
+  const existingKeys = new Set(existingMisses.flatMap((activity) => [activity.id, activity.taskText]));
+  const plannedCodes = new Set<string>();
 
   const rows = habitTasks
     .filter((task) => !task.done)
-    .map((task) => {
+    .flatMap((task) => {
       const code = normalizeHabitCode(task.text);
-      if (!code) return null;
-      return {
-        id: `habit-miss-${missedDateKey}-${code}`,
+      if (!code || plannedCodes.has(code)) return [];
+      const id = `habit-miss-${missedDateKey}-${code}`;
+      const taskText = habitLabels[code] || task.text;
+      if (existingKeys.has(id) || existingKeys.has(taskText)) return [];
+      plannedCodes.add(code);
+      return [{
+        id,
         ownerKey,
         scope: 'today',
         priority: 'other',
-        taskText: habitLabels[code] || task.text,
+        taskText,
         kind: 'failure',
         reason: 'Missed habit',
-        note: `${AUTO_HABIT_MISS_NOTE}:${missedDateKey}`,
+        note: autoMissNote,
         createdAt
-      };
+      }];
     })
-    .filter((row): row is NonNullable<typeof row> => Boolean(row));
 
   if (rows.length) {
     await prisma.goalActivity.createMany({
@@ -98,7 +117,7 @@ async function recordHabitMisses() {
     });
   }
 
-  return { missedDateKey, checked: habitTasks.length, recorded: rows.length };
+  return { missedDateKey, checked: habitTasks.length, existing: existingMisses.length, recorded: rows.length };
 }
 
 export async function GET() {
