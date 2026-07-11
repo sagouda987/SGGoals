@@ -70,7 +70,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v52';
+const APP_VERSION = 'cloud-sync-v53';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
@@ -712,7 +712,7 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
 
   const keys = days.map(toISODate);
   const keySet = new Set(keys);
-  const recent = activities.filter((activity) => keySet.has(dateKeyFromValue(activity.createdAt)));
+  const recent = activities.filter((activity) => keySet.has(dateKeyFromValue(activity.createdAt)) && !isAutoHabitMiss(activity));
 
   recent.forEach((activity) => {
     if (activity.kind === 'strike-reset') return;
@@ -1198,14 +1198,14 @@ export function SgGoalsApp() {
   }, [currentDateKey]);
 
   const todayFocus = useMemo(() => {
-    const todayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === todayKey);
+    const todayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === todayKey && !isAutoHabitMiss(activity));
     const misses = todayActivities.filter((activity) => activity.kind === 'failure');
     const minutes = todayActivities.reduce((total, activity) => (activity.kind === 'completion' ? total + (activity.minutes || 0) : total), 0);
     return { misses, minutes };
   }, [activities, todayKey]);
 
   const yesterdaySummary = useMemo(() => {
-    const yesterdayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === yesterdayKey);
+    const yesterdayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === yesterdayKey && !isAutoHabitMiss(activity));
     const completed = yesterdayActivities.reduce((total, activity) => {
       if (activity.kind === 'completion') return total + 1;
       if (activity.kind === 'undo') return Math.max(0, total - 1);
