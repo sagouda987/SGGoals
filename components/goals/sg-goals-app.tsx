@@ -70,10 +70,10 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v51';
+const APP_VERSION = 'cloud-sync-v52';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
-const DAY_COUNTER_START_DATE = '2026-07-12';
+const DAY_COUNTER_START_DATE = '2026-07-11';
 const COUNTER_RESET_DATE = DAY_COUNTER_START_DATE;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -2300,7 +2300,7 @@ export function SgGoalsApp() {
                 <span className="text-[10px] font-bold text-[#00d97e]">Auto +1</span>
               </div>
               <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{dayCounter}</p>
-              <p className="mt-1 text-[10px] text-[#8b8bb3]">Started July 12, 2026</p>
+              <p className="mt-1 text-[10px] text-[#8b8bb3]">Started July 11, 2026</p>
             </div>
           </div>
         </div>
