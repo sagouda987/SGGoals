@@ -70,7 +70,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v54';
+const APP_VERSION = 'cloud-sync-v55';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
@@ -712,7 +712,10 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
 
   const keys = days.map(toISODate);
   const keySet = new Set(keys);
-  const recent = activities.filter((activity) => keySet.has(dateKeyFromValue(activity.createdAt)) && !isAutoHabitMiss(activity));
+  const recent = activities.filter((activity) => {
+    const activityKey = dateKeyFromValue(activity.createdAt);
+    return activityKey >= DAY_COUNTER_START_DATE && keySet.has(activityKey) && !isAutoHabitMiss(activity);
+  });
 
   recent.forEach((activity) => {
     if (activity.kind === 'strike-reset') return;
