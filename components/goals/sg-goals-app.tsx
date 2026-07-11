@@ -319,6 +319,36 @@ function istHour(date = new Date()) {
   return new Date(date.getTime() + 330 * 60000).getUTCHours();
 }
 
+function buildIstDateWindow(start: Date, end: Date) {
+  const days: Date[] = [];
+  const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+  const last = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  while (cursor <= last) {
+    days.push(new Date(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+}
+
+function buildWeeklyHabitMissWindow(now = new Date()) {
+  const istNow = new Date(now.getTime() + 330 * 60000);
+  const start = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()));
+  start.setUTCDate(start.getUTCDate() - start.getUTCDay());
+  if (istNow.getUTCDay() === 0 && istNow.getUTCHours() < 3) {
+    start.setUTCDate(start.getUTCDate() - 7);
+  }
+  return buildIstDateWindow(start, istNow);
+}
+
+function buildMonthlyHabitMissWindow(now = new Date()) {
+  const istNow = new Date(now.getTime() + 330 * 60000);
+  const start = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1));
+  if (istNow.getUTCDate() === 1 && istNow.getUTCHours() < 3) {
+    start.setUTCMonth(start.getUTCMonth() - 1);
+  }
+  return buildIstDateWindow(start, istNow);
+}
+
 function parseTodayTime(timeValue: string) {
   return parseStartDate(timeValue);
 }
@@ -1044,11 +1074,13 @@ export function SgGoalsApp() {
     }
     return days;
   }, [currentDateKey]);
+  const weeklyHabitMissWindow = useMemo(() => buildWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
+  const monthlyHabitMissWindow = useMemo(() => buildMonthlyHabitMissWindow(new Date(timerNow)), [timerNow]);
 
   const analytics = useMemo(() => buildAnalytics(activities, trendWindow), [activities, trendWindow]);
   const monthlyAnalytics = useMemo(() => buildAnalytics(activities, monthWindow, 10), [activities, monthWindow]);
-  const weeklyHabitMissCounts = useMemo(() => buildHabitMissCounts(activities, trendWindow), [activities, trendWindow]);
-  const monthlyHabitMissCounts = useMemo(() => buildHabitMissCounts(activities, monthWindow), [activities, monthWindow]);
+  const weeklyHabitMissCounts = useMemo(() => buildHabitMissCounts(activities, weeklyHabitMissWindow), [activities, weeklyHabitMissWindow]);
+  const monthlyHabitMissCounts = useMemo(() => buildHabitMissCounts(activities, monthlyHabitMissWindow), [activities, monthlyHabitMissWindow]);
 
   const overallScore = useMemo(() => {
     if (!analytics.scorecard.length) return 0;
@@ -1942,7 +1974,7 @@ export function SgGoalsApp() {
               </div>
             )}
           </div>
-          <p className="mt-3 text-[11px] text-[#52527a]">Auto counted after 3:00 AM IST from the previous day&apos;s incomplete Habit tasks.</p>
+          <p className="mt-3 text-[11px] text-[#52527a]">Auto counted at 3:00 AM IST from the previous day&apos;s incomplete Habit tasks.</p>
         </div>
       </section>
     );
@@ -2412,14 +2444,14 @@ export function SgGoalsApp() {
               </div>
             </div>
           </section>
-          {renderHabitMissCountsSection('Habit missed count', 'Auto-counted missed habits for the last 7 days.', weeklyHabitMissCounts)}
+          {renderHabitMissCountsSection('Habit missed count', 'Weekly counter resets every Sunday at 3:00 AM IST.', weeklyHabitMissCounts)}
           {renderFailurePatternsSection('7-day failure patterns', 'Learn from misses without carrying them into today.', analytics, failurePatterns)}
         </>
       ) : null}
 
       {scope === 'monthly' ? (
         <>
-          {renderHabitMissCountsSection('Monthly habit missed count', 'Auto-counted missed habits for this month.', monthlyHabitMissCounts)}
+          {renderHabitMissCountsSection('Monthly habit missed count', 'Monthly counter resets on the 1st day at 3:00 AM IST.', monthlyHabitMissCounts)}
           {renderFailurePatternsSection('Monthly failure patterns', 'Review recurring misses for this month without mixing them into today.', monthlyAnalytics, monthlyFailurePatterns)}
         </>
       ) : null}
