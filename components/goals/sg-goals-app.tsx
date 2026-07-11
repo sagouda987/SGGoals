@@ -70,10 +70,11 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v50';
+const APP_VERSION = 'cloud-sync-v51';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
-const DAY_COUNTER_START_DATE = '2026-06-28';
+const DAY_COUNTER_START_DATE = '2026-07-12';
+const COUNTER_RESET_DATE = DAY_COUNTER_START_DATE;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -448,11 +449,16 @@ function isAutoHabitMiss(activity: GoalActivity) {
   return activity.kind === 'failure' && activity.note?.startsWith(AUTO_HABIT_MISS_NOTE);
 }
 
+function isAfterCounterReset(dateValue: string) {
+  return dateKeyFromValue(dateValue) >= COUNTER_RESET_DATE;
+}
+
 function buildHabitMissCounts(activities: GoalActivity[], days: Date[]) {
   const keySet = new Set(days.map(toISODate));
   const counts = new Map<string, { label: string; count: number; lastMissedAt: string }>();
   activities.forEach((activity) => {
     if (!isAutoHabitMiss(activity)) return;
+    if (!isAfterCounterReset(activity.createdAt)) return;
     if (!keySet.has(dateKeyFromValue(activity.createdAt))) return;
     const code = normalizeStrikeCode(activity.taskText);
     const label = code ? habitLabels[code] || activity.taskText : activity.taskText;
@@ -474,6 +480,7 @@ function buildHabitCompletionCounts(activities: GoalActivity[], days: Date[]) {
   const counts = new Map<string, number>();
   activities.forEach((activity) => {
     if (activity.kind !== 'completion') return;
+    if (!isAfterCounterReset(activity.createdAt)) return;
     if (!keySet.has(dateKeyFromValue(activity.createdAt))) return;
     const code = normalizeStrikeCode(activity.taskText);
     if (!code) return;
@@ -602,7 +609,8 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     if (!byDay.has(day)) byDay.set(day, new Set<string>());
     return byDay.get(day) as Set<string>;
   };
-  const resetAt: Record<StrikeFamily, number> = { O: 0, L: 0, M: 0, GYM: 0, HEALTHYDRINKMORNING: 0, HEALTHYDRINKEVENING: 0, BOOK: 0, STUDY2: 0, OFFICEWORK2: 0, SLEEP: 0, NOJUNK: 0, MANIFEST: 0, NOSOCIAL: 0, OFFICECOURSE: 0, EYECARE: 0 };
+  const counterResetAt = new Date(`${COUNTER_RESET_DATE}T00:00:00`).getTime();
+  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, OFFICECOURSE: counterResetAt, EYECARE: counterResetAt };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
     if (code.startsWith('L')) return 'L';
@@ -637,6 +645,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
   activities
     .filter((activity) => activity.scope === 'today')
     .forEach((activity) => {
+      if (!isAfterCounterReset(activity.createdAt)) return;
       const code = normalizeStrikeCode(activity.taskText);
       if (!code) return;
       const family = familyForCode(code);
@@ -2291,7 +2300,7 @@ export function SgGoalsApp() {
                 <span className="text-[10px] font-bold text-[#00d97e]">Auto +1</span>
               </div>
               <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{dayCounter}</p>
-              <p className="mt-1 text-[10px] text-[#8b8bb3]">Started Jun 28, 2026</p>
+              <p className="mt-1 text-[10px] text-[#8b8bb3]">Started July 12, 2026</p>
             </div>
           </div>
         </div>
