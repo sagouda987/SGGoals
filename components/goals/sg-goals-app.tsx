@@ -70,7 +70,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v49';
+const APP_VERSION = 'cloud-sync-v50';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-06-28';
@@ -349,6 +349,25 @@ function buildMonthlyHabitMissWindow(now = new Date()) {
   return buildIstDateWindow(start, istNow);
 }
 
+function buildPreviousWeeklyHabitMissWindow(now = new Date()) {
+  const current = buildWeeklyHabitMissWindow(now);
+  const currentStart = current[0] || new Date();
+  const previousStart = new Date(currentStart);
+  previousStart.setUTCDate(previousStart.getUTCDate() - 7);
+  const previousEnd = new Date(currentStart);
+  previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+  return buildIstDateWindow(previousStart, previousEnd);
+}
+
+function buildPreviousMonthlyHabitMissWindow(now = new Date()) {
+  const current = buildMonthlyHabitMissWindow(now);
+  const currentStart = current[0] || new Date();
+  const previousStart = new Date(Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() - 1, 1));
+  const previousEnd = new Date(currentStart);
+  previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+  return buildIstDateWindow(previousStart, previousEnd);
+}
+
 function parseTodayTime(timeValue: string) {
   return parseStartDate(timeValue);
 }
@@ -448,6 +467,78 @@ function buildHabitMissCounts(activities: GoalActivity[], days: Date[]) {
     });
   });
   return Array.from(counts.values()).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function buildHabitCompletionCounts(activities: GoalActivity[], days: Date[]) {
+  const keySet = new Set(days.map(toISODate));
+  const counts = new Map<string, number>();
+  activities.forEach((activity) => {
+    if (activity.kind !== 'completion') return;
+    if (!keySet.has(dateKeyFromValue(activity.createdAt))) return;
+    const code = normalizeStrikeCode(activity.taskText);
+    if (!code) return;
+    const label = habitLabels[code] || activity.taskText;
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+  return counts;
+}
+
+function buildHabitInsights(activities: GoalActivity[], currentDays: Date[], previousDays: Date[]) {
+  const currentMisses = buildHabitMissCounts(activities, currentDays);
+  const previousMisses = buildHabitMissCounts(activities, previousDays);
+  const completions = buildHabitCompletionCounts(activities, currentDays);
+  const currentMissMap = new Map(currentMisses.map((item) => [item.label, item.count]));
+  const previousMissMap = new Map(previousMisses.map((item) => [item.label, item.count]));
+  const labels = Array.from(
+    new Set([...Object.values(habitLabels), ...currentMissMap.keys(), ...previousMissMap.keys(), ...completions.keys()])
+  ).sort((a, b) => a.localeCompare(b));
+
+  const trend = labels
+    .map((label) => ({
+      label,
+      current: currentMissMap.get(label) || 0,
+      previous: previousMissMap.get(label) || 0
+    }))
+    .filter((item) => item.current || item.previous)
+    .sort((a, b) => b.current - a.current || b.previous - a.previous || a.label.localeCompare(b.label));
+
+  const health = labels
+    .map((label) => {
+      const done = completions.get(label) || 0;
+      const missed = currentMissMap.get(label) || 0;
+      const total = done + missed;
+      return {
+        label,
+        done,
+        missed,
+        score: total ? Math.round((done / total) * 100) : null
+      };
+    })
+    .filter((item) => item.score !== null || item.missed > 0 || item.done > 0)
+    .sort((a, b) => (a.score ?? -1) - (b.score ?? -1) || b.missed - a.missed || a.label.localeCompare(b.label));
+
+  const previousTotal = previousMisses.reduce((total, item) => total + item.count, 0);
+  const topMissed = previousMisses.slice(0, 3);
+  const previousHealth = labels
+    .map((label) => ({
+      label,
+      missed: previousMissMap.get(label) || 0
+    }))
+    .sort((a, b) => a.missed - b.missed || a.label.localeCompare(b.label));
+  const bestHabit = previousHealth.find((item) => item.missed === 0) || previousHealth[0] || null;
+  const weakestHabit = [...previousHealth].sort((a, b) => b.missed - a.missed || a.label.localeCompare(b.label))[0] || null;
+
+  return {
+    currentMisses,
+    trend,
+    health,
+    summary: {
+      total: previousTotal,
+      topMissed,
+      bestHabit,
+      weakestHabit
+    }
+  };
 }
 
 function isRemovedHabitTask(text: string) {
@@ -707,6 +798,7 @@ export function SgGoalsApp() {
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
+  const [habitCheckState, setHabitCheckState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const targetPlanSignatureRef = useRef('');
 
   const showGoalNotification = useCallback((title: string, body: string, tag: string) => {
@@ -1076,11 +1168,13 @@ export function SgGoalsApp() {
   }, [currentDateKey]);
   const weeklyHabitMissWindow = useMemo(() => buildWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
   const monthlyHabitMissWindow = useMemo(() => buildMonthlyHabitMissWindow(new Date(timerNow)), [timerNow]);
+  const previousWeeklyHabitMissWindow = useMemo(() => buildPreviousWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
+  const previousMonthlyHabitMissWindow = useMemo(() => buildPreviousMonthlyHabitMissWindow(new Date(timerNow)), [timerNow]);
 
   const analytics = useMemo(() => buildAnalytics(activities, trendWindow), [activities, trendWindow]);
   const monthlyAnalytics = useMemo(() => buildAnalytics(activities, monthWindow, 10), [activities, monthWindow]);
-  const weeklyHabitMissCounts = useMemo(() => buildHabitMissCounts(activities, weeklyHabitMissWindow), [activities, weeklyHabitMissWindow]);
-  const monthlyHabitMissCounts = useMemo(() => buildHabitMissCounts(activities, monthlyHabitMissWindow), [activities, monthlyHabitMissWindow]);
+  const weeklyHabitInsights = useMemo(() => buildHabitInsights(activities, weeklyHabitMissWindow, previousWeeklyHabitMissWindow), [activities, previousWeeklyHabitMissWindow, weeklyHabitMissWindow]);
+  const monthlyHabitInsights = useMemo(() => buildHabitInsights(activities, monthlyHabitMissWindow, previousMonthlyHabitMissWindow), [activities, monthlyHabitMissWindow, previousMonthlyHabitMissWindow]);
 
   const overallScore = useMemo(() => {
     if (!analytics.scorecard.length) return 0;
@@ -1330,6 +1424,29 @@ export function SgGoalsApp() {
       }).catch(() => {
         setSyncState('error');
       });
+    }
+  }
+
+  async function refreshActivitiesFromCloud() {
+    const response = await fetch('/api/goals/activities', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Could not refresh activities.');
+    const data = (await response.json()) as { activities?: GoalActivity[] };
+    if (Array.isArray(data.activities)) {
+      setActivities(data.activities);
+      window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(data.activities));
+    }
+  }
+
+  async function runHabitMissCheckNow() {
+    setHabitCheckState('running');
+    try {
+      const response = await fetch('/api/goals/rollover', { method: 'POST' });
+      if (!response.ok) throw new Error('Habit check failed.');
+      await refreshActivitiesFromCloud();
+      setHabitCheckState('done');
+      window.setTimeout(() => setHabitCheckState('idle'), 2500);
+    } catch {
+      setHabitCheckState('error');
     }
   }
 
@@ -1946,7 +2063,15 @@ export function SgGoalsApp() {
     );
   }
 
-  function renderHabitMissCountsSection(title: string, subtitle: string, counts: Array<{ label: string; count: number; lastMissedAt: string }>) {
+  function renderHabitMissCountsSection(
+    title: string,
+    subtitle: string,
+    insights: ReturnType<typeof buildHabitInsights>,
+    options?: { showManualCheck?: boolean; summaryLabel?: string }
+  ) {
+    const counts = insights.currentMisses;
+    const totalMisses = counts.reduce((total, item) => total + item.count, 0);
+    const summaryTop = insights.summary.topMissed.map((item) => item.label).join(', ') || 'None';
     return (
       <section className="mx-auto max-w-4xl px-5 pb-2">
         <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
@@ -1955,7 +2080,41 @@ export function SgGoalsApp() {
               <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">{title}</p>
               <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{subtitle}</h2>
             </div>
-            <div className="rounded-lg bg-[#f7a04f15] px-3 py-2 text-sm font-bold text-[#f7a04f]">{counts.reduce((total, item) => total + item.count, 0)}</div>
+            <div className="rounded-lg bg-[#f7a04f15] px-3 py-2 text-sm font-bold text-[#f7a04f]">{totalMisses}</div>
+          </div>
+          {options?.showManualCheck ? (
+            <button
+              onClick={runHabitMissCheckNow}
+              disabled={habitCheckState === 'running'}
+              className="mt-4 w-full rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {habitCheckState === 'running'
+                ? 'Running 3 AM check...'
+                : habitCheckState === 'done'
+                  ? '3 AM check complete'
+                  : habitCheckState === 'error'
+                    ? 'Check failed - tap to retry'
+                    : 'Run 3 AM check now'}
+            </button>
+          ) : null}
+          <div className="mt-4 rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+            <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">{options?.summaryLabel || 'Previous reset summary'}</p>
+            <div className="mt-3 grid gap-2 md:grid-cols-3">
+              <div className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                <p className="text-[10px] text-[#52527a]">Total misses</p>
+                <p className="mt-1 text-lg font-bold text-[#ff6b6b]">{insights.summary.total}</p>
+              </div>
+              <div className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                <p className="text-[10px] text-[#52527a]">Top missed</p>
+                <p className="mt-1 text-xs font-bold text-[#f7a04f]">{summaryTop}</p>
+              </div>
+              <div className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                <p className="text-[10px] text-[#52527a]">Best / weakest</p>
+                <p className="mt-1 text-xs font-bold text-[#8b8bb3]">
+                  {(insights.summary.bestHabit?.label || 'None')} / {(insights.summary.weakestHabit?.label || 'None')}
+                </p>
+              </div>
+            </div>
           </div>
           <div className="mt-4 grid gap-2 md:grid-cols-2">
             {counts.length ? (
@@ -1974,6 +2133,48 @@ export function SgGoalsApp() {
               </div>
             )}
           </div>
+          {insights.trend.length ? (
+            <div className="mt-4 rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Habit missed trend</p>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {insights.trend.slice(0, 8).map((item) => {
+                  const delta = item.current - item.previous;
+                  const tone = delta < 0 ? 'text-[#00d97e]' : delta > 0 ? 'text-[#ff6b6b]' : 'text-[#8b8bb3]';
+                  const label = delta < 0 ? 'Improving' : delta > 0 ? 'Needs attention' : 'Same';
+                  return (
+                    <div key={item.label} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-bold text-[#e8e8f5]">{item.label}</p>
+                        <span className={`text-[11px] font-bold ${tone}`}>{label}</span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#8b8bb3]">Missed {item.previous} previous, {item.current} now</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {insights.health.length ? (
+            <div className="mt-4 rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#52527a]">Habit health score</p>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {insights.health.slice(0, 8).map((item) => (
+                  <div key={item.label} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm font-bold text-[#e8e8f5]">{item.label}</p>
+                      <span className={`text-sm font-bold ${(item.score || 0) >= 80 ? 'text-[#00d97e]' : (item.score || 0) >= 50 ? 'text-[#f7a04f]' : 'text-[#ff6b6b]'}`}>
+                        {item.score ?? 0}%
+                      </span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
+                      <div className="h-full rounded-full bg-[#00d97e]" style={{ width: `${item.score ?? 0}%` }} />
+                    </div>
+                    <p className="mt-1 text-[11px] text-[#8b8bb3]">{item.done} completed / {item.missed} missed</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <p className="mt-3 text-[11px] text-[#52527a]">Auto counted at 3:00 AM IST from the previous day&apos;s incomplete Habit tasks.</p>
         </div>
       </section>
@@ -2444,14 +2645,19 @@ export function SgGoalsApp() {
               </div>
             </div>
           </section>
-          {renderHabitMissCountsSection('Habit missed count', 'Weekly counter resets every Sunday at 3:00 AM IST.', weeklyHabitMissCounts)}
+          {renderHabitMissCountsSection('Habit missed count', 'Weekly counter resets every Sunday at 3:00 AM IST.', weeklyHabitInsights, {
+            showManualCheck: true,
+            summaryLabel: 'Last week summary'
+          })}
           {renderFailurePatternsSection('7-day failure patterns', 'Learn from misses without carrying them into today.', analytics, failurePatterns)}
         </>
       ) : null}
 
       {scope === 'monthly' ? (
         <>
-          {renderHabitMissCountsSection('Monthly habit missed count', 'Monthly counter resets on the 1st day at 3:00 AM IST.', monthlyHabitMissCounts)}
+          {renderHabitMissCountsSection('Monthly habit missed count', 'Monthly counter resets on the 1st day at 3:00 AM IST.', monthlyHabitInsights, {
+            summaryLabel: 'Last month summary'
+          })}
           {renderFailurePatternsSection('Monthly failure patterns', 'Review recurring misses for this month without mixing them into today.', monthlyAnalytics, monthlyFailurePatterns)}
         </>
       ) : null}
