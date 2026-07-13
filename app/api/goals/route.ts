@@ -23,6 +23,10 @@ type WeeklyPlanInput = {
   notes: string;
   updatedAt: string;
 };
+type YearlyNotesInput = {
+  completedBooks: string;
+  updatedAt: string;
+};
 type TargetStateInput = {
   taskIds: string[];
   taskMinutes?: Record<string, number>;
@@ -37,6 +41,7 @@ const scopes: Scope[] = ['today', 'weekly', 'monthly', 'yearly', 'tomorrow'];
 const ownerKey = 'default';
 const targetStateId = '__target_state__';
 const weeklyPlanId = '__weekly_plan__';
+const yearlyNotesId = '__yearly_notes__';
 const targetStateScope = '__meta__';
 
 export const dynamic = 'force-dynamic';
@@ -89,6 +94,12 @@ function isWeeklyPlan(value: unknown): value is WeeklyPlanInput {
   );
 }
 
+function isYearlyNotes(value: unknown): value is YearlyNotesInput {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<YearlyNotesInput>;
+  return typeof candidate.completedBooks === 'string' && typeof candidate.updatedAt === 'string';
+}
+
 function parseTargetState(value: string | null | undefined) {
   if (!value) return null;
   try {
@@ -109,6 +120,16 @@ function parseWeeklyPlan(value: string | null | undefined) {
   }
 }
 
+function parseYearlyNotes(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isYearlyNotes(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   try {
     const rows = await prisma.goalTask.findMany({
@@ -120,6 +141,9 @@ export async function GET() {
     });
     const weeklyPlanRow = await prisma.goalTask.findUnique({
       where: { id: weeklyPlanId }
+    });
+    const yearlyNotesRow = await prisma.goalTask.findUnique({
+      where: { id: yearlyNotesId }
     });
 
     const store = emptyStore();
@@ -140,8 +164,9 @@ export async function GET() {
     });
     const targetState = parseTargetState(targetStateRow?.note);
     const weeklyPlan = parseWeeklyPlan(weeklyPlanRow?.note);
+    const yearlyNotes = parseYearlyNotes(yearlyNotesRow?.note);
 
-    return NextResponse.json({ store, targetState, weeklyPlan, hasCloudData: rows.length > 0 || Boolean(weeklyPlan) });
+    return NextResponse.json({ store, targetState, weeklyPlan, yearlyNotes, hasCloudData: rows.length > 0 || Boolean(weeklyPlan) || Boolean(yearlyNotes) });
   } catch (error) {
     console.error('Failed to load goals', error);
     return NextResponse.json({ error: 'Database is not ready yet.' }, { status: 503 });
@@ -150,12 +175,13 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    const body = (await req.json()) as { store?: unknown; targetState?: unknown; weeklyPlan?: unknown };
+    const body = (await req.json()) as { store?: unknown; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown };
     if (!isGoalStore(body.store)) {
       return NextResponse.json({ error: 'Invalid goals payload.' }, { status: 400 });
     }
     const targetState = isTargetState(body.targetState) ? body.targetState : null;
     const weeklyPlan = isWeeklyPlan(body.weeklyPlan) ? body.weeklyPlan : null;
+    const yearlyNotes = isYearlyNotes(body.yearlyNotes) ? body.yearlyNotes : null;
 
     const store = body.store;
     const rows = scopes.flatMap((scope) =>
@@ -228,6 +254,26 @@ export async function PUT(req: NextRequest) {
             },
             update: {
               note: JSON.stringify(weeklyPlan),
+              updatedAt: new Date()
+            }
+          });
+        }
+
+        if (yearlyNotes) {
+          await tx.goalTask.upsert({
+            where: { id: yearlyNotesId },
+            create: {
+              id: yearlyNotesId,
+              ownerKey,
+              scope: targetStateScope,
+              text: 'Yearly notes state',
+              note: JSON.stringify(yearlyNotes),
+              priority: 'other',
+              done: false,
+              position: 2
+            },
+            update: {
+              note: JSON.stringify(yearlyNotes),
               updatedAt: new Date()
             }
           });

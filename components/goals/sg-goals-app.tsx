@@ -47,6 +47,10 @@ type WeeklyPlan = {
   notes: string;
   updatedAt: string;
 };
+type YearlyNotes = {
+  completedBooks: string;
+  updatedAt: string;
+};
 type TargetState = {
   taskIds: string[];
   taskMinutes?: Record<string, number>;
@@ -60,6 +64,7 @@ type TargetState = {
 const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const WEEKLY_PLAN_KEY = 'sg-goals-weekly-plan-v1';
+const YEARLY_NOTES_KEY = 'sg-goals-yearly-notes-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
@@ -70,7 +75,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v55';
+const APP_VERSION = 'cloud-sync-v56';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
@@ -170,6 +175,11 @@ const emptyWeeklyPlan: WeeklyPlan = {
   workPlan: '',
   healthPlan: '',
   notes: '',
+  updatedAt: '1970-01-01T00:00:00.000Z'
+};
+
+const emptyYearlyNotes: YearlyNotes = {
+  completedBooks: '',
   updatedAt: '1970-01-01T00:00:00.000Z'
 };
 
@@ -279,6 +289,24 @@ function loadWeeklyPlan(): WeeklyPlan {
     return isWeeklyPlan(parsed) ? parsed : emptyWeeklyPlan;
   } catch {
     return emptyWeeklyPlan;
+  }
+}
+
+function isYearlyNotes(value: unknown): value is YearlyNotes {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<YearlyNotes>;
+  return typeof candidate.completedBooks === 'string' && typeof candidate.updatedAt === 'string';
+}
+
+function loadYearlyNotes(): YearlyNotes {
+  if (typeof window === 'undefined') return emptyYearlyNotes;
+  const raw = window.localStorage.getItem(YEARLY_NOTES_KEY);
+  if (!raw) return emptyYearlyNotes;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return isYearlyNotes(parsed) ? parsed : emptyYearlyNotes;
+  } catch {
+    return emptyYearlyNotes;
   }
 }
 
@@ -778,6 +806,7 @@ export function SgGoalsApp() {
   const [store, setStore] = useState<GoalsStore>(starterStore);
   const [activities, setActivities] = useState<GoalActivity[]>([]);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(emptyWeeklyPlan);
+  const [yearlyNotes, setYearlyNotes] = useState<YearlyNotes>(emptyYearlyNotes);
   const [ready, setReady] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
   const [syncState, setSyncState] = useState<'loading' | 'local' | 'saving' | 'saved' | 'error'>('loading');
@@ -858,6 +887,7 @@ export function SgGoalsApp() {
     const localStore = ensureHabitTemplates(loadStore());
     const localActivities = loadActivities();
     const localWeeklyPlan = loadWeeklyPlan();
+    const localYearlyNotes = loadYearlyNotes();
     const legacyTargetId = window.localStorage.getItem(MAIN_GOAL_KEY) || '';
     let savedTargetIds: string[] = [];
     try {
@@ -882,6 +912,7 @@ export function SgGoalsApp() {
     setStore(localStore);
     setActivities(localActivities);
     setWeeklyPlan(localWeeklyPlan);
+    setYearlyNotes(localYearlyNotes);
     setMainGoalId(legacyTargetId);
     setTargetTaskIds(savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : []);
     setTargetTaskMinutes(savedTargetMinutes);
@@ -894,13 +925,17 @@ export function SgGoalsApp() {
       try {
         const response = await fetch('/api/goals', { cache: 'no-store' });
         if (!response.ok) throw new Error('Cloud database is not ready.');
-        const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; weeklyPlan?: unknown; hasCloudData?: boolean };
+        const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown; hasCloudData?: boolean };
         if (cancelled) return;
         if (data.hasCloudData && data.store) {
           setStore(ensureHabitTemplates(data.store));
           if (isWeeklyPlan(data.weeklyPlan)) {
             setWeeklyPlan(data.weeklyPlan);
             window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(data.weeklyPlan));
+          }
+          if (isYearlyNotes(data.yearlyNotes)) {
+            setYearlyNotes(data.yearlyNotes);
+            window.localStorage.setItem(YEARLY_NOTES_KEY, JSON.stringify(data.yearlyNotes));
           }
           if (isTargetState(data.targetState)) {
             const cloudTime = new Date(data.targetState.updatedAt).getTime();
@@ -927,7 +962,8 @@ export function SgGoalsApp() {
                 durationMs: TARGET_DURATION_MS,
                 updatedAt: savedTargetUpdatedAt
               },
-              weeklyPlan: localWeeklyPlan
+              weeklyPlan: localWeeklyPlan,
+              yearlyNotes: localYearlyNotes
             })
           });
         }
@@ -1008,6 +1044,10 @@ export function SgGoalsApp() {
   }, [ready, weeklyPlan]);
 
   useEffect(() => {
+    if (ready) window.localStorage.setItem(YEARLY_NOTES_KEY, JSON.stringify(yearlyNotes));
+  }, [ready, yearlyNotes]);
+
+  useEffect(() => {
     if (ready) window.localStorage.setItem(MAIN_GOAL_KEY, mainGoalId);
   }, [mainGoalId, ready]);
 
@@ -1082,7 +1122,8 @@ export function SgGoalsApp() {
               durationMs: TARGET_DURATION_MS,
               updatedAt: targetUpdatedAt
             },
-            weeklyPlan
+            weeklyPlan,
+            yearlyNotes
           })
         });
         if (!response.ok) throw new Error('Save failed.');
@@ -1095,7 +1136,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, ready, store, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan]);
+  }, [cloudReady, ready, store, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1478,6 +1519,13 @@ export function SgGoalsApp() {
   function clearWeeklyPlan() {
     setWeeklyPlan({
       ...emptyWeeklyPlan,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  function updateYearlyBooks(value: string) {
+    setYearlyNotes({
+      completedBooks: value,
       updatedAt: new Date().toISOString()
     });
   }
@@ -2674,6 +2722,31 @@ export function SgGoalsApp() {
           })}
           {renderFailurePatternsSection('Monthly failure patterns', 'Review recurring misses for this month without mixing them into today.', monthlyAnalytics, monthlyFailurePatterns)}
         </>
+      ) : null}
+
+      {scope === 'yearly' ? (
+        <section className="mx-auto max-w-4xl px-5 pb-4">
+          <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#8b8bb3]">Books completed this year</p>
+                <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Reading notes</h2>
+              </div>
+              <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
+                <Edit3 className="h-5 w-5" />
+              </div>
+            </div>
+            <textarea
+              value={yearlyNotes.completedBooks}
+              onChange={(event) => updateYearlyBooks(event.target.value)}
+              placeholder={'Add completed books here...\nExample:\nAtomic Habits - Jan\nDeep Work - Feb'}
+              className="mt-4 min-h-36 w-full resize-y rounded-xl border border-[#1a1a30] bg-[#13132a] px-3 py-3 text-sm leading-6 text-[#e8e8f5] outline-none placeholder:text-[#52527a] focus:border-[#4f8ef7]"
+            />
+            <p className="mt-2 text-[11px] text-[#52527a]">
+              Saved with your yearly goals. Use one line per book so it stays easy to review.
+            </p>
+          </div>
+        </section>
       ) : null}
 
       <section className="mx-auto grid max-w-4xl gap-4 px-5 md:grid-cols-[1fr,320px]">
