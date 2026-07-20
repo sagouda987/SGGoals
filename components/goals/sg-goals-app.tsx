@@ -21,8 +21,8 @@ type GoalTask = {
 };
 
 type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset';
-type StrikeCode = 'O' | 'L1' | 'L2' | 'L3' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'OFFICECOURSE' | 'EYECARE';
-type StrikeFamily = 'O' | 'L' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'OFFICECOURSE' | 'EYECARE';
+type StrikeCode = 'O' | 'L1' | 'L2' | 'L3' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'OFFICECOURSE' | 'EYECARE' | 'SALTGARGLE';
+type StrikeFamily = 'O' | 'L' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'OFFICECOURSE' | 'EYECARE' | 'SALTGARGLE';
 
 type GoalActivity = {
   id: string;
@@ -75,7 +75,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v56';
+const APP_VERSION = 'cloud-sync-v57';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
@@ -114,7 +114,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
   evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
-const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Book read', 'Study 2 hour', 'Office work', 'Office course', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
+const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Salt water gargle', 'Book read', 'Study 2 hour', 'Office work', 'Office course', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
 const REMOVED_HABIT_TASKS = ['Chess improvement'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
 const HABIT_MISS_ROLLOVER_KEY = 'sg-goals-habit-miss-rollover-v1';
@@ -136,7 +136,8 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   MANIFEST: 'Manifestation',
   NOSOCIAL: 'No Social Media',
   OFFICECOURSE: 'Office course',
-  EYECARE: 'Eye care'
+  EYECARE: 'Eye care',
+  SALTGARGLE: 'Salt water gargle'
 };
 
 const starterStore: GoalsStore = {
@@ -465,6 +466,7 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'NOSOCIALMEDIA') return 'NOSOCIAL';
   if (compact === 'OFFICECOURSE') return 'OFFICECOURSE';
   if (compact === 'EYECARE') return 'EYECARE';
+  if (compact === 'SALTWATERGARGLE' || compact === 'SALTGARGLE') return 'SALTGARGLE';
   if (compact === 'MANIFESTATION' || compact === 'MANIFESTNATION') return 'MANIFEST';
   return null;
 }
@@ -638,7 +640,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     return byDay.get(day) as Set<string>;
   };
   const counterResetAt = new Date(`${COUNTER_RESET_DATE}T00:00:00`).getTime();
-  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, OFFICECOURSE: counterResetAt, EYECARE: counterResetAt };
+  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, OFFICECOURSE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
     if (code.startsWith('L')) return 'L';
@@ -663,7 +665,8 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
         activity.note === 'MANIFEST' ||
         activity.note === 'NOSOCIAL' ||
         activity.note === 'OFFICECOURSE' ||
-        activity.note === 'EYECARE'
+        activity.note === 'EYECARE' ||
+        activity.note === 'SALTGARGLE'
           ? activity.note
           : null;
       if (!family) return;
@@ -709,7 +712,8 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     manifest: codes.has('MANIFEST'),
     noSocial: codes.has('NOSOCIAL'),
     officeCourse: codes.has('OFFICECOURSE'),
-    eyeCare: codes.has('EYECARE')
+    eyeCare: codes.has('EYECARE'),
+    saltGargle: codes.has('SALTGARGLE')
   }));
 
   return {
@@ -728,8 +732,9 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     noSocial: dayResults.filter((day) => day.noSocial).length,
     officeCourse: dayResults.filter((day) => day.officeCourse).length,
     eyeCare: dayResults.filter((day) => day.eyeCare).length,
+    saltGargle: dayResults.filter((day) => day.saltGargle).length,
     resetAt,
-    today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false, gym: false, healthyDrinkMorning: false, healthyDrinkEvening: false, book: false, study2: false, officeWork2: false, sleep: false, noJunk: false, manifest: false, noSocial: false, officeCourse: false, eyeCare: false }
+    today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false, gym: false, healthyDrinkMorning: false, healthyDrinkEvening: false, book: false, study2: false, officeWork2: false, sleep: false, noJunk: false, manifest: false, noSocial: false, officeCourse: false, eyeCare: false, saltGargle: false }
   };
 }
 
@@ -2329,7 +2334,8 @@ export function SgGoalsApp() {
               { key: 'NOSOCIAL' as const, label: 'No social count', rule: 'No Social Media complete', color: '#38bdf8', todayDone: strikeCounts.today.noSocial, value: strikeCounts.noSocial },
               { key: 'MANIFEST' as const, label: 'Manifest count', rule: 'Manifestation complete', color: '#fb7185', todayDone: strikeCounts.today.manifest, value: strikeCounts.manifest },
               { key: 'OFFICECOURSE' as const, label: 'Office course count', rule: 'Office course complete', color: '#60a5fa', todayDone: strikeCounts.today.officeCourse, value: strikeCounts.officeCourse },
-              { key: 'EYECARE' as const, label: 'Eye care count', rule: 'Eye care complete', color: '#2dd4bf', todayDone: strikeCounts.today.eyeCare, value: strikeCounts.eyeCare }
+              { key: 'EYECARE' as const, label: 'Eye care count', rule: 'Eye care complete', color: '#2dd4bf', todayDone: strikeCounts.today.eyeCare, value: strikeCounts.eyeCare },
+              { key: 'SALTGARGLE' as const, label: 'Gargle count', rule: 'Salt water gargle complete', color: '#93c5fd', todayDone: strikeCounts.today.saltGargle, value: strikeCounts.saltGargle }
             ].map((item) => (
               <div key={item.key} className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
                 <div className="flex items-center justify-between gap-2">

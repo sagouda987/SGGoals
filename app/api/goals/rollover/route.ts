@@ -21,7 +21,8 @@ const habitLabels: Record<string, string> = {
   MANIFEST: 'Manifestation',
   NOSOCIAL: 'No Social Media',
   OFFICECOURSE: 'Office course',
-  EYECARE: 'Eye care'
+  EYECARE: 'Eye care',
+  SALTGARGLE: 'Salt water gargle'
 };
 
 export const dynamic = 'force-dynamic';
@@ -57,6 +58,7 @@ function normalizeHabitCode(text: string) {
   if (compact === 'NOSOCIALMEDIA') return 'NOSOCIAL';
   if (compact === 'OFFICECOURSE') return 'OFFICECOURSE';
   if (compact === 'EYECARE') return 'EYECARE';
+  if (compact === 'SALTWATERGARGLE' || compact === 'SALTGARGLE') return 'SALTGARGLE';
   if (compact === 'MANIFESTATION' || compact === 'MANIFESTNATION') return 'MANIFEST';
   return null;
 }
