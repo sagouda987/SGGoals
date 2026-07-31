@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
+type GoalSubtaskInput = {
+  id: string;
+  text: string;
+  done: boolean;
+  updatedAt?: string;
+};
 type GoalTaskInput = {
   id: string;
   text: string;
@@ -12,6 +18,7 @@ type GoalTaskInput = {
   startedAt?: string;
   completedAt?: string;
   investedMinutes?: number;
+  subtasks?: GoalSubtaskInput[];
   updatedAt?: string;
 };
 type GoalsStoreInput = Record<Scope, GoalTaskInput[]>;
@@ -43,6 +50,7 @@ const targetStateId = '__target_state__';
 const weeklyPlanId = '__weekly_plan__';
 const yearlyNotesId = '__yearly_notes__';
 const targetStateScope = '__meta__';
+const subtaskNotePattern = /\n?\[sg-subtasks:([A-Za-z0-9+/=]+)\]$/;
 
 export const dynamic = 'force-dynamic';
 
@@ -58,7 +66,17 @@ function isGoalStore(value: unknown): value is GoalsStoreInput {
       Array.isArray(candidate[scope]) &&
       candidate[scope]?.every((task) => {
         const t = task as Partial<GoalTaskInput>;
-        return typeof t.id === 'string' && typeof t.text === 'string' && typeof t.priority === 'string' && typeof t.done === 'boolean';
+        const hasValidSubtasks =
+          t.subtasks === undefined ||
+          (Array.isArray(t.subtasks) &&
+            t.subtasks.every(
+              (subtask) =>
+                typeof subtask.id === 'string' &&
+                typeof subtask.text === 'string' &&
+                typeof subtask.done === 'boolean' &&
+                (subtask.updatedAt === undefined || typeof subtask.updatedAt === 'string')
+            ));
+        return typeof t.id === 'string' && typeof t.text === 'string' && typeof t.priority === 'string' && typeof t.done === 'boolean' && hasValidSubtasks;
       })
   );
 }
@@ -130,6 +148,45 @@ function parseYearlyNotes(value: string | null | undefined) {
   }
 }
 
+function parseSubtasks(value: unknown): GoalSubtaskInput[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const subtasks = value.filter(
+    (subtask): subtask is GoalSubtaskInput =>
+      Boolean(subtask) &&
+      typeof subtask === 'object' &&
+      typeof (subtask as Partial<GoalSubtaskInput>).id === 'string' &&
+      typeof (subtask as Partial<GoalSubtaskInput>).text === 'string' &&
+      typeof (subtask as Partial<GoalSubtaskInput>).done === 'boolean'
+  );
+  return subtasks.length
+    ? subtasks.map((subtask) => ({
+        id: subtask.id,
+        text: subtask.text,
+        done: subtask.done,
+        updatedAt: typeof subtask.updatedAt === 'string' ? subtask.updatedAt : undefined
+      }))
+    : undefined;
+}
+
+function splitStoredTaskNote(note: string | null | undefined) {
+  if (!note) return { note: undefined, subtasks: undefined };
+  const match = note.match(subtaskNotePattern);
+  if (!match) return { note, subtasks: undefined };
+  const visibleNote = note.replace(subtaskNotePattern, '').trim() || undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as unknown;
+    return { note: visibleNote, subtasks: parseSubtasks(parsed) };
+  } catch {
+    return { note: visibleNote, subtasks: undefined };
+  }
+}
+
+function composeStoredTaskNote(note: string | undefined, subtasks: GoalSubtaskInput[] | undefined) {
+  if (!subtasks?.length) return note || null;
+  const payload = Buffer.from(JSON.stringify(subtasks), 'utf8').toString('base64');
+  return `${note?.trim() || ''}\n[sg-subtasks:${payload}]`.trim();
+}
+
 export async function GET() {
   try {
     const rows = await prisma.goalTask.findMany({
@@ -149,16 +206,18 @@ export async function GET() {
     const store = emptyStore();
     rows.forEach((row) => {
       if (!scopes.includes(row.scope as Scope)) return;
+      const noteInfo = splitStoredTaskNote(row.note);
       store[row.scope as Scope].push({
         id: row.id,
         text: row.text,
-        note: row.note || undefined,
+        note: noteInfo.note,
         priority: row.priority,
         block: row.block || undefined,
         done: row.done,
         startedAt: row.startedAt ? row.startedAt.toISOString() : undefined,
         completedAt: row.completedAt ? row.completedAt.toISOString() : undefined,
         investedMinutes: row.investedMinutes ?? undefined,
+        subtasks: noteInfo.subtasks,
         updatedAt: row.updatedAt.toISOString()
       });
     });
@@ -190,7 +249,7 @@ export async function PUT(req: NextRequest) {
         ownerKey,
         scope,
         text: task.text,
-        note: task.note || null,
+        note: composeStoredTaskNote(task.note, task.subtasks),
         priority: task.priority,
         block: task.block || null,
         done: task.done,

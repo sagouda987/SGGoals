@@ -7,6 +7,13 @@ type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
 type Block = 'morning' | 'afternoon' | 'evening' | 'habit';
 
+type GoalSubtask = {
+  id: string;
+  text: string;
+  done: boolean;
+  updatedAt: string;
+};
+
 type GoalTask = {
   id: string;
   text: string;
@@ -17,6 +24,7 @@ type GoalTask = {
   startedAt?: string;
   completedAt?: string;
   investedMinutes?: number;
+  subtasks?: GoalSubtask[];
   updatedAt: string;
 };
 
@@ -75,7 +83,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v57';
+const APP_VERSION = 'cloud-sync-v58';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
@@ -844,6 +852,7 @@ export function SgGoalsApp() {
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
+  const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
   const [habitCheckState, setHabitCheckState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const targetPlanSignatureRef = useRef('');
 
@@ -1896,7 +1905,13 @@ export function SgGoalsApp() {
           today: current.today.filter((task) => task.id !== failureTask.id),
           tomorrow: alreadyPlanned
             ? current.tomorrow
-            : [...current.tomorrow, makeTask(failureTask.text, composeTaskNote(tomorrowNote || undefined, noteInfo.dueTime), failureTask.priority)]
+            : [
+                ...current.tomorrow,
+                {
+                  ...makeTask(failureTask.text, composeTaskNote(tomorrowNote || undefined, noteInfo.dueTime), failureTask.priority),
+                  subtasks: failureTask.subtasks
+                }
+              ]
         };
       });
       if (editing?.id === failureTask.id) resetDraft();
@@ -1910,6 +1925,56 @@ export function SgGoalsApp() {
   function deleteTask(taskId: string) {
     persist((current) => ({ ...current, [scope]: current[scope].filter((task) => task.id !== taskId) }));
     if (editing?.id === taskId) resetDraft();
+  }
+
+  function addSubtask(taskId: string) {
+    const text = subtaskDrafts[taskId]?.trim();
+    if (!text) return;
+    persist((current) => ({
+      ...current,
+      [scope]: current[scope].map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              subtasks: [...(task.subtasks || []), { id: cryptoSafeId(), text, done: false, updatedAt: new Date().toISOString() }],
+              updatedAt: new Date().toISOString()
+            }
+          : task
+      )
+    }));
+    setSubtaskDrafts((current) => ({ ...current, [taskId]: '' }));
+  }
+
+  function toggleSubtask(taskId: string, subtaskId: string) {
+    persist((current) => ({
+      ...current,
+      [scope]: current[scope].map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              subtasks: (task.subtasks || []).map((subtask) =>
+                subtask.id === subtaskId ? { ...subtask, done: !subtask.done, updatedAt: new Date().toISOString() } : subtask
+              ),
+              updatedAt: new Date().toISOString()
+            }
+          : task
+      )
+    }));
+  }
+
+  function deleteSubtask(taskId: string, subtaskId: string) {
+    persist((current) => ({
+      ...current,
+      [scope]: current[scope].map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              subtasks: (task.subtasks || []).filter((subtask) => subtask.id !== subtaskId),
+              updatedAt: new Date().toISOString()
+            }
+          : task
+      )
+    }));
   }
 
   function resetAll() {
@@ -1955,7 +2020,10 @@ export function SgGoalsApp() {
   async function copyCoachingReport() {
   const todayTasks = store.today.map((task) => {
     const noteInfo = splitTaskNote(task.note);
-    return `${task.done ? 'Done' : 'Pending'} - ${task.text}${noteInfo.dueTime ? ` by ${noteInfo.dueTime}` : ''}${task.investedMinutes ? ` (${formatMinutes(task.investedMinutes)})` : ''}`;
+    const subtaskText = task.subtasks?.length
+      ? ` | Subtasks: ${task.subtasks.map((subtask) => `${subtask.done ? 'done' : 'pending'} ${subtask.text}`).join('; ')}`
+      : '';
+    return `${task.done ? 'Done' : 'Pending'} - ${task.text}${noteInfo.dueTime ? ` by ${noteInfo.dueTime}` : ''}${task.investedMinutes ? ` (${formatMinutes(task.investedMinutes)})` : ''}${subtaskText}`;
   });
     const scoreLines = analytics.scorecard.map((item) => {
       const meta = priorities[item.priority];
@@ -2777,54 +2845,101 @@ export function SgGoalsApp() {
 
                 {group.tasks.length ? (
                   group.tasks.map((task) => (
-                    <article key={task.id} className="flex items-stretch border-b border-[#1a1a30] last:border-b-0">
+                    <article key={task.id} className="border-b border-[#1a1a30] last:border-b-0">
                       {(() => {
                         const noteInfo = splitTaskNote(task.note);
+                        const subtasks = task.subtasks || [];
+                        const doneSubtasks = subtasks.filter((subtask) => subtask.done).length;
                         return (
-                      <button onClick={() => toggleTask(task.id)} className="flex flex-1 items-start gap-3 px-4 py-3 text-left">
-                        <span
-                          className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border"
-                          style={{ borderColor: priorities[task.priority].color, background: task.done ? priorities[task.priority].soft : 'transparent' }}
-                        >
-                          {task.done ? <Check className="h-3.5 w-3.5" style={{ color: priorities[task.priority].color }} /> : null}
-                        </span>
-                        <span className="min-w-0">
-                          <span className={`block text-sm ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</span>
-                          <span className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#52527a]">
-                            <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
-                            {noteInfo.dueTime ? <span style={{ color: '#00d97e' }}>By {noteInfo.dueTime}</span> : null}
-                            {noteInfo.note ? <span>{noteInfo.note}</span> : null}
-                            {task.done && task.investedMinutes != null ? (
-                              <span style={{ color: priorities[task.priority].color }}>{formatMinutes(task.investedMinutes)} invested</span>
-                            ) : null}
-                            {task.done && task.startedAt && task.completedAt ? (
-                              <span>
-                                {formatTimeShort(task.startedAt)} - {formatTimeShort(task.completedAt)}
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                      </button>
+                          <>
+                            <div className="flex items-stretch">
+                              <button onClick={() => toggleTask(task.id)} className="flex flex-1 items-start gap-3 px-4 py-3 text-left">
+                                <span
+                                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border"
+                                  style={{ borderColor: priorities[task.priority].color, background: task.done ? priorities[task.priority].soft : 'transparent' }}
+                                >
+                                  {task.done ? <Check className="h-3.5 w-3.5" style={{ color: priorities[task.priority].color }} /> : null}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className={`block text-sm ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</span>
+                                  <span className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#52527a]">
+                                    <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
+                                    {noteInfo.dueTime ? <span style={{ color: '#00d97e' }}>By {noteInfo.dueTime}</span> : null}
+                                    {noteInfo.note ? <span>{noteInfo.note}</span> : null}
+                                    {subtasks.length ? (
+                                      <span style={{ color: doneSubtasks === subtasks.length ? '#00d97e' : '#8b8bb3' }}>
+                                        {doneSubtasks}/{subtasks.length} subtasks
+                                      </span>
+                                    ) : null}
+                                    {task.done && task.investedMinutes != null ? (
+                                      <span style={{ color: priorities[task.priority].color }}>{formatMinutes(task.investedMinutes)} invested</span>
+                                    ) : null}
+                                    {task.done && task.startedAt && task.completedAt ? (
+                                      <span>
+                                        {formatTimeShort(task.startedAt)} - {formatTimeShort(task.completedAt)}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                </span>
+                              </button>
+                              <button aria-label="Edit task" onClick={() => beginEdit(task)} className="w-11 border-l border-[#1a1a30] text-[#4f8ef7]">
+                                <Edit3 className="mx-auto h-4 w-4" />
+                              </button>
+                              {scope === 'today' ? (
+                                <button
+                                  aria-label="Set next 2 hour target"
+                                  onClick={() => toggleTargetTask(task.id)}
+                                  className={`w-11 border-l border-[#1a1a30] ${targetTaskIds.includes(task.id) ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
+                                >
+                                  <Star className="mx-auto h-4 w-4" />
+                                </button>
+                              ) : null}
+                              <button aria-label="Log failure" onClick={() => openFailure(task)} className="w-11 border-l border-[#1a1a30] text-[#f7a04f]">
+                                <AlertTriangle className="mx-auto h-4 w-4" />
+                              </button>
+                              <button aria-label="Delete task" onClick={() => deleteTask(task.id)} className="w-11 border-l border-[#1a1a30] text-[#ff6b6b]">
+                                <Trash2 className="mx-auto h-4 w-4" />
+                              </button>
+                            </div>
+                            <div className="space-y-2 border-t border-[#1a1a30] bg-[#0b0b18] px-4 py-3">
+                              {subtasks.length ? (
+                                <div className="space-y-1.5">
+                                  {subtasks.map((subtask) => (
+                                    <div key={subtask.id} className="flex items-center gap-2 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-2 py-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleSubtask(task.id, subtask.id)}
+                                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#4f8ef740] text-[#4f8ef7]"
+                                        aria-label={subtask.done ? 'Mark subtask pending' : 'Mark subtask done'}
+                                      >
+                                        {subtask.done ? <Check className="h-3.5 w-3.5" /> : null}
+                                      </button>
+                                      <span className={`min-w-0 flex-1 text-xs ${subtask.done ? 'text-[#52527a] line-through' : 'text-[#c8c8ee]'}`}>{subtask.text}</span>
+                                      <button type="button" onClick={() => deleteSubtask(task.id, subtask.id)} className="rounded-md px-2 py-1 text-[#ff6b6b]" aria-label="Delete subtask">
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <div className="flex gap-2">
+                                <input
+                                  value={subtaskDrafts[task.id] || ''}
+                                  onChange={(event) => setSubtaskDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') addSubtask(task.id);
+                                  }}
+                                  placeholder="+ Add subtask"
+                                  className="min-w-0 flex-1 rounded-lg border border-[#1a1a30] bg-[#07070f] px-3 py-2 text-xs outline-none placeholder:text-[#52527a] focus:border-[#4f8ef7]"
+                                />
+                                <button type="button" onClick={() => addSubtask(task.id)} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
+                                  Add
+                                </button>
+                              </div>
+                            </div>
+                          </>
                         );
                       })()}
-                      <button aria-label="Edit task" onClick={() => beginEdit(task)} className="w-11 border-l border-[#1a1a30] text-[#4f8ef7]">
-                        <Edit3 className="mx-auto h-4 w-4" />
-                      </button>
-                      {scope === 'today' ? (
-                        <button
-                          aria-label="Set next 2 hour target"
-                          onClick={() => toggleTargetTask(task.id)}
-                          className={`w-11 border-l border-[#1a1a30] ${targetTaskIds.includes(task.id) ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
-                        >
-                          <Star className="mx-auto h-4 w-4" />
-                        </button>
-                      ) : null}
-                      <button aria-label="Log failure" onClick={() => openFailure(task)} className="w-11 border-l border-[#1a1a30] text-[#f7a04f]">
-                        <AlertTriangle className="mx-auto h-4 w-4" />
-                      </button>
-                      <button aria-label="Delete task" onClick={() => deleteTask(task.id)} className="w-11 border-l border-[#1a1a30] text-[#ff6b6b]">
-                        <Trash2 className="mx-auto h-4 w-4" />
-                      </button>
                     </article>
                   ))
                 ) : (
@@ -2982,6 +3097,11 @@ export function SgGoalsApp() {
                             <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
                             {noteInfo.dueTime ? <span className="text-[#00d97e]">By {noteInfo.dueTime}</span> : null}
                             {task.investedMinutes != null ? <span>{formatMinutes(task.investedMinutes)} invested</span> : null}
+                            {task.subtasks?.length ? (
+                              <span>
+                                {task.subtasks.filter((subtask) => subtask.done).length}/{task.subtasks.length} subtasks
+                              </span>
+                            ) : null}
                           </p>
                         </div>
                         <button onClick={() => toggleTask(task.id)} className="shrink-0 rounded-lg border border-[#1a1a30] px-2 py-1 text-[11px] font-bold text-[#8b8bb3]">
