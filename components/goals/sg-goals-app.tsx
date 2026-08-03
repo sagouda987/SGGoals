@@ -57,6 +57,7 @@ type WeeklyPlan = {
 };
 type YearlyNotes = {
   completedBooks: string;
+  punishment: string;
   updatedAt: string;
 };
 type TargetState = {
@@ -83,7 +84,7 @@ const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v58';
+const APP_VERSION = 'cloud-sync-v59';
 const TARGET_DURATION_MS = 120 * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
@@ -190,6 +191,7 @@ const emptyWeeklyPlan: WeeklyPlan = {
 
 const emptyYearlyNotes: YearlyNotes = {
   completedBooks: '',
+  punishment: '',
   updatedAt: '1970-01-01T00:00:00.000Z'
 };
 
@@ -305,7 +307,19 @@ function loadWeeklyPlan(): WeeklyPlan {
 function isYearlyNotes(value: unknown): value is YearlyNotes {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<YearlyNotes>;
-  return typeof candidate.completedBooks === 'string' && typeof candidate.updatedAt === 'string';
+  return (
+    typeof candidate.completedBooks === 'string' &&
+    (candidate.punishment === undefined || typeof candidate.punishment === 'string') &&
+    typeof candidate.updatedAt === 'string'
+  );
+}
+
+function normalizeYearlyNotes(value: YearlyNotes): YearlyNotes {
+  return {
+    completedBooks: value.completedBooks,
+    punishment: value.punishment || '',
+    updatedAt: value.updatedAt
+  };
 }
 
 function loadYearlyNotes(): YearlyNotes {
@@ -314,7 +328,7 @@ function loadYearlyNotes(): YearlyNotes {
   if (!raw) return emptyYearlyNotes;
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return isYearlyNotes(parsed) ? parsed : emptyYearlyNotes;
+    return isYearlyNotes(parsed) ? normalizeYearlyNotes(parsed) : emptyYearlyNotes;
   } catch {
     return emptyYearlyNotes;
   }
@@ -954,8 +968,9 @@ export function SgGoalsApp() {
             window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(data.weeklyPlan));
           }
           if (isYearlyNotes(data.yearlyNotes)) {
-            setYearlyNotes(data.yearlyNotes);
-            window.localStorage.setItem(YEARLY_NOTES_KEY, JSON.stringify(data.yearlyNotes));
+            const nextYearlyNotes = normalizeYearlyNotes(data.yearlyNotes);
+            setYearlyNotes(nextYearlyNotes);
+            window.localStorage.setItem(YEARLY_NOTES_KEY, JSON.stringify(nextYearlyNotes));
           }
           if (isTargetState(data.targetState)) {
             const cloudTime = new Date(data.targetState.updatedAt).getTime();
@@ -1544,10 +1559,19 @@ export function SgGoalsApp() {
   }
 
   function updateYearlyBooks(value: string) {
-    setYearlyNotes({
+    setYearlyNotes((current) => ({
+      ...current,
       completedBooks: value,
       updatedAt: new Date().toISOString()
-    });
+    }));
+  }
+
+  function updateYearlyPunishment(value: string) {
+    setYearlyNotes((current) => ({
+      ...current,
+      punishment: value,
+      updatedAt: new Date().toISOString()
+    }));
   }
 
   function saveTask() {
@@ -2811,7 +2835,7 @@ export function SgGoalsApp() {
       ) : null}
 
       {scope === 'yearly' ? (
-        <section className="mx-auto max-w-4xl px-5 pb-4">
+        <section className="mx-auto grid max-w-4xl gap-4 px-5 pb-4 md:grid-cols-2">
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -2830,6 +2854,26 @@ export function SgGoalsApp() {
             />
             <p className="mt-2 text-[11px] text-[#52527a]">
               Saved with your yearly goals. Use one line per book so it stays easy to review.
+            </p>
+          </div>
+          <div className="rounded-xl border border-[#ff6b6b44] bg-[#0f0f1d] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#ff8a8a]">Punishment</p>
+                <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Accountability rules</h2>
+              </div>
+              <div className="rounded-lg bg-[#ff6b6b18] p-2 text-[#ff6b6b]">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+            </div>
+            <textarea
+              value={yearlyNotes.punishment}
+              onChange={(event) => updateYearlyPunishment(event.target.value)}
+              placeholder={'Write your punishment rules here...\nExample:\nIf I miss study 2 days in a row - no YouTube next day\nIf I miss gym 3 times in a week - extra Sunday workout'}
+              className="mt-4 min-h-36 w-full resize-y rounded-xl border border-[#ff6b6b44] bg-[#13132a] px-3 py-3 text-sm leading-6 text-[#e8e8f5] outline-none placeholder:text-[#52527a] focus:border-[#ff6b6b]"
+            />
+            <p className="mt-2 text-[11px] text-[#52527a]">
+              Keep this realistic and specific. It syncs with your yearly goals.
             </p>
           </div>
         </section>

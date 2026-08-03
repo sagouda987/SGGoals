@@ -32,6 +32,7 @@ type WeeklyPlanInput = {
 };
 type YearlyNotesInput = {
   completedBooks: string;
+  punishment?: string;
   updatedAt: string;
 };
 type TargetStateInput = {
@@ -115,7 +116,19 @@ function isWeeklyPlan(value: unknown): value is WeeklyPlanInput {
 function isYearlyNotes(value: unknown): value is YearlyNotesInput {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<YearlyNotesInput>;
-  return typeof candidate.completedBooks === 'string' && typeof candidate.updatedAt === 'string';
+  return (
+    typeof candidate.completedBooks === 'string' &&
+    (candidate.punishment === undefined || typeof candidate.punishment === 'string') &&
+    typeof candidate.updatedAt === 'string'
+  );
+}
+
+function normalizeYearlyNotes(value: YearlyNotesInput): Required<YearlyNotesInput> {
+  return {
+    completedBooks: value.completedBooks,
+    punishment: value.punishment || '',
+    updatedAt: value.updatedAt
+  };
 }
 
 function parseTargetState(value: string | null | undefined) {
@@ -142,7 +155,7 @@ function parseYearlyNotes(value: string | null | undefined) {
   if (!value) return null;
   try {
     const parsed = JSON.parse(value) as unknown;
-    return isYearlyNotes(parsed) ? parsed : null;
+    return isYearlyNotes(parsed) ? normalizeYearlyNotes(parsed) : null;
   } catch {
     return null;
   }
