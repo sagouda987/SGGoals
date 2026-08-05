@@ -1585,7 +1585,7 @@ export function SgGoalsApp() {
     const text = draft.text.trim();
     if (!text) return;
     const note = composeTaskNote(draft.note.trim() || undefined, scope === 'today' ? draft.dueTime : '');
-    const priority = scope === 'today' && !editing ? 'other' : draft.priority;
+    const priority = scope === 'today' || scope === 'weekend' ? 'other' : draft.priority;
     const taskBlock = scope === 'today' ? (isHabitTask(text) ? 'habit' : draft.block) : undefined;
     persist((current) => {
       const next = { ...current };
@@ -2152,6 +2152,20 @@ export function SgGoalsApp() {
     done: activeTasks.filter((task) => task.priority === priority && task.done).length,
     total: activeTasks.filter((task) => task.priority === priority).length
   }));
+
+  const weekendGroups = [
+    {
+      id: 'weekend-work',
+      title: 'Weekend work',
+      sub: 'Write down all your weekend work',
+      color: '#4f8ef7',
+      tasks: activeTasks,
+      done: activeTasks.filter((task) => task.done).length,
+      total: activeTasks.length
+    }
+  ];
+
+  const taskGroups = scope === 'today' ? todayDisplayGroups : scope === 'weekend' ? weekendGroups : groupedPriority;
 
   const sideMissLog = (scope === 'monthly' ? monthlyAnalytics.failures : scope === 'today' ? todayFocus.misses : analytics.failures).filter((activity) => !isAutoHabitMiss(activity));
   const sideMissLogTitle = scope === 'monthly' ? 'Monthly miss log' : scope === 'today' ? 'Today miss log' : '7-day miss log';
@@ -2889,7 +2903,7 @@ export function SgGoalsApp() {
 
       <section className="mx-auto grid max-w-4xl gap-4 px-5 md:grid-cols-[1fr,320px]">
         <div className="space-y-4">
-          {(scope === 'today' ? todayDisplayGroups : groupedPriority).map((group) => {
+          {taskGroups.map((group) => {
             return (
               <div key={group.id} className="overflow-hidden rounded-xl border border-[#1a1a30] bg-[#0f0f1d]">
                 <div className="flex items-center justify-between border-b border-[#1a1a30] px-4 py-3">
@@ -2915,20 +2929,22 @@ export function SgGoalsApp() {
                         const canUseSubtasks = allowsSubtasks(task);
                         const subtasks = canUseSubtasks ? task.subtasks || [] : [];
                         const doneSubtasks = subtasks.filter((subtask) => subtask.done).length;
+                        const taskColor = scope === 'weekend' ? group.color : priorities[task.priority].color;
+                        const taskSoft = scope === 'weekend' ? 'rgba(79,142,247,.12)' : priorities[task.priority].soft;
                         return (
                           <>
                             <div className="flex items-stretch">
                               <button onClick={() => toggleTask(task.id)} className="flex flex-1 items-start gap-3 px-4 py-3 text-left">
                                 <span
                                   className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border"
-                                  style={{ borderColor: priorities[task.priority].color, background: task.done ? priorities[task.priority].soft : 'transparent' }}
+                                  style={{ borderColor: taskColor, background: task.done ? taskSoft : 'transparent' }}
                                 >
-                                  {task.done ? <Check className="h-3.5 w-3.5" style={{ color: priorities[task.priority].color }} /> : null}
+                                  {task.done ? <Check className="h-3.5 w-3.5" style={{ color: taskColor }} /> : null}
                                 </span>
                                 <span className="min-w-0">
                                   <span className={`block text-sm ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</span>
                                   <span className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#52527a]">
-                                    <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
+                                    {scope !== 'weekend' ? <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span> : null}
                                     {noteInfo.dueTime ? <span style={{ color: '#00d97e' }}>By {noteInfo.dueTime}</span> : null}
                                     {noteInfo.note ? <span>{noteInfo.note}</span> : null}
                                     {subtasks.length ? (
@@ -2937,7 +2953,7 @@ export function SgGoalsApp() {
                                       </span>
                                     ) : null}
                                     {task.done && task.investedMinutes != null ? (
-                                      <span style={{ color: priorities[task.priority].color }}>{formatMinutes(task.investedMinutes)} invested</span>
+                                      <span style={{ color: taskColor }}>{formatMinutes(task.investedMinutes)} invested</span>
                                     ) : null}
                                     {task.done && task.startedAt && task.completedAt ? (
                                       <span>
@@ -3035,7 +3051,7 @@ export function SgGoalsApp() {
               placeholder="Note (optional)"
               className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
             />
-            {scope !== 'today' ? (
+            {scope !== 'today' && scope !== 'weekend' ? (
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Priority</p>
                 <div className="grid grid-cols-2 gap-2">
