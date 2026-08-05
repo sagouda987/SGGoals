@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 
-type Scope = 'today' | 'weekly' | 'monthly' | 'yearly' | 'tomorrow';
+type Scope = 'today' | 'weekly' | 'weekend' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
 type Block = 'morning' | 'afternoon' | 'evening' | 'habit';
 
@@ -165,6 +165,12 @@ const starterStore: GoalsStore = {
     makeTask('Communication practice daily - 7/7', undefined, 'communication'),
     makeTask('Skin care routine daily - 7/7', undefined, 'looks')
   ],
+  weekend: [
+    makeTask('Weekly review and next week planning', undefined, 'career'),
+    makeTask('Deep cleaning / personal admin', undefined, 'other'),
+    makeTask('Long workout or outdoor walk', undefined, 'health'),
+    makeTask('Family / relationship time', undefined, 'communication')
+  ],
   monthly: [
     makeTask('Reach weight 68 kg', undefined, 'health'),
     makeTask('Complete Databricks and Spark course', undefined, 'career'),
@@ -258,6 +264,7 @@ function loadStore(): GoalsStore {
     return {
       today: Array.isArray(parsed.today) ? parsed.today : starterStore.today,
       weekly: Array.isArray(parsed.weekly) ? parsed.weekly : starterStore.weekly,
+      weekend: Array.isArray(parsed.weekend) ? parsed.weekend : starterStore.weekend,
       monthly: Array.isArray(parsed.monthly) ? parsed.monthly : starterStore.monthly,
       yearly: Array.isArray(parsed.yearly) ? parsed.yearly : starterStore.yearly,
       tomorrow: Array.isArray(parsed.tomorrow) ? parsed.tomorrow : starterStore.tomorrow
@@ -2042,6 +2049,7 @@ export function SgGoalsApp() {
         setStore({
           today: parsed.today || [],
           weekly: parsed.weekly || [],
+          weekend: parsed.weekend || [],
           monthly: parsed.monthly || [],
           yearly: parsed.yearly || [],
           tomorrow: parsed.tomorrow || []
@@ -2470,8 +2478,8 @@ export function SgGoalsApp() {
       </section>
 
       <section className="mx-auto max-w-4xl px-5 py-4">
-        <div className="grid grid-cols-4 gap-2">
-          {(['today', 'weekly', 'monthly', 'yearly'] as Scope[]).map((item) => (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {(['today', 'weekly', 'weekend', 'monthly', 'yearly'] as Scope[]).map((item) => (
             <button
               key={item}
               onClick={() => {
