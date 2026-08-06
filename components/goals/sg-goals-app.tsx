@@ -67,6 +67,7 @@ type TargetState = {
   running: boolean;
   remainingMs: number;
   durationMs?: number;
+  durationMinutes?: number;
   updatedAt: string;
 };
 
@@ -81,11 +82,13 @@ const TARGET_TASK_MINUTES_KEY = 'sg-goals-target-task-minutes-v1';
 const TARGET_TIMER_KEY = 'sg-goals-target-timer-v3';
 const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v3';
 const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
+const TARGET_DURATION_MINUTES_KEY = 'sg-goals-target-duration-minutes-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
 const APP_VERSION = 'cloud-sync-v59';
-const TARGET_DURATION_MS = 120 * 60 * 1000;
+const DEFAULT_TARGET_DURATION_MINUTES = 120;
+const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
 const COUNTER_RESET_DATE = DAY_COUNTER_START_DATE;
@@ -242,6 +245,12 @@ function formatCountdown(ms: number) {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
+function normalizeTimerMinutes(value: unknown, fallback = DEFAULT_TARGET_DURATION_MINUTES) {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) return fallback;
+  return Math.min(1440, Math.max(1, Math.round(minutes)));
+}
+
 function parseStartDate(timeValue: string) {
   if (!timeValue) return null;
   const now = new Date();
@@ -355,6 +364,7 @@ function isTargetState(value: unknown): value is TargetState {
     typeof candidate.running === 'boolean' &&
     typeof candidate.remainingMs === 'number' &&
     (candidate.durationMs === undefined || typeof candidate.durationMs === 'number') &&
+    (candidate.durationMinutes === undefined || typeof candidate.durationMinutes === 'number') &&
     typeof candidate.updatedAt === 'string'
   );
 }
@@ -869,6 +879,7 @@ export function SgGoalsApp() {
   const [targetTaskMinutes, setTargetTaskMinutes] = useState<Record<string, number>>({});
   const [targetEndAt, setTargetEndAt] = useState('');
   const [targetRunning, setTargetRunning] = useState(false);
+  const [targetDurationMinutes, setTargetDurationMinutes] = useState(DEFAULT_TARGET_DURATION_MINUTES);
   const [targetRemainingMs, setTargetRemainingMs] = useState(TARGET_DURATION_MS);
   const [targetUpdatedAt, setTargetUpdatedAt] = useState(() => '1970-01-01T00:00:00.000Z');
   const [timerNow, setTimerNow] = useState(() => Date.now());
@@ -906,10 +917,12 @@ export function SgGoalsApp() {
   }, []);
 
   const applyTargetState = useCallback((targetState: TargetState) => {
-    const needsDurationUpgrade = targetState.durationMs !== TARGET_DURATION_MS;
-    const durationIncrease = Math.max(0, TARGET_DURATION_MS - (targetState.durationMs || PREVIOUS_TARGET_DURATION_MS));
+    const nextDurationMinutes = normalizeTimerMinutes(targetState.durationMinutes ?? (targetState.durationMs ? targetState.durationMs / 60000 : undefined));
+    const nextDurationMs = nextDurationMinutes * 60000;
+    const needsDurationUpgrade = targetState.durationMs !== undefined && targetState.durationMs !== nextDurationMs;
+    const durationIncrease = Math.max(0, nextDurationMs - (targetState.durationMs || PREVIOUS_TARGET_DURATION_MS));
     const upgradedRemaining = needsDurationUpgrade
-      ? Math.min(TARGET_DURATION_MS, Math.max(0, targetState.remainingMs) + durationIncrease)
+      ? Math.min(nextDurationMs, Math.max(0, targetState.remainingMs) + durationIncrease)
       : targetState.remainingMs;
     const upgradedEndAt =
       needsDurationUpgrade && targetState.running && targetState.endAt
@@ -919,7 +932,8 @@ export function SgGoalsApp() {
     setTargetTaskMinutes(targetState.taskMinutes || {});
     setTargetEndAt(upgradedEndAt);
     setTargetRunning(targetState.running);
-    setTargetRemainingMs(Number.isFinite(upgradedRemaining) && upgradedRemaining >= 0 ? upgradedRemaining : TARGET_DURATION_MS);
+    setTargetDurationMinutes(nextDurationMinutes);
+    setTargetRemainingMs(Number.isFinite(upgradedRemaining) && upgradedRemaining >= 0 ? Math.min(nextDurationMs, upgradedRemaining) : nextDurationMs);
     setTargetUpdatedAt(needsDurationUpgrade ? new Date().toISOString() : targetState.updatedAt);
   }, []);
 
@@ -949,6 +963,8 @@ export function SgGoalsApp() {
     }
     const savedEndAt = window.localStorage.getItem(TARGET_TIMER_KEY) || '';
     const savedRemaining = Number(window.localStorage.getItem(TARGET_REMAINING_KEY));
+    const savedTargetDurationMinutes = normalizeTimerMinutes(window.localStorage.getItem(TARGET_DURATION_MINUTES_KEY));
+    const savedTargetDurationMs = savedTargetDurationMinutes * 60000;
     const savedTargetUpdatedAt = window.localStorage.getItem(TARGET_UPDATED_KEY) || '1970-01-01T00:00:00.000Z';
     setStore(localStore);
     setActivities(localActivities);
@@ -958,7 +974,8 @@ export function SgGoalsApp() {
     setTargetTaskIds(savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : []);
     setTargetTaskMinutes(savedTargetMinutes);
     setTargetEndAt(savedEndAt);
-    setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS);
+    setTargetDurationMinutes(savedTargetDurationMinutes);
+    setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? Math.min(savedTargetDurationMs, savedRemaining) : savedTargetDurationMs);
     setTargetRunning(window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt));
     setTargetUpdatedAt(savedTargetUpdatedAt);
 
@@ -1000,8 +1017,9 @@ export function SgGoalsApp() {
                 taskMinutes: savedTargetMinutes,
                 endAt: savedEndAt,
                 running: window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt),
-                remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? savedRemaining : TARGET_DURATION_MS,
-                durationMs: TARGET_DURATION_MS,
+                remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? Math.min(savedTargetDurationMs, savedRemaining) : savedTargetDurationMs,
+                durationMs: savedTargetDurationMs,
+                durationMinutes: savedTargetDurationMinutes,
                 updatedAt: savedTargetUpdatedAt
               },
               weeklyPlan: localWeeklyPlan,
@@ -1110,8 +1128,9 @@ export function SgGoalsApp() {
     else window.localStorage.removeItem(TARGET_TIMER_KEY);
     window.localStorage.setItem(TARGET_REMAINING_KEY, String(Math.max(0, Math.round(targetRemainingMs))));
     window.localStorage.setItem(TARGET_RUNNING_KEY, targetRunning ? 'true' : 'false');
+    window.localStorage.setItem(TARGET_DURATION_MINUTES_KEY, String(targetDurationMinutes));
     window.localStorage.setItem(TARGET_UPDATED_KEY, targetUpdatedAt);
-  }, [ready, targetEndAt, targetRemainingMs, targetRunning, targetUpdatedAt]);
+  }, [ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetUpdatedAt]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -1139,10 +1158,10 @@ export function SgGoalsApp() {
     if (!validIds.length) {
       setTargetEndAt('');
       setTargetRunning(false);
-      setTargetRemainingMs(TARGET_DURATION_MS);
+      setTargetRemainingMs(targetDurationMinutes * 60000);
       markTargetChanged();
     }
-  }, [markTargetChanged, ready, store.today, targetTaskIds]);
+  }, [markTargetChanged, ready, store.today, targetDurationMinutes, targetTaskIds]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1161,7 +1180,8 @@ export function SgGoalsApp() {
               endAt: targetEndAt,
               running: targetRunning,
               remainingMs: targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs,
-              durationMs: TARGET_DURATION_MS,
+              durationMs: targetDurationMinutes * 60000,
+              durationMinutes: targetDurationMinutes,
               updatedAt: targetUpdatedAt
             },
             weeklyPlan,
@@ -1178,7 +1198,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, ready, store, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
+  }, [cloudReady, ready, store, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1214,10 +1234,17 @@ export function SgGoalsApp() {
           const localIds = targetTaskIds.join('|');
           const cloudMinutes = targetMinutesSignature(data.targetState.taskMinutes);
           const localMinutes = targetMinutesSignature(targetTaskMinutes);
+          const cloudDurationMinutes = normalizeTimerMinutes(data.targetState.durationMinutes ?? (data.targetState.durationMs ? data.targetState.durationMs / 60000 : undefined));
           const cloudRemaining = Math.round(data.targetState.remainingMs / 1000);
           const localRemainingMs = targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs;
           const localRemaining = Math.round(localRemainingMs / 1000);
-          if (cloudIds !== localIds || cloudMinutes !== localMinutes || data.targetState.running !== targetRunning || Math.abs(cloudRemaining - localRemaining) > 5) {
+          if (
+            cloudIds !== localIds ||
+            cloudMinutes !== localMinutes ||
+            cloudDurationMinutes !== targetDurationMinutes ||
+            data.targetState.running !== targetRunning ||
+            Math.abs(cloudRemaining - localRemaining) > 5
+          ) {
             setTargetConflict(data.targetState);
             setTimerSyncState('conflict');
           } else {
@@ -1230,7 +1257,7 @@ export function SgGoalsApp() {
       }
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [applyTargetState, cloudReady, ready, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
+  }, [applyTargetState, cloudReady, ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => {
@@ -1350,8 +1377,8 @@ export function SgGoalsApp() {
       .filter((item): item is { task: GoalTask; minutes: number; startMs: number; endMs: number; durationMs: number } => Boolean(item));
   }, [targetTaskMinutes, targetTasks]);
 
-  const targetPlannedDurationMs = targetPlannedMinutes > 0 ? targetPlannedMinutes * 60000 : TARGET_DURATION_MS;
-  const targetPlanSignature = `${targetTaskIds.join('|')}::${targetPlannedDurationMs}`;
+  const targetPlannedDurationMs = targetDurationMinutes * 60000;
+  const targetPlanSignature = `${targetTaskIds.join('|')}::${targetMinutesSignature(targetTaskMinutes)}::${targetPlannedDurationMs}`;
   const istClockLabel = useMemo(() => formatIstClock(timerNow), [timerNow]);
 
   const mainGoal = targetTasks[0] || null;
@@ -1404,7 +1431,7 @@ export function SgGoalsApp() {
       if (hour < 6 || hour > 23 || hour % 2 !== 0) return;
       const key = `${toISODate(now)}-${hour}`;
       if (window.localStorage.getItem(NOTIFICATION_LAST_KEY) === key) return;
-      const body = targetTasks.length ? `Next 2 hour target: ${targetTasks.map((task) => task.text).join(', ')}` : 'Choose your next 2 hour target for today.';
+      const body = targetTasks.length ? `Next target: ${targetTasks.map((task) => task.text).join(', ')}` : 'Choose your next target for today.';
       window.localStorage.setItem(NOTIFICATION_LAST_KEY, key);
       showGoalNotification('SG Goals check-in', body, `sg-goals-${key}`);
     }
@@ -1672,7 +1699,7 @@ export function SgGoalsApp() {
     setTargetTaskMinutes((current) => {
       const next = { ...current };
       if (!value || !Number.isFinite(minutes) || minutes <= 0) delete next[taskId];
-      else next[taskId] = Math.min(120, Math.round(minutes));
+      else next[taskId] = normalizeTimerMinutes(minutes);
       return next;
     });
     markTargetChanged();
@@ -1681,7 +1708,7 @@ export function SgGoalsApp() {
   function adjustTargetTaskMinutes(taskId: string, delta: number) {
     setTargetTaskMinutes((current) => {
       const currentMinutes = current[taskId] || 0;
-      const nextMinutes = Math.min(120, Math.max(0, currentMinutes + delta));
+      const nextMinutes = Math.min(1440, Math.max(0, currentMinutes + delta));
       const next = { ...current };
       if (!nextMinutes) delete next[taskId];
       else next[taskId] = nextMinutes;
@@ -1690,9 +1717,26 @@ export function SgGoalsApp() {
     markTargetChanged();
   }
 
+  function updateTargetDurationMinutes(value: string) {
+    const nextMinutes = normalizeTimerMinutes(value);
+    const nextDurationMs = nextMinutes * 60000;
+    setTargetDurationMinutes(nextMinutes);
+    if (!targetRunning) {
+      setTargetEndAt('');
+      setTargetRemainingMs(nextDurationMs);
+    } else {
+      const elapsedMs = Math.max(0, targetPlannedDurationMs - targetTimer.remainingMs);
+      const nextRemainingMs = Math.max(0, nextDurationMs - elapsedMs);
+      setTargetRemainingMs(nextRemainingMs);
+      setTargetEndAt(new Date(Date.now() + nextRemainingMs).toISOString());
+    }
+    window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    markTargetChanged();
+  }
+
   function toggleTargetTimer() {
     if (!targetTaskIds.length) return;
-    const plannedDurationMs = targetPlannedMinutes > 0 ? targetPlannedMinutes * 60000 : TARGET_DURATION_MS;
+    const plannedDurationMs = targetPlannedDurationMs;
     if (targetRunning) {
       const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
       setTargetRemainingMs(endTime ? Math.max(0, endTime - Date.now()) : targetRemainingMs);
@@ -1711,7 +1755,7 @@ export function SgGoalsApp() {
   }
 
   function resetTargetTimer() {
-    const plannedDurationMs = targetPlannedMinutes > 0 ? targetPlannedMinutes * 60000 : TARGET_DURATION_MS;
+    const plannedDurationMs = targetPlannedDurationMs;
     setTargetRemainingMs(plannedDurationMs);
     setTargetEndAt(targetRunning ? new Date(Date.now() + plannedDurationMs).toISOString() : '');
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
@@ -1897,7 +1941,7 @@ export function SgGoalsApp() {
         if (!remaining.length) {
           setTargetEndAt('');
           setTargetRunning(false);
-          setTargetRemainingMs(TARGET_DURATION_MS);
+          setTargetRemainingMs(targetPlannedDurationMs);
           window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
         }
         markTargetChanged();
@@ -2093,7 +2137,7 @@ export function SgGoalsApp() {
       `Day counter: ${dayCounter}`,
       `Weekly plan: Main=${weeklyPlan.mainGoal || 'Not set'}; Study=${weeklyPlan.studyPlan || 'Not set'}; Work=${weeklyPlan.workPlan || 'Not set'}; Health=${weeklyPlan.healthPlan || 'Not set'}; Notes=${weeklyPlan.notes || 'None'}`,
       `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Healthy drink morning=${strikeCounts.healthyDrinkMorning}, Healthy drink evening=${strikeCounts.healthyDrinkEvening}, Eye care=${strikeCounts.eyeCare}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Office course=${strikeCounts.officeCourse}, Sleep 11 to 6=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
-      `Next 2 hour target: ${
+      `Next target (${formatMinutes(targetDurationMinutes)} timer): ${
         targetTasks.length
           ? targetTasks.map((task) => `${task.text}${targetTaskMinutes[task.id] ? ` (${targetTaskMinutes[task.id]}m)` : ''}`).join(', ')
           : 'Not selected'
@@ -2516,7 +2560,7 @@ export function SgGoalsApp() {
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next 2 hour target</p>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next target</p>
                 <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{targetTasks.length ? `${targetTasks.length} task${targetTasks.length === 1 ? '' : 's'} selected` : 'Select tasks from Morning, Afternoon, or Evening'}</h2>
                 {mainGoal ? (
                   <p className="mt-1 text-xs text-[#8b8bb3]">
@@ -2571,7 +2615,7 @@ export function SgGoalsApp() {
                                 <input
                                   type="number"
                                   min="1"
-                                  max="120"
+                                  max="1440"
                                   inputMode="numeric"
                                   value={targetTaskMinutes[task.id] ?? ''}
                                   onChange={(event) => updateTargetTaskMinutes(task.id, event.target.value)}
@@ -2651,10 +2695,26 @@ export function SgGoalsApp() {
                         </p>
                       ) : null}
                     </div>
-                    <p className="text-right text-[11px] text-[#8b8bb3]">
-                      {targetTimer.complete ? 'Time is up. Finish or log what happened.' : targetTimer.running ? 'Timer is running.' : 'Timer is paused.'}
-                      {targetPlannedMinutes ? ` Planned ${formatMinutes(targetPlannedMinutes)} / 2h.` : ''}
-                    </p>
+                    <div className="text-right text-[11px] text-[#8b8bb3]">
+                      <p>{targetTimer.complete ? 'Time is up. Finish or log what happened.' : targetTimer.running ? 'Timer is running.' : 'Timer is paused.'}</p>
+                      <label className="mt-2 flex items-center justify-end gap-2">
+                        <span>Total</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="1440"
+                          inputMode="numeric"
+                          value={targetDurationMinutes}
+                          onChange={(event) => updateTargetDurationMinutes(event.target.value)}
+                          className="h-8 w-20 rounded-lg border border-[#1a1a30] bg-[#07070f] px-2 text-right font-mono text-sm font-bold text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                          aria-label="Target timer total minutes"
+                        />
+                        <span>min</span>
+                      </label>
+                      <p className="mt-1">
+                        {targetPlannedMinutes ? `Tasks planned ${formatMinutes(targetPlannedMinutes)} / timer ${formatMinutes(targetDurationMinutes)}.` : `Timer ${formatMinutes(targetDurationMinutes)}.`}
+                      </p>
+                    </div>
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
                     <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${targetTimer.progress}%` }} />
@@ -2662,10 +2722,10 @@ export function SgGoalsApp() {
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button onClick={toggleTargetTimer} className="rounded-lg bg-[#00d97e] px-3 py-2 text-xs font-bold text-black">
-                    {targetTimer.running ? 'Stop timer' : targetTimer.complete ? 'Start 2 hours again' : 'Start timer'}
+                    {targetTimer.running ? 'Stop timer' : targetTimer.complete ? `Start ${formatMinutes(targetDurationMinutes)} again` : 'Start timer'}
                   </button>
                   <button onClick={resetTargetTimer} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
-                    Reset 2 hours
+                    Reset {formatMinutes(targetDurationMinutes)}
                   </button>
                   <button
                     onClick={() => {
@@ -2673,7 +2733,7 @@ export function SgGoalsApp() {
                       setTargetTaskMinutes({});
                       setTargetEndAt('');
                       setTargetRunning(false);
-                      setTargetRemainingMs(TARGET_DURATION_MS);
+                      setTargetRemainingMs(targetPlannedDurationMs);
                       markTargetChanged();
                     }}
                     className="rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b]"
@@ -2968,7 +3028,7 @@ export function SgGoalsApp() {
                               </button>
                               {scope === 'today' ? (
                                 <button
-                                  aria-label="Set next 2 hour target"
+                                  aria-label="Set next target"
                                   onClick={() => toggleTargetTask(task.id)}
                                   className={`w-11 border-l border-[#1a1a30] ${targetTaskIds.includes(task.id) ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
                                 >
