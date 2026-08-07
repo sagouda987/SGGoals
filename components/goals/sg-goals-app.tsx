@@ -91,7 +91,8 @@ const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
-const COUNTER_RESET_DATE = DAY_COUNTER_START_DATE;
+const COUNTER_RESET_DAY = 8;
+const HABIT_TARGET_COUNT = 21;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -524,8 +525,18 @@ function isAutoHabitMiss(activity: GoalActivity) {
   return activity.kind === 'failure' && activity.note?.startsWith(AUTO_HABIT_MISS_NOTE);
 }
 
+function buildCounterCycleStart(todayKey: string) {
+  const today = new Date(`${todayKey}T00:00:00`);
+  const start = new Date(today);
+  start.setDate(COUNTER_RESET_DAY);
+  if (today.getDate() < COUNTER_RESET_DAY) {
+    start.setMonth(start.getMonth() - 1);
+  }
+  return toISODate(start);
+}
+
 function isAfterCounterReset(dateValue: string) {
-  return dateKeyFromValue(dateValue) >= COUNTER_RESET_DATE;
+  return dateKeyFromValue(dateValue) >= buildCounterCycleStart(toISODate(new Date()));
 }
 
 function buildHabitMissCounts(activities: GoalActivity[], days: Date[]) {
@@ -697,7 +708,8 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     if (!byDay.has(day)) byDay.set(day, new Set<string>());
     return byDay.get(day) as Set<string>;
   };
-  const counterResetAt = new Date(`${COUNTER_RESET_DATE}T00:00:00`).getTime();
+  const counterCycleStart = buildCounterCycleStart(todayKey);
+  const counterResetAt = new Date(`${counterCycleStart}T00:00:00`).getTime();
   const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, OFFICECOURSE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
@@ -734,7 +746,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
   activities
     .filter((activity) => activity.scope === 'today')
     .forEach((activity) => {
-      if (!isAfterCounterReset(activity.createdAt)) return;
+      if (dateKeyFromValue(activity.createdAt) < counterCycleStart) return;
       const code = normalizeStrikeCode(activity.taskText);
       if (!code) return;
       const family = familyForCode(code);
@@ -791,6 +803,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     officeCourse: dayResults.filter((day) => day.officeCourse).length,
     eyeCare: dayResults.filter((day) => day.eyeCare).length,
     saltGargle: dayResults.filter((day) => day.saltGargle).length,
+    counterCycleStart,
     resetAt,
     today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false, gym: false, healthyDrinkMorning: false, healthyDrinkEvening: false, book: false, study2: false, officeWork2: false, sleep: false, noJunk: false, manifest: false, noSocial: false, officeCourse: false, eyeCare: false, saltGargle: false }
   };
@@ -2506,7 +2519,12 @@ export function SgGoalsApp() {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[#8b8bb3]">
+              <span>Habit counter cycle: {strikeCounts.counterCycleStart} to next 7th</span>
+              <span className="font-bold text-[#ffd166]">21+ gets highlighted</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
             {[
               { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
               { key: 'L' as const, label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },
@@ -2524,12 +2542,19 @@ export function SgGoalsApp() {
               { key: 'OFFICECOURSE' as const, label: 'Office course count', rule: 'Office course complete', color: '#60a5fa', todayDone: strikeCounts.today.officeCourse, value: strikeCounts.officeCourse },
               { key: 'EYECARE' as const, label: 'Eye care count', rule: 'Eye care complete', color: '#2dd4bf', todayDone: strikeCounts.today.eyeCare, value: strikeCounts.eyeCare },
               { key: 'SALTGARGLE' as const, label: 'Gargle count', rule: 'Salt water gargle complete', color: '#93c5fd', todayDone: strikeCounts.today.saltGargle, value: strikeCounts.saltGargle }
-            ].map((item) => (
-              <div key={item.key} className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+            ].map((item) => {
+              const reachedTarget = item.value >= HABIT_TARGET_COUNT;
+              return (
+              <div
+                key={item.key}
+                className={`rounded-xl border px-3 py-2 ${
+                  reachedTarget ? 'border-[#ffd16699] bg-[#ffd16614] shadow-[0_0_18px_rgba(255,209,102,.14)]' : 'border-[#1a1a30] bg-[#0f0f1d]'
+                }`}
+              >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#52527a]">{item.label}</p>
+                  <p className={`text-[10px] font-bold uppercase tracking-[.16em] ${reachedTarget ? 'text-[#ffd166]' : 'text-[#52527a]'}`}>{item.label}</p>
                   <span className="text-[10px] font-bold" style={{ color: item.todayDone ? '#00d97e' : '#52527a' }}>
-                    {item.todayDone ? 'Today +1' : 'Pending'}
+                    {reachedTarget ? '21 reached' : item.todayDone ? 'Today +1' : 'Pending'}
                   </span>
                 </div>
                 <p className="mt-1 text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
@@ -2540,7 +2565,8 @@ export function SgGoalsApp() {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
             <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#52527a]">Day counter</p>
@@ -2548,6 +2574,7 @@ export function SgGoalsApp() {
               </div>
               <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{dayCounter}</p>
               <p className="mt-1 text-[10px] text-[#8b8bb3]">Started July 11, 2026</p>
+            </div>
             </div>
           </div>
         </div>
