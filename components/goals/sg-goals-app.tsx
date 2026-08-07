@@ -90,7 +90,8 @@ const APP_VERSION = 'cloud-sync-v59';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
-const DAY_COUNTER_START_DATE = '2026-07-11';
+const DAY_COUNTER_START_DATE = '2026-08-07';
+const COUNTER_FORCE_RESET_AT = '2026-08-07T11:32:03+05:30';
 const COUNTER_RESET_DAY = 7;
 const HABIT_TARGET_COUNT = 21;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
@@ -153,7 +154,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   EYECARE: 'Eye care',
   SALTGARGLE: 'Salt water gargle'
 };
-const DAILY_PRIORITY_STRIKE_KEYS = ['OFFICEWORK2', 'OFFICECOURSE', 'BOOK', 'GYM'] as const;
+const DAILY_PRIORITY_STRIKE_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
 
 const starterStore: GoalsStore = {
   today: [
@@ -703,6 +704,11 @@ function buildDayCounter(todayKey: string) {
   return Math.max(0, diffDays);
 }
 
+function formatStartedDate(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
 function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], todayKey: string) {
   const byDay = new Map<string, Set<string>>();
   const ensureDay = (day: string) => {
@@ -710,7 +716,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     return byDay.get(day) as Set<string>;
   };
   const counterCycleStart = buildCounterCycleStart(todayKey);
-  const counterResetAt = new Date(`${counterCycleStart}T00:00:00`).getTime();
+  const counterResetAt = Math.max(new Date(`${counterCycleStart}T00:00:00`).getTime(), new Date(COUNTER_FORCE_RESET_AT).getTime());
   const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, OFFICECOURSE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
@@ -2528,7 +2534,7 @@ export function SgGoalsApp() {
             <div className="grid grid-cols-3 gap-2">
             {[
               { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Daily priority - Office work complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
-              { key: 'OFFICECOURSE' as const, label: 'Office course count', rule: 'Daily priority - Office course complete', color: '#60a5fa', todayDone: strikeCounts.today.officeCourse, value: strikeCounts.officeCourse },
+              { key: 'STUDY2' as const, label: 'Study count', rule: 'Daily priority - Study 2 hour complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
               { key: 'BOOK' as const, label: 'Book + comm count', rule: 'Daily priority - Book read and communication practice complete', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
               { key: 'GYM' as const, label: 'Gym count', rule: 'Daily priority - Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
               { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
@@ -2536,11 +2542,11 @@ export function SgGoalsApp() {
               { key: 'M' as const, label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m },
               { key: 'HEALTHYDRINKMORNING' as const, label: 'Drink AM count', rule: 'Healthy drink morning complete', color: '#14b8a6', todayDone: strikeCounts.today.healthyDrinkMorning, value: strikeCounts.healthyDrinkMorning },
               { key: 'HEALTHYDRINKEVENING' as const, label: 'Drink PM count', rule: 'Healthy drink evening complete', color: '#f97316', todayDone: strikeCounts.today.healthyDrinkEvening, value: strikeCounts.healthyDrinkEvening },
-              { key: 'STUDY2' as const, label: 'Study count', rule: 'Study 2 hour complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
               { key: 'SLEEP' as const, label: 'Sleep count', rule: 'Sleep 11 to 6 complete', color: '#a78bfa', todayDone: strikeCounts.today.sleep, value: strikeCounts.sleep },
               { key: 'NOJUNK' as const, label: 'No junk count', rule: 'No junk food complete', color: '#00bcd4', todayDone: strikeCounts.today.noJunk, value: strikeCounts.noJunk },
               { key: 'NOSOCIAL' as const, label: 'No social count', rule: 'No Social Media complete', color: '#38bdf8', todayDone: strikeCounts.today.noSocial, value: strikeCounts.noSocial },
               { key: 'MANIFEST' as const, label: 'Manifest count', rule: 'Manifestation complete', color: '#fb7185', todayDone: strikeCounts.today.manifest, value: strikeCounts.manifest },
+              { key: 'OFFICECOURSE' as const, label: 'Office course count', rule: 'Office course complete', color: '#60a5fa', todayDone: strikeCounts.today.officeCourse, value: strikeCounts.officeCourse },
               { key: 'EYECARE' as const, label: 'Eye care count', rule: 'Eye care complete', color: '#2dd4bf', todayDone: strikeCounts.today.eyeCare, value: strikeCounts.eyeCare },
               { key: 'SALTGARGLE' as const, label: 'Gargle count', rule: 'Salt water gargle complete', color: '#93c5fd', todayDone: strikeCounts.today.saltGargle, value: strikeCounts.saltGargle }
             ].map((item) => {
@@ -2581,7 +2587,7 @@ export function SgGoalsApp() {
                 <span className="text-[10px] font-bold text-[#00d97e]">Auto +1</span>
               </div>
               <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{dayCounter}</p>
-              <p className="mt-1 text-[10px] text-[#8b8bb3]">Started July 11, 2026</p>
+              <p className="mt-1 text-[10px] text-[#8b8bb3]">Started {formatStartedDate(DAY_COUNTER_START_DATE)}</p>
             </div>
             </div>
           </div>
