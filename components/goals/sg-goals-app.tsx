@@ -25,6 +25,7 @@ type GoalTask = {
   completedAt?: string;
   investedMinutes?: number;
   subtasks?: GoalSubtask[];
+  allowSubtasks?: boolean;
   updatedAt: string;
 };
 
@@ -207,7 +208,7 @@ const emptyYearlyNotes: YearlyNotes = {
   updatedAt: '1970-01-01T00:00:00.000Z'
 };
 
-function makeTask(text: string, note: string | undefined, priority: Priority, block?: Block): GoalTask {
+function makeTask(text: string, note: string | undefined, priority: Priority, block?: Block, allowSubtasks?: boolean): GoalTask {
   return {
     id: cryptoSafeId(),
     text,
@@ -215,6 +216,7 @@ function makeTask(text: string, note: string | undefined, priority: Priority, bl
     priority,
     block,
     done: false,
+    allowSubtasks,
     updatedAt: new Date().toISOString()
   };
 }
@@ -520,7 +522,8 @@ function isHabitTask(text: string) {
 
 function allowsSubtasks(task: GoalTask) {
   const code = normalizeStrikeCode(task.text);
-  return !code || !NO_SUBTASK_STRIKE_CODES.includes(code);
+  if (code && NO_SUBTASK_STRIKE_CODES.includes(code)) return false;
+  return task.allowSubtasks !== false;
 }
 
 function isAutoHabitMiss(activity: GoalActivity) {
@@ -921,7 +924,7 @@ export function SgGoalsApp() {
   const [scoreOpen, setScoreOpen] = useState(false);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
-  const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block });
+  const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: true });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
   const [habitCheckState, setHabitCheckState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
@@ -1612,7 +1615,7 @@ export function SgGoalsApp() {
 
   function resetDraft() {
     setEditing(null);
-    setDraft({ text: '', note: '', dueTime: '', priority: 'career', block: 'morning' });
+    setDraft({ text: '', note: '', dueTime: '', priority: 'career', block: 'morning', allowSubtasks: true });
   }
 
   function updateWeeklyPlan(field: keyof Omit<WeeklyPlan, 'updatedAt'>, value: string) {
@@ -1657,11 +1660,11 @@ export function SgGoalsApp() {
       if (editing) {
         next[scope] = current[scope].map((task) =>
           task.id === editing.id
-            ? { ...task, text, note, priority, block: taskBlock, updatedAt: new Date().toISOString() }
+            ? { ...task, text, note, priority, block: taskBlock, allowSubtasks: draft.allowSubtasks, updatedAt: new Date().toISOString() }
             : task
         );
       } else {
-        next[scope] = [...current[scope], makeTask(text, note, priority, taskBlock)];
+        next[scope] = [...current[scope], makeTask(text, note, priority, taskBlock, draft.allowSubtasks)];
       }
       return next;
     });
@@ -1829,7 +1832,7 @@ export function SgGoalsApp() {
   function beginEdit(task: GoalTask) {
     const noteInfo = splitTaskNote(task.note);
     setEditing(task);
-    setDraft({ text: task.text, note: noteInfo.note || '', dueTime: noteInfo.dueTime, priority: task.priority, block: task.block || 'morning' });
+    setDraft({ text: task.text, note: noteInfo.note || '', dueTime: noteInfo.dueTime, priority: task.priority, block: task.block || 'morning', allowSubtasks: task.allowSubtasks !== false });
   }
 
   function toggleTask(taskId: string) {
@@ -2028,7 +2031,8 @@ export function SgGoalsApp() {
                 ...current.tomorrow,
                 {
                   ...makeTask(failureTask.text, composeTaskNote(tomorrowNote || undefined, noteInfo.dueTime), failureTask.priority),
-                  subtasks: failureTask.subtasks
+                  subtasks: failureTask.subtasks,
+                  allowSubtasks: failureTask.allowSubtasks
                 }
               ]
         };
@@ -3170,6 +3174,29 @@ export function SgGoalsApp() {
               placeholder="Note (optional)"
               className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
             />
+            <div>
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Subtasks</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { value: true, label: 'Need subtasks' },
+                  { value: false, label: 'No subtasks' }
+                ].map((option) => {
+                  const isActive = draft.allowSubtasks === option.value;
+                  return (
+                    <button
+                      key={option.label}
+                      type="button"
+                      onClick={() => setDraft((current) => ({ ...current, allowSubtasks: option.value }))}
+                      className={`rounded-lg border px-3 py-2 text-xs font-bold transition ${
+                        isActive ? 'border-[#00d97e] bg-[#00d97e15] text-[#00d97e]' : 'border-[#1a1a30] bg-[#0f0f1d] text-[#8b8bb3]'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {scope !== 'today' && scope !== 'weekend' ? (
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Priority</p>
