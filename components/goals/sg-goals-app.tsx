@@ -91,7 +91,7 @@ const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-07-11';
-const COUNTER_RESET_DAY = 8;
+const COUNTER_RESET_DAY = 7;
 const HABIT_TARGET_COUNT = 21;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -127,7 +127,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
   evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
-const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Salt water gargle', 'Book read', 'Study 2 hour', 'Office work', 'Office course', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
+const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Eye care', 'Salt water gargle', 'Book read and communication practice', 'Study 2 hour', 'Office work', 'Office course', 'Sleep 11 to 6', 'No junk food', 'No Social Media', 'Manifestation'];
 const REMOVED_HABIT_TASKS = ['Chess improvement'];
 const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'L1', 'L2', 'L3', 'M', 'GYM', 'EYECARE', 'SALTGARGLE', 'NOJUNK', 'NOSOCIAL', 'MANIFEST'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -142,7 +142,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   GYM: 'Gym',
   HEALTHYDRINKMORNING: 'Healthy drink morning',
   HEALTHYDRINKEVENING: 'Healthy drink evening',
-  BOOK: 'Book read',
+  BOOK: 'Book read and communication practice',
   STUDY2: 'Study 2 hour',
   OFFICEWORK2: 'Office work',
   SLEEP: 'Sleep 11 to 6',
@@ -153,6 +153,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   EYECARE: 'Eye care',
   SALTGARGLE: 'Salt water gargle'
 };
+const DAILY_PRIORITY_STRIKE_KEYS = ['OFFICEWORK2', 'OFFICECOURSE', 'BOOK', 'GYM'] as const;
 
 const starterStore: GoalsStore = {
   today: [
@@ -499,7 +500,7 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'GYM') return 'GYM';
   if (compact === 'HEALTHYDRINKMORNING') return 'HEALTHYDRINKMORNING';
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
-  if (compact === 'BOOKREAD') return 'BOOK';
+  if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
   if (compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
   if (compact === 'SLEEP11TO6') return 'SLEEP';
@@ -2167,7 +2168,7 @@ export function SgGoalsApp() {
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
       `Weekly plan: Main=${weeklyPlan.mainGoal || 'Not set'}; Study=${weeklyPlan.studyPlan || 'Not set'}; Work=${weeklyPlan.workPlan || 'Not set'}; Health=${weeklyPlan.healthPlan || 'Not set'}; Notes=${weeklyPlan.notes || 'None'}`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Healthy drink morning=${strikeCounts.healthyDrinkMorning}, Healthy drink evening=${strikeCounts.healthyDrinkEvening}, Eye care=${strikeCounts.eyeCare}, Book read=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Office course=${strikeCounts.officeCourse}, Sleep 11 to 6=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Gym=${strikeCounts.gym}, Healthy drink morning=${strikeCounts.healthyDrinkMorning}, Healthy drink evening=${strikeCounts.healthyDrinkEvening}, Eye care=${strikeCounts.eyeCare}, Book read and communication practice=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Office course=${strikeCounts.officeCourse}, Sleep 11 to 6=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
       `Next target (${formatMinutes(targetDurationMinutes)} timer): ${
         targetTasks.length
           ? targetTasks.map((task) => `${task.text}${targetTaskMinutes[task.id] ? ` (${targetTaskMinutes[task.id]}m)` : ''}`).join(', ')
@@ -2521,40 +2522,47 @@ export function SgGoalsApp() {
 
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[#8b8bb3]">
-              <span>Habit counter cycle: {strikeCounts.counterCycleStart} to next 7th</span>
+              <span>Habit counter cycle: {strikeCounts.counterCycleStart} to next 6th</span>
               <span className="font-bold text-[#ffd166]">21+ gets highlighted</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
             {[
+              { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Daily priority - Office work complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
+              { key: 'OFFICECOURSE' as const, label: 'Office course count', rule: 'Daily priority - Office course complete', color: '#60a5fa', todayDone: strikeCounts.today.officeCourse, value: strikeCounts.officeCourse },
+              { key: 'BOOK' as const, label: 'Book + comm count', rule: 'Daily priority - Book read and communication practice complete', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
+              { key: 'GYM' as const, label: 'Gym count', rule: 'Daily priority - Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
               { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
               { key: 'L' as const, label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },
               { key: 'M' as const, label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m },
-              { key: 'GYM' as const, label: 'Gym count', rule: 'Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
               { key: 'HEALTHYDRINKMORNING' as const, label: 'Drink AM count', rule: 'Healthy drink morning complete', color: '#14b8a6', todayDone: strikeCounts.today.healthyDrinkMorning, value: strikeCounts.healthyDrinkMorning },
               { key: 'HEALTHYDRINKEVENING' as const, label: 'Drink PM count', rule: 'Healthy drink evening complete', color: '#f97316', todayDone: strikeCounts.today.healthyDrinkEvening, value: strikeCounts.healthyDrinkEvening },
-              { key: 'BOOK' as const, label: 'Book count', rule: 'Book read complete', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
               { key: 'STUDY2' as const, label: 'Study count', rule: 'Study 2 hour complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
-              { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Office work complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
               { key: 'SLEEP' as const, label: 'Sleep count', rule: 'Sleep 11 to 6 complete', color: '#a78bfa', todayDone: strikeCounts.today.sleep, value: strikeCounts.sleep },
               { key: 'NOJUNK' as const, label: 'No junk count', rule: 'No junk food complete', color: '#00bcd4', todayDone: strikeCounts.today.noJunk, value: strikeCounts.noJunk },
               { key: 'NOSOCIAL' as const, label: 'No social count', rule: 'No Social Media complete', color: '#38bdf8', todayDone: strikeCounts.today.noSocial, value: strikeCounts.noSocial },
               { key: 'MANIFEST' as const, label: 'Manifest count', rule: 'Manifestation complete', color: '#fb7185', todayDone: strikeCounts.today.manifest, value: strikeCounts.manifest },
-              { key: 'OFFICECOURSE' as const, label: 'Office course count', rule: 'Office course complete', color: '#60a5fa', todayDone: strikeCounts.today.officeCourse, value: strikeCounts.officeCourse },
               { key: 'EYECARE' as const, label: 'Eye care count', rule: 'Eye care complete', color: '#2dd4bf', todayDone: strikeCounts.today.eyeCare, value: strikeCounts.eyeCare },
               { key: 'SALTGARGLE' as const, label: 'Gargle count', rule: 'Salt water gargle complete', color: '#93c5fd', todayDone: strikeCounts.today.saltGargle, value: strikeCounts.saltGargle }
             ].map((item) => {
               const reachedTarget = item.value >= HABIT_TARGET_COUNT;
+              const isDailyPriority = DAILY_PRIORITY_STRIKE_KEYS.includes(item.key as (typeof DAILY_PRIORITY_STRIKE_KEYS)[number]);
               return (
               <div
                 key={item.key}
                 className={`rounded-xl border px-3 py-2 ${
-                  reachedTarget ? 'border-[#ffd16699] bg-[#ffd16614] shadow-[0_0_18px_rgba(255,209,102,.14)]' : 'border-[#1a1a30] bg-[#0f0f1d]'
+                  reachedTarget
+                    ? 'border-[#ffd16699] bg-[#ffd16614] shadow-[0_0_18px_rgba(255,209,102,.14)]'
+                    : isDailyPriority
+                      ? item.todayDone
+                        ? 'border-[#00d97e66] bg-[#00d97e10]'
+                        : 'border-[#ff6b6b66] bg-[#ff6b6b10]'
+                      : 'border-[#1a1a30] bg-[#0f0f1d]'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className={`text-[10px] font-bold uppercase tracking-[.16em] ${reachedTarget ? 'text-[#ffd166]' : 'text-[#52527a]'}`}>{item.label}</p>
-                  <span className="text-[10px] font-bold" style={{ color: item.todayDone ? '#00d97e' : '#52527a' }}>
-                    {reachedTarget ? '21 reached' : item.todayDone ? 'Today +1' : 'Pending'}
+                  <span className="text-[10px] font-bold" style={{ color: reachedTarget ? '#ffd166' : item.todayDone ? '#00d97e' : isDailyPriority ? '#ff6b6b' : '#52527a' }}>
+                    {reachedTarget ? '21 reached' : item.todayDone ? 'Today +1' : isDailyPriority ? 'Must today' : 'Pending'}
                   </span>
                 </div>
                 <p className="mt-1 text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
