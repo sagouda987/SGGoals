@@ -628,8 +628,14 @@ function isRemovedHabitTask(text: string) {
   return REMOVED_HABIT_TASKS.some((task) => task.replace(/[^a-z0-9]/gi, '').toUpperCase() === normalized);
 }
 
-function ensureHabitTemplates(store: GoalsStore): GoalsStore {
+function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = [], todayKey = toISODate(new Date())): GoalsStore {
   const canonicalHabitText = new Map(HABIT_TASKS.map((text) => [normalizeStrikeCode(text), text]));
+  const failedHabitCodesToday = new Set(
+    activities
+      .filter((activity) => activity.scope === 'today' && activity.kind === 'failure' && dateKeyFromValue(activity.createdAt) === todayKey)
+      .map((activity) => normalizeStrikeCode(activity.taskText))
+      .filter((code): code is StrikeCode => Boolean(code))
+  );
   let changed = false;
   const seenHabitIndexes = new Map<string, number>();
   const today: GoalTask[] = [];
@@ -639,6 +645,10 @@ function ensureHabitTemplates(store: GoalsStore): GoalsStore {
       return;
     }
     const code = normalizeStrikeCode(task.text);
+    if (code && failedHabitCodesToday.has(code)) {
+      changed = true;
+      return;
+    }
     const canonicalText = code ? canonicalHabitText.get(code) : undefined;
     if (!code || !canonicalText) {
       today.push(task);
@@ -663,7 +673,10 @@ function ensureHabitTemplates(store: GoalsStore): GoalsStore {
       .filter((task) => isHabitTask(task.text))
       .map((task) => normalizeStrikeCode(task.text))
   );
-  const missingHabits = HABIT_TASKS.filter((text) => !existingHabits.has(normalizeStrikeCode(text)));
+  const missingHabits = HABIT_TASKS.filter((text) => {
+    const code = normalizeStrikeCode(text);
+    return code && !existingHabits.has(code) && !failedHabitCodesToday.has(code);
+  });
   if (!missingHabits.length && !changed) return store;
   return {
     ...store,
@@ -939,8 +952,8 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     let cancelled = false;
-    const localStore = ensureHabitTemplates(loadStore());
     const localActivities = loadActivities();
+    const localStore = ensureHabitTemplates(loadStore(), localActivities, toISODate(new Date()));
     const localWeeklyPlan = loadWeeklyPlan();
     const localYearlyNotes = loadYearlyNotes();
     const legacyTargetId = window.localStorage.getItem(MAIN_GOAL_KEY) || '';
@@ -986,7 +999,7 @@ export function SgGoalsApp() {
         const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown; hasCloudData?: boolean };
         if (cancelled) return;
         if (data.hasCloudData && data.store) {
-          setStore(ensureHabitTemplates(data.store));
+          setStore(ensureHabitTemplates(data.store, localActivities, toISODate(new Date())));
           if (isWeeklyPlan(data.weeklyPlan)) {
             setWeeklyPlan(data.weeklyPlan);
             window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(data.weeklyPlan));
@@ -1147,6 +1160,11 @@ export function SgGoalsApp() {
       return { ...current, today: nextToday };
     });
   }, [currentDateKey, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    setStore((current) => ensureHabitTemplates(current, activities, currentDateKey));
+  }, [activities, currentDateKey, ready]);
 
   useEffect(() => {
     if (!ready || !targetTaskIds.length) return;
