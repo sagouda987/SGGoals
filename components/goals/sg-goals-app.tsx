@@ -1191,10 +1191,11 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if (!ready || !targetTaskIds.length) return;
-    const validIds = targetTaskIds.filter((taskId) => store.today.some((task) => task.id === taskId));
+    const validIds = targetTaskIds.filter((taskId) => store.today.some((task) => task.id === taskId && !task.done));
     if (validIds.length !== targetTaskIds.length) {
       setTargetTaskIds(validIds);
       setTargetTaskMinutes((current) => Object.fromEntries(Object.entries(current).filter(([taskId]) => validIds.includes(taskId))));
+      markTargetChanged();
     }
     if (!validIds.length) {
       setTargetEndAt('');
