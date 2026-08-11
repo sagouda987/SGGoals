@@ -911,6 +911,8 @@ export function SgGoalsApp() {
   const [targetEndAt, setTargetEndAt] = useState('');
   const [targetRunning, setTargetRunning] = useState(false);
   const [targetDurationMinutes, setTargetDurationMinutes] = useState(DEFAULT_TARGET_DURATION_MINUTES);
+  const [targetDurationDraft, setTargetDurationDraft] = useState(String(DEFAULT_TARGET_DURATION_MINUTES));
+  const [targetDurationEditing, setTargetDurationEditing] = useState(false);
   const [targetRemainingMs, setTargetRemainingMs] = useState(TARGET_DURATION_MS);
   const [targetUpdatedAt, setTargetUpdatedAt] = useState(() => '1970-01-01T00:00:00.000Z');
   const [timerNow, setTimerNow] = useState(() => Date.now());
@@ -1162,6 +1164,10 @@ export function SgGoalsApp() {
     window.localStorage.setItem(TARGET_DURATION_MINUTES_KEY, String(targetDurationMinutes));
     window.localStorage.setItem(TARGET_UPDATED_KEY, targetUpdatedAt);
   }, [ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetUpdatedAt]);
+
+  useEffect(() => {
+    if (!targetDurationEditing) setTargetDurationDraft(String(targetDurationMinutes));
+  }, [targetDurationEditing, targetDurationMinutes]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -1755,7 +1761,10 @@ export function SgGoalsApp() {
   }
 
   function updateTargetDurationMinutes(value: string) {
-    const nextMinutes = normalizeTimerMinutes(value);
+    const cleanValue = value.replace(/[^\d]/g, '');
+    setTargetDurationDraft(cleanValue);
+    if (!cleanValue) return;
+    const nextMinutes = normalizeTimerMinutes(cleanValue);
     const nextDurationMs = nextMinutes * 60000;
     setTargetDurationMinutes(nextMinutes);
     if (!targetRunning) {
@@ -1769,6 +1778,13 @@ export function SgGoalsApp() {
     }
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
     markTargetChanged();
+  }
+
+  function finishTargetDurationEdit() {
+    setTargetDurationEditing(false);
+    const nextMinutes = normalizeTimerMinutes(targetDurationDraft, targetDurationMinutes);
+    setTargetDurationDraft(String(nextMinutes));
+    if (nextMinutes !== targetDurationMinutes) updateTargetDurationMinutes(String(nextMinutes));
   }
 
   function toggleTargetTimer() {
@@ -2762,8 +2778,15 @@ export function SgGoalsApp() {
                           min="1"
                           max="1440"
                           inputMode="numeric"
-                          value={targetDurationMinutes}
+                          value={targetDurationDraft}
+                          onFocus={() => setTargetDurationEditing(true)}
                           onChange={(event) => updateTargetDurationMinutes(event.target.value)}
+                          onBlur={finishTargetDurationEdit}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.currentTarget.blur();
+                            }
+                          }}
                           className="h-8 w-20 rounded-lg border border-[#1a1a30] bg-[#07070f] px-2 text-right font-mono text-sm font-bold text-[#e8e8f5] outline-none focus:border-[#00d97e]"
                           aria-label="Target timer total minutes"
                         />
