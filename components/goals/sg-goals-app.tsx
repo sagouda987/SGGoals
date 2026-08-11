@@ -579,6 +579,46 @@ function buildHabitCompletionCounts(activities: GoalActivity[], days: Date[]) {
   return counts;
 }
 
+function buildThreeDayHabitMissWarnings(activities: GoalActivity[], todayKey: string) {
+  const missedByCode = new Map<StrikeCode, Set<string>>();
+  const completedByCode = new Map<StrikeCode, Set<string>>();
+
+  activities.forEach((activity) => {
+    const code = normalizeStrikeCode(activity.taskText);
+    if (!code) return;
+    const dayKey = dateKeyFromValue(activity.createdAt);
+    if (activity.kind === 'completion') {
+      if (!completedByCode.has(code)) completedByCode.set(code, new Set<string>());
+      completedByCode.get(code)?.add(dayKey);
+    }
+    if (isAutoHabitMiss(activity)) {
+      if (!missedByCode.has(code)) missedByCode.set(code, new Set<string>());
+      missedByCode.get(code)?.add(dayKey);
+    }
+  });
+
+  const warnings = new Set<StrikeCode>();
+  Object.keys(habitLabels).forEach((rawCode) => {
+    const code = rawCode as StrikeCode;
+    const missedDays = missedByCode.get(code);
+    if (!missedDays || completedByCode.get(code)?.has(todayKey)) return;
+
+    let streak = 0;
+    const cursor = new Date(`${todayKey}T00:00:00`);
+    cursor.setDate(cursor.getDate() - 1);
+    for (let index = 0; index < 3; index += 1) {
+      const dayKey = toISODate(cursor);
+      if (completedByCode.get(code)?.has(dayKey)) break;
+      if (!missedDays.has(dayKey)) break;
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    if (streak >= 3) warnings.add(code);
+  });
+
+  return warnings;
+}
+
 function buildHabitInsights(activities: GoalActivity[], currentDays: Date[], previousDays: Date[]) {
   const currentMisses = buildHabitMissCounts(activities, currentDays);
   const previousMisses = buildHabitMissCounts(activities, previousDays);
@@ -1347,6 +1387,7 @@ export function SgGoalsApp() {
   }, [analytics.scorecard]);
 
   const todayKey = currentDateKey;
+  const threeDayHabitMissWarnings = useMemo(() => buildThreeDayHabitMissWarnings(activities, todayKey), [activities, todayKey]);
   const yesterdayKey = useMemo(() => {
     const date = new Date(`${currentDateKey}T00:00:00`);
     date.setDate(date.getDate() - 1);
@@ -3072,13 +3113,14 @@ export function SgGoalsApp() {
                         const doneSubtasks = subtasks.filter((subtask) => subtask.done).length;
                         const taskColor = scope === 'weekend' ? group.color : priorities[task.priority].color;
                         const taskSoft = scope === 'weekend' ? 'rgba(79,142,247,.12)' : priorities[task.priority].soft;
+                        const habitMissWarning = scope === 'today' && group.id === 'habit' && !task.done && threeDayHabitMissWarnings.has(normalizeStrikeCode(task.text) as StrikeCode);
                         return (
                           <>
-                            <div className="flex items-stretch">
+                            <div className={`flex items-stretch ${habitMissWarning ? 'bg-[#ff6b6b10] shadow-[inset_3px_0_0_#ff6b6b]' : ''}`}>
                               <button onClick={() => toggleTask(task.id)} className="flex flex-1 items-start gap-3 px-4 py-3 text-left">
                                 <span
                                   className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border"
-                                  style={{ borderColor: taskColor, background: task.done ? taskSoft : 'transparent' }}
+                                  style={{ borderColor: habitMissWarning ? '#ff6b6b' : taskColor, background: task.done ? taskSoft : 'transparent' }}
                                 >
                                   {task.done ? <Check className="h-3.5 w-3.5" style={{ color: taskColor }} /> : null}
                                 </span>
@@ -3088,6 +3130,7 @@ export function SgGoalsApp() {
                                     {scope !== 'weekend' ? <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span> : null}
                                     {noteInfo.dueTime ? <span style={{ color: '#00d97e' }}>By {noteInfo.dueTime}</span> : null}
                                     {noteInfo.note ? <span>{noteInfo.note}</span> : null}
+                                    {habitMissWarning ? <span style={{ color: '#ff6b6b' }}>3-day miss streak</span> : null}
                                     {subtasks.length ? (
                                       <span style={{ color: doneSubtasks === subtasks.length ? '#00d97e' : '#8b8bb3' }}>
                                         {doneSubtasks}/{subtasks.length} subtasks
