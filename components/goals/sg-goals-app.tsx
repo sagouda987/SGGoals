@@ -2603,9 +2603,7 @@ export function SgGoalsApp() {
 
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[#8b8bb3]">
-              <span>
-                Habit counter cycle: {strikeCounts.counterCycleStart} to {counterResetRemaining.nextReset} · {counterResetRemaining.days} day{counterResetRemaining.days === 1 ? '' : 's'} remaining
-              </span>
+              <span>Habit counter cycle starts {strikeCounts.counterCycleStart}</span>
               <span className="font-bold text-[#ffd166]">21+ gets highlighted</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -2664,6 +2662,16 @@ export function SgGoalsApp() {
               </div>
               <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{dayCounter}</p>
               <p className="mt-1 text-[10px] text-[#8b8bb3]">Started {formatStartedDate(DAY_COUNTER_START_DATE)}</p>
+            </div>
+            <div className="rounded-xl border border-[#4f8ef740] bg-[#4f8ef712] px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Next reset</p>
+                <span className="text-[10px] font-bold text-[#4f8ef7]">Monthly</span>
+              </div>
+              <p className="mt-1 text-2xl font-bold text-[#4f8ef7]">
+                {counterResetRemaining.days} day{counterResetRemaining.days === 1 ? '' : 's'}
+              </p>
+              <p className="mt-1 text-[10px] text-[#8b8bb3]">Resets on {formatStartedDate(counterResetRemaining.nextReset)}</p>
             </div>
             </div>
           </div>
@@ -3703,3 +3711,4 @@ export function SgGoalsApp() {
     </main>
   );
 }
+
