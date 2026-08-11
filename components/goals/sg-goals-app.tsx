@@ -538,6 +538,23 @@ function buildCounterCycleStart(todayKey: string) {
   return toISODate(start);
 }
 
+function buildNextCounterReset(todayKey: string) {
+  const today = new Date(`${todayKey}T00:00:00`);
+  const next = new Date(today);
+  next.setDate(COUNTER_RESET_DAY);
+  if (today.getDate() >= COUNTER_RESET_DAY) {
+    next.setMonth(next.getMonth() + 1);
+  }
+  return toISODate(next);
+}
+
+function buildCounterResetRemaining(todayKey: string) {
+  const today = new Date(`${todayKey}T00:00:00`);
+  const nextReset = new Date(`${buildNextCounterReset(todayKey)}T00:00:00`);
+  const days = Math.max(0, Math.ceil((nextReset.getTime() - today.getTime()) / 86400000));
+  return { nextReset: toISODate(nextReset), days };
+}
+
 function isAfterCounterReset(dateValue: string) {
   return dateKeyFromValue(dateValue) >= buildCounterCycleStart(toISODate(new Date()));
 }
@@ -1415,6 +1432,7 @@ export function SgGoalsApp() {
 
   const strikeCounts = useMemo(() => buildStrikeCounts(activities, store.today, todayKey), [activities, store.today, todayKey]);
   const dayCounter = useMemo(() => buildDayCounter(todayKey), [todayKey]);
+  const counterResetRemaining = useMemo(() => buildCounterResetRemaining(todayKey), [todayKey]);
 
   const failurePatterns = useMemo(() => {
     const counts = new Map<string, number>();
@@ -2585,7 +2603,9 @@ export function SgGoalsApp() {
 
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[#8b8bb3]">
-              <span>Habit counter cycle: {strikeCounts.counterCycleStart} to next 6th</span>
+              <span>
+                Habit counter cycle: {strikeCounts.counterCycleStart} to {counterResetRemaining.nextReset} · {counterResetRemaining.days} day{counterResetRemaining.days === 1 ? '' : 's'} remaining
+              </span>
               <span className="font-bold text-[#ffd166]">21+ gets highlighted</span>
             </div>
             <div className="grid grid-cols-3 gap-2">
