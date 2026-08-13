@@ -59,6 +59,7 @@ type WeeklyPlan = {
 type YearlyNotes = {
   completedBooks: string;
   punishment: string;
+  goalBreakdowns: Record<string, { monthlyMilestone: string; weeklyAction: string; dailyHabit: string }>;
   updatedAt: string;
 };
 type TargetState = {
@@ -204,6 +205,7 @@ const emptyWeeklyPlan: WeeklyPlan = {
 const emptyYearlyNotes: YearlyNotes = {
   completedBooks: '',
   punishment: '',
+  goalBreakdowns: {},
   updatedAt: '1970-01-01T00:00:00.000Z'
 };
 
@@ -327,9 +329,22 @@ function loadWeeklyPlan(): WeeklyPlan {
 function isYearlyNotes(value: unknown): value is YearlyNotes {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<YearlyNotes>;
+  const breakdownsAreValid =
+    candidate.goalBreakdowns === undefined ||
+    (typeof candidate.goalBreakdowns === 'object' &&
+      candidate.goalBreakdowns !== null &&
+      Object.values(candidate.goalBreakdowns).every(
+        (breakdown) =>
+          Boolean(breakdown) &&
+          typeof breakdown === 'object' &&
+          typeof (breakdown as Partial<{ monthlyMilestone: string; weeklyAction: string; dailyHabit: string }>).monthlyMilestone === 'string' &&
+          typeof (breakdown as Partial<{ monthlyMilestone: string; weeklyAction: string; dailyHabit: string }>).weeklyAction === 'string' &&
+          typeof (breakdown as Partial<{ monthlyMilestone: string; weeklyAction: string; dailyHabit: string }>).dailyHabit === 'string'
+      ));
   return (
     typeof candidate.completedBooks === 'string' &&
     (candidate.punishment === undefined || typeof candidate.punishment === 'string') &&
+    breakdownsAreValid &&
     typeof candidate.updatedAt === 'string'
   );
 }
@@ -338,6 +353,7 @@ function normalizeYearlyNotes(value: YearlyNotes): YearlyNotes {
   return {
     completedBooks: value.completedBooks,
     punishment: value.punishment || '',
+    goalBreakdowns: value.goalBreakdowns || {},
     updatedAt: value.updatedAt
   };
 }
@@ -1708,6 +1724,23 @@ export function SgGoalsApp() {
       punishment: value,
       updatedAt: new Date().toISOString()
     }));
+  }
+
+  function updateYearlyGoalBreakdown(taskId: string, field: 'monthlyMilestone' | 'weeklyAction' | 'dailyHabit', value: string) {
+    setYearlyNotes((current) => {
+      const existing = current.goalBreakdowns[taskId] || { monthlyMilestone: '', weeklyAction: '', dailyHabit: '' };
+      return {
+        ...current,
+        goalBreakdowns: {
+          ...current.goalBreakdowns,
+          [taskId]: {
+            ...existing,
+            [field]: value
+          }
+        },
+        updatedAt: new Date().toISOString()
+      };
+    });
   }
 
   function saveTask() {
@@ -3107,6 +3140,75 @@ export function SgGoalsApp() {
             <p className="mt-2 text-[11px] text-[#52527a]">
               Keep this realistic and specific. It syncs with your yearly goals.
             </p>
+          </div>
+          <div className="rounded-xl border border-[#4f8ef740] bg-[#0f0f1d] p-4 md:col-span-2">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#8b8bb3]">Goal breakdown</p>
+                <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Turn each yearly goal into monthly, weekly, and daily action</h2>
+              </div>
+              <div className="rounded-lg bg-[#00d97e15] p-2 text-[#00d97e]">
+                <TrendingUp className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {store.yearly.length ? (
+                store.yearly.map((task) => {
+                  const breakdown = yearlyNotes.goalBreakdowns[task.id] || { monthlyMilestone: '', weeklyAction: '', dailyHabit: '' };
+                  return (
+                    <div key={task.id} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-[#e8e8f5]">{task.text}</p>
+                          <p className="mt-1 text-[11px]" style={{ color: priorities[task.priority].color }}>
+                            {priorities[task.priority].label}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-bold ${task.done ? 'bg-[#00d97e15] text-[#00d97e]' : 'bg-[#4f8ef715] text-[#4f8ef7]'}`}>
+                          {task.done ? 'Done' : 'Active'}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-2 md:grid-cols-3">
+                        <label className="block">
+                          <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Monthly milestone</span>
+                          <textarea
+                            value={breakdown.monthlyMilestone}
+                            onChange={(event) => updateYearlyGoalBreakdown(task.id, 'monthlyMilestone', event.target.value)}
+                            placeholder="What should be true this month?"
+                            rows={3}
+                            className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-xs leading-5 text-[#e8e8f5] outline-none placeholder:text-[#52527a] focus:border-[#4f8ef7]"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Weekly action</span>
+                          <textarea
+                            value={breakdown.weeklyAction}
+                            onChange={(event) => updateYearlyGoalBreakdown(task.id, 'weeklyAction', event.target.value)}
+                            placeholder="What will I do every week?"
+                            rows={3}
+                            className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-xs leading-5 text-[#e8e8f5] outline-none placeholder:text-[#52527a] focus:border-[#00d97e]"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Daily habit</span>
+                          <textarea
+                            value={breakdown.dailyHabit}
+                            onChange={(event) => updateYearlyGoalBreakdown(task.id, 'dailyHabit', event.target.value)}
+                            placeholder="What small action repeats daily?"
+                            rows={3}
+                            className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-xs leading-5 text-[#e8e8f5] outline-none placeholder:text-[#52527a] focus:border-[#f7a04f]"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a]">
+                  Add yearly goals below, then break them into monthly, weekly, and daily actions here.
+                </div>
+              )}
+            </div>
           </div>
         </section>
       ) : null}

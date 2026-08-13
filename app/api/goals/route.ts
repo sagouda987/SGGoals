@@ -33,6 +33,7 @@ type WeeklyPlanInput = {
 type YearlyNotesInput = {
   completedBooks: string;
   punishment?: string;
+  goalBreakdowns?: Record<string, { monthlyMilestone: string; weeklyAction: string; dailyHabit: string }>;
   updatedAt: string;
 };
 type TargetStateInput = {
@@ -118,9 +119,22 @@ function isWeeklyPlan(value: unknown): value is WeeklyPlanInput {
 function isYearlyNotes(value: unknown): value is YearlyNotesInput {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<YearlyNotesInput>;
+  const breakdownsAreValid =
+    candidate.goalBreakdowns === undefined ||
+    (typeof candidate.goalBreakdowns === 'object' &&
+      candidate.goalBreakdowns !== null &&
+      Object.values(candidate.goalBreakdowns).every(
+        (breakdown) =>
+          Boolean(breakdown) &&
+          typeof breakdown === 'object' &&
+          typeof (breakdown as Partial<{ monthlyMilestone: string; weeklyAction: string; dailyHabit: string }>).monthlyMilestone === 'string' &&
+          typeof (breakdown as Partial<{ monthlyMilestone: string; weeklyAction: string; dailyHabit: string }>).weeklyAction === 'string' &&
+          typeof (breakdown as Partial<{ monthlyMilestone: string; weeklyAction: string; dailyHabit: string }>).dailyHabit === 'string'
+      ));
   return (
     typeof candidate.completedBooks === 'string' &&
     (candidate.punishment === undefined || typeof candidate.punishment === 'string') &&
+    breakdownsAreValid &&
     typeof candidate.updatedAt === 'string'
   );
 }
@@ -129,6 +143,7 @@ function normalizeYearlyNotes(value: YearlyNotesInput): Required<YearlyNotesInpu
   return {
     completedBooks: value.completedBooks,
     punishment: value.punishment || '',
+    goalBreakdowns: value.goalBreakdowns || {},
     updatedAt: value.updatedAt
   };
 }
