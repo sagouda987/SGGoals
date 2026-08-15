@@ -101,6 +101,13 @@ const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', '
 const WEEKDAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const MONTH_LABELS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = `${base64String}${padding}`.replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+}
+
 type AnalyticsWindow = {
   scorecard: Array<{
     priority: Priority;
@@ -992,6 +999,7 @@ export function SgGoalsApp() {
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [scoreOpen, setScoreOpen] = useState(false);
+  const [pushAlarmStatus, setPushAlarmStatus] = useState<'unknown' | 'unsupported' | 'off' | 'saving' | 'on' | 'error'>('unknown');
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: false });
@@ -1184,9 +1192,21 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch(() => {
-        // The app still works normally when service worker registration is unavailable.
-      });
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then(async (registration) => {
+          if (!('PushManager' in window) || !('Notification' in window)) {
+            setPushAlarmStatus('unsupported');
+            return;
+          }
+          const existing = await registration.pushManager.getSubscription();
+          setPushAlarmStatus(existing ? 'on' : 'off');
+        })
+        .catch(() => {
+          setPushAlarmStatus('unsupported');
+        });
+    } else {
+      setPushAlarmStatus('unsupported');
     }
   }, []);
 
@@ -1568,6 +1588,7 @@ export function SgGoalsApp() {
     setTargetEndAt('');
     setTargetRemainingMs(0);
     markTargetChanged();
+    if ('vibrate' in navigator) navigator.vibrate([500, 200, 500, 200, 500]);
     showGoalNotification('Target queue complete', `Time is up for: ${targetTasks.map((task) => task.text).join(', ')}`, 'sg-goals-target-complete');
   }, [markTargetChanged, ready, showGoalNotification, targetEndAt, targetTaskIds, targetTasks, targetTimer.complete]);
 
@@ -1786,6 +1807,43 @@ export function SgGoalsApp() {
   function requestMainGoalNotificationPermission() {
     if ('Notification' in window && Notification.permission === 'default') {
       void Notification.requestPermission();
+    }
+  }
+
+  async function enableReliableAlarm() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      setPushAlarmStatus('unsupported');
+      return;
+    }
+    setPushAlarmStatus('saving');
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setPushAlarmStatus('off');
+        return;
+      }
+      const keyResponse = await fetch('/api/goals/push-key', { cache: 'no-store' });
+      const keyData = (await keyResponse.json()) as { publicKey?: string; enabled?: boolean };
+      if (!keyResponse.ok || !keyData.enabled || !keyData.publicKey) {
+        throw new Error('Push key is not configured.');
+      }
+      const registration = await navigator.serviceWorker.ready;
+      const existing = await registration.pushManager.getSubscription();
+      const subscription =
+        existing ||
+        (await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)
+        }));
+      const saveResponse = await fetch('/api/goals/push-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription })
+      });
+      if (!saveResponse.ok) throw new Error('Subscription save failed.');
+      setPushAlarmStatus('on');
+    } catch {
+      setPushAlarmStatus('error');
     }
   }
 
@@ -2946,6 +3004,29 @@ export function SgGoalsApp() {
                     className="rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b]"
                   >
                     Clear target
+                  </button>
+                  <button
+                    onClick={enableReliableAlarm}
+                    disabled={pushAlarmStatus === 'saving' || pushAlarmStatus === 'unsupported'}
+                    className={`rounded-lg border px-3 py-2 text-xs font-bold ${
+                      pushAlarmStatus === 'on'
+                        ? 'border-[#00d97e40] text-[#00d97e]'
+                        : pushAlarmStatus === 'unsupported'
+                          ? 'cursor-not-allowed border-[#1a1a30] text-[#52527a]'
+                          : pushAlarmStatus === 'error'
+                            ? 'border-[#ff6b6b44] text-[#ff6b6b]'
+                            : 'border-[#ffd16640] text-[#ffd166]'
+                    }`}
+                  >
+                    {pushAlarmStatus === 'on'
+                      ? 'Reliable alarm on'
+                      : pushAlarmStatus === 'saving'
+                        ? 'Enabling alarm...'
+                        : pushAlarmStatus === 'unsupported'
+                          ? 'Alarm not supported'
+                          : pushAlarmStatus === 'error'
+                            ? 'Alarm setup failed'
+                            : 'Enable reliable alarm'}
                   </button>
                 </div>
               </div>

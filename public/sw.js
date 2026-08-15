@@ -32,6 +32,29 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+
+  const title = payload.title || 'SG Goals timer';
+  const body = payload.body || 'Your target timer is complete.';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: '/sg-goals-icon.svg',
+      badge: '/sg-goals-icon.svg',
+      tag: payload.tag || 'sg-goals-alarm',
+      requireInteraction: true,
+      vibrate: [500, 200, 500, 200, 500],
+      data: { url: '/goals' }
+    })
+  );
+});
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
@@ -39,7 +62,8 @@ self.addEventListener('notificationclick', (event) => {
       for (const client of clientList) {
         if ('focus' in client) return client.focus();
       }
-      if (clients.openWindow) return clients.openWindow('/goals');
+      const targetUrl = event.notification.data?.url || '/goals';
+      if (clients.openWindow) return clients.openWindow(targetUrl);
       return undefined;
     })
   );
