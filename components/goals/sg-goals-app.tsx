@@ -1455,17 +1455,27 @@ export function SgGoalsApp() {
 
   const activeTasks = store[scope];
   const completion = useMemo(() => buildScopeCompletion(activeTasks), [activeTasks]);
-  const scopeCompletionSummaries = useMemo(
+  const sectionCompletion = useMemo(
+    () => ({
+      weekly: buildScopeCompletion(store.weekly),
+      monthly: buildScopeCompletion(store.monthly),
+      yearly: buildScopeCompletion(store.yearly)
+    }),
+    [store.monthly, store.weekly, store.yearly]
+  );
+  const yearlyPointsTracker = useMemo(
     () =>
       ([
         ['Today', 'today'],
         ['Weekly', 'weekly'],
+        ['Weekend', 'weekend'],
         ['Monthly', 'monthly'],
         ['Yearly', 'yearly']
       ] as Array<[string, Scope]>).map(([label, itemScope]) => ({
         label,
         scope: itemScope,
-        ...buildScopeCompletion(store[itemScope])
+        completion: buildScopeCompletion(store[itemScope]),
+        completedTasks: store[itemScope].filter((task) => task.done)
       })),
     [store]
   );
@@ -2692,6 +2702,39 @@ export function SgGoalsApp() {
     );
   }
 
+  function renderScopeCompletionCard(title: string, subtitle: string, data: ReturnType<typeof buildScopeCompletion>) {
+    return (
+      <section className="mx-auto max-w-4xl px-5 pb-4">
+        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">{title}</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{subtitle}</h2>
+            </div>
+            <div className="rounded-lg bg-[#00d97e15] px-3 py-2 text-sm font-bold text-[#00d97e]">{data.pct}%</div>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+              <p className="text-[10px] text-[#52527a]">Completed points</p>
+              <p className="mt-1 text-xl font-bold text-[#00d97e]">{data.donePoints}/{data.totalPoints}</p>
+            </div>
+            <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+              <p className="text-[10px] text-[#52527a]">Completed tasks</p>
+              <p className="mt-1 text-xl font-bold text-[#e8e8f5]">{data.done}/{data.total}</p>
+            </div>
+            <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+              <p className="text-[10px] text-[#52527a]">Remaining points</p>
+              <p className="mt-1 text-xl font-bold text-[#f7a04f]">{Math.max(0, data.totalPoints - data.donePoints)}</p>
+            </div>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
+            <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${data.pct}%` }} />
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#07070f] pb-24 text-[#e8e8f5]">
       <section className="border-b border-[#1a1a30] bg-[#0b0b1c] px-5 pb-5 pt-10">
@@ -2760,36 +2803,6 @@ export function SgGoalsApp() {
             <div className="h-2 overflow-hidden rounded-full bg-[#1a1a30]">
               <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${completion.pct}%` }} />
             </div>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {scopeCompletionSummaries.map((item) => (
-              <button
-                key={item.scope}
-                type="button"
-                onClick={() => {
-                  setScope(item.scope);
-                  resetDraft();
-                }}
-                className={`rounded-xl border px-3 py-3 text-left transition ${
-                  scope === item.scope ? 'border-[#00d97e40] bg-[#00d97e12]' : 'border-[#1a1a30] bg-[#0f0f1d]'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8b8bb3]">{item.label}</p>
-                  <span className="text-sm font-bold text-[#00d97e]">{item.pct}%</span>
-                </div>
-                <p className="mt-2 text-lg font-bold text-[#e8e8f5]">
-                  {item.donePoints}/{item.totalPoints} pts
-                </p>
-                <p className="mt-1 text-[11px] text-[#52527a]">
-                  {item.done}/{item.total} tasks completed
-                </p>
-                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]">
-                  <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${item.pct}%` }} />
-                </div>
-              </button>
-            ))}
           </div>
 
           <div>
@@ -3160,6 +3173,7 @@ export function SgGoalsApp() {
 
       {scope === 'weekly' ? (
         <>
+          {renderScopeCompletionCard('Weekly completion', 'Weighted progress for this week.', sectionCompletion.weekly)}
           <section className="mx-auto max-w-4xl px-5 pb-2">
             <div className="mb-4 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
               <div className="flex items-start justify-between gap-3">
@@ -3307,6 +3321,7 @@ export function SgGoalsApp() {
 
       {scope === 'monthly' ? (
         <>
+          {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
           {renderHabitMissCountsSection('Monthly habit missed count', 'Monthly counter resets on the 1st day at 3:00 AM IST.', monthlyHabitInsights, {
             summaryLabel: 'Last month summary'
           })}
@@ -3315,6 +3330,56 @@ export function SgGoalsApp() {
       ) : null}
 
       {scope === 'yearly' ? (
+        <>
+        {renderScopeCompletionCard('Yearly completion', 'Weighted progress for your big goals.', sectionCompletion.yearly)}
+        <section className="mx-auto max-w-4xl px-5 pb-4">
+          <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Points completed tracker</p>
+                <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">How many weighted points are completed in each section</h2>
+              </div>
+              <div className="rounded-lg bg-[#ffd16615] p-2 text-[#ffd166]">
+                <Star className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {yearlyPointsTracker.map((item) => (
+                <div key={item.scope} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8b8bb3]">{item.label}</p>
+                      <p className="mt-1 text-xl font-bold text-[#e8e8f5]">
+                        {item.completion.donePoints}/{item.completion.totalPoints} pts
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-[#00d97e15] px-2 py-1 text-xs font-bold text-[#00d97e]">{item.completion.pct}%</span>
+                  </div>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]">
+                    <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${item.completion.pct}%` }} />
+                  </div>
+                  <div className="mt-3 space-y-1.5">
+                    {item.completedTasks.length ? (
+                      item.completedTasks.slice(0, 6).map((task) => (
+                        <div key={task.id} className="flex items-center justify-between gap-2 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-2 py-1.5 text-xs">
+                          <span className="min-w-0 truncate text-[#c8c8ee]">{task.text}</span>
+                          <span className="shrink-0 font-bold text-[#ffd166]">{taskWeight(task)} pts</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-3 text-center text-[11px] text-[#52527a]">
+                        No completed tasks yet.
+                      </div>
+                    )}
+                    {item.completedTasks.length > 6 ? (
+                      <p className="text-[11px] text-[#52527a]">+{item.completedTasks.length - 6} more completed task(s)</p>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
         <section className="mx-auto grid max-w-4xl gap-4 px-5 pb-4 md:grid-cols-2">
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
@@ -3431,6 +3496,7 @@ export function SgGoalsApp() {
             </div>
           </div>
         </section>
+        </>
       ) : null}
 
       <section className="mx-auto grid max-w-4xl gap-4 px-5 md:grid-cols-[1fr,320px]">
