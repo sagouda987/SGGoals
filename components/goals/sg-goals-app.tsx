@@ -20,6 +20,7 @@ type GoalTask = {
   note?: string;
   priority: Priority;
   block?: Block;
+  weight?: number;
   done: boolean;
   startedAt?: string;
   completedAt?: string;
@@ -216,13 +217,14 @@ const emptyYearlyNotes: YearlyNotes = {
   updatedAt: '1970-01-01T00:00:00.000Z'
 };
 
-function makeTask(text: string, note: string | undefined, priority: Priority, block?: Block, allowSubtasks?: boolean): GoalTask {
+function makeTask(text: string, note: string | undefined, priority: Priority, block?: Block, allowSubtasks?: boolean, weight = 1): GoalTask {
   return {
     id: cryptoSafeId(),
     text,
     note,
     priority,
     block,
+    weight: normalizeTaskWeight(weight),
     done: false,
     allowSubtasks,
     updatedAt: new Date().toISOString()
@@ -262,6 +264,16 @@ function normalizeTimerMinutes(value: unknown, fallback = DEFAULT_TARGET_DURATIO
   const minutes = Number(value);
   if (!Number.isFinite(minutes) || minutes <= 0) return fallback;
   return Math.min(1440, Math.max(1, Math.round(minutes)));
+}
+
+function normalizeTaskWeight(value: unknown, fallback = 1) {
+  const weight = Number(value);
+  if (!Number.isFinite(weight) || weight <= 0) return fallback;
+  return Math.min(100, Math.max(1, Math.round(weight)));
+}
+
+function taskWeight(task: Pick<GoalTask, 'weight'>) {
+  return normalizeTaskWeight(task.weight, 1);
 }
 
 function parseStartDate(timeValue: string) {
@@ -1002,7 +1014,7 @@ export function SgGoalsApp() {
   const [pushAlarmStatus, setPushAlarmStatus] = useState<'unknown' | 'unsupported' | 'off' | 'saving' | 'on' | 'error'>('unknown');
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
-  const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: false });
+  const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: false, weight: '1' });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
   const [habitCheckState, setHabitCheckState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
@@ -1399,7 +1411,9 @@ export function SgGoalsApp() {
   const completion = useMemo(() => {
     const total = activeTasks.length;
     const done = activeTasks.filter((task) => task.done).length;
-    return { total, done, pct: total ? Math.round((done / total) * 100) : 0 };
+    const totalPoints = activeTasks.reduce((sum, task) => sum + taskWeight(task), 0);
+    const donePoints = activeTasks.filter((task) => task.done).reduce((sum, task) => sum + taskWeight(task), 0);
+    return { total, done, totalPoints, donePoints, pct: totalPoints ? Math.round((donePoints / totalPoints) * 100) : 0 };
   }, [activeTasks]);
 
   const trendWindow = useMemo(() => {
@@ -1713,7 +1727,7 @@ export function SgGoalsApp() {
 
   function resetDraft() {
     setEditing(null);
-    setDraft({ text: '', note: '', dueTime: '', priority: 'career', block: 'morning', allowSubtasks: false });
+    setDraft({ text: '', note: '', dueTime: '', priority: 'career', block: 'morning', allowSubtasks: false, weight: '1' });
   }
 
   function updateWeeklyPlan(field: keyof Omit<WeeklyPlan, 'updatedAt'>, value: string) {
@@ -1770,16 +1784,17 @@ export function SgGoalsApp() {
     const note = composeTaskNote(draft.note.trim() || undefined, scope === 'today' ? draft.dueTime : '');
     const priority = scope === 'today' || scope === 'weekend' ? 'other' : draft.priority;
     const taskBlock = scope === 'today' ? (isHabitTask(text) ? 'habit' : draft.block) : undefined;
+    const weight = normalizeTaskWeight(draft.weight, 1);
     persist((current) => {
       const next = { ...current };
       if (editing) {
         next[scope] = current[scope].map((task) =>
           task.id === editing.id
-            ? { ...task, text, note, priority, block: taskBlock, allowSubtasks: draft.allowSubtasks, updatedAt: new Date().toISOString() }
+            ? { ...task, text, note, priority, block: taskBlock, weight, allowSubtasks: draft.allowSubtasks, updatedAt: new Date().toISOString() }
             : task
         );
       } else {
-        next[scope] = [...current[scope], makeTask(text, note, priority, taskBlock, draft.allowSubtasks)];
+        next[scope] = [...current[scope], makeTask(text, note, priority, taskBlock, draft.allowSubtasks, weight)];
       }
       return next;
     });
@@ -1994,7 +2009,7 @@ export function SgGoalsApp() {
   function beginEdit(task: GoalTask) {
     const noteInfo = splitTaskNote(task.note);
     setEditing(task);
-    setDraft({ text: task.text, note: noteInfo.note || '', dueTime: noteInfo.dueTime, priority: task.priority, block: task.block || 'morning', allowSubtasks: task.allowSubtasks !== false });
+    setDraft({ text: task.text, note: noteInfo.note || '', dueTime: noteInfo.dueTime, priority: task.priority, block: task.block || 'morning', allowSubtasks: task.allowSubtasks !== false, weight: String(taskWeight(task)) });
   }
 
   function toggleTask(taskId: string) {
@@ -2315,7 +2330,7 @@ export function SgGoalsApp() {
     const subtaskText = allowsSubtasks(task) && task.subtasks?.length
       ? ` | Subtasks: ${task.subtasks.map((subtask) => `${subtask.done ? 'done' : 'pending'} ${subtask.text}`).join('; ')}`
       : '';
-    return `${task.done ? 'Done' : 'Pending'} - ${task.text}${noteInfo.dueTime ? ` by ${noteInfo.dueTime}` : ''}${task.investedMinutes ? ` (${formatMinutes(task.investedMinutes)})` : ''}${subtaskText}`;
+    return `${task.done ? 'Done' : 'Pending'} - ${task.text} (${taskWeight(task)} pts)${noteInfo.dueTime ? ` by ${noteInfo.dueTime}` : ''}${task.investedMinutes ? ` (${formatMinutes(task.investedMinutes)})` : ''}${subtaskText}`;
   });
     const scoreLines = analytics.scorecard.map((item) => {
       const meta = priorities[item.priority];
@@ -2330,7 +2345,7 @@ export function SgGoalsApp() {
       `Date: ${new Date().toLocaleDateString()}`,
       '',
       `Overall score: ${overallScore}`,
-      `Today completion: ${completion.done}/${completion.total} (${completion.pct}%)`,
+      `Today completion: ${completion.done}/${completion.total} tasks, ${completion.donePoints}/${completion.totalPoints} points (${completion.pct}%)`,
       `Today misses: ${todayFocus.misses.length}`,
       `Today time invested: ${formatMinutes(todayFocus.minutes) || '0m'}`,
       yesterdaySummary.hadActivity
@@ -2684,7 +2699,7 @@ export function SgGoalsApp() {
 
           <div>
             <div className="mb-2 flex items-center justify-between text-xs text-[#8b8bb3]">
-              <span>{completion.done}/{completion.total} complete</span>
+              <span>{completion.done}/{completion.total} complete · {completion.donePoints}/{completion.totalPoints} pts</span>
               <span className="font-bold text-[#00d97e]">{completion.pct}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-[#1a1a30]">
@@ -2834,6 +2849,7 @@ export function SgGoalsApp() {
                             </div>
                             <p className="mt-1 text-[11px] text-[#8b8bb3]">
                               {task.block ? blocks[task.block].label : priorities[task.priority].label}
+                              {` - ${taskWeight(task)} pts`}
                               {noteInfo.dueTime ? ` - By ${noteInfo.dueTime}` : ''}
                               {noteInfo.note ? ` - ${noteInfo.note}` : ''}
                               {targetSubtasks.length ? ` - ${targetDoneSubtasks}/${targetSubtasks.length} subtasks` : ''}
@@ -3363,6 +3379,7 @@ export function SgGoalsApp() {
                                   <span className={`block text-sm ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</span>
                                   <span className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#52527a]">
                                     {scope !== 'weekend' ? <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span> : null}
+                                    <span>{taskWeight(task)} pts</span>
                                     {noteInfo.dueTime ? <span style={{ color: '#00d97e' }}>By {noteInfo.dueTime}</span> : null}
                                     {noteInfo.note ? <span>{noteInfo.note}</span> : null}
                                     {habitMissWarning ? <span style={{ color: '#ff6b6b' }}>3-day miss streak</span> : null}
@@ -3470,6 +3487,20 @@ export function SgGoalsApp() {
               placeholder="Note (optional)"
               className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
             />
+            <label className="block">
+              <span className="mb-2 block text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Weight points</span>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                inputMode="numeric"
+                value={draft.weight}
+                onChange={(event) => setDraft((current) => ({ ...current, weight: event.target.value.replace(/[^\d]/g, '') }))}
+                onBlur={() => setDraft((current) => ({ ...current, weight: String(normalizeTaskWeight(current.weight, 1)) }))}
+                className="w-full rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2 text-sm outline-none focus:border-[#00d97e]"
+              />
+              <p className="mt-1 text-[11px] text-[#52527a]">Use 5 for most important tasks, 3 for important habits, 1 for small work.</p>
+            </label>
             <div>
               <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Subtasks</p>
               <div className="grid grid-cols-2 gap-2">
@@ -3622,6 +3653,7 @@ export function SgGoalsApp() {
                           <p className="text-sm text-[#e8e8f5]">{task.text}</p>
                           <p className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#8b8bb3]">
                             <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
+                            <span>{taskWeight(task)} pts</span>
                             {noteInfo.dueTime ? <span className="text-[#00d97e]">By {noteInfo.dueTime}</span> : null}
                             {task.investedMinutes != null ? <span>{formatMinutes(task.investedMinutes)} invested</span> : null}
                             {allowsSubtasks(task) && task.subtasks?.length ? (

@@ -14,6 +14,7 @@ type GoalTaskInput = {
   note?: string;
   priority: string;
   block?: string;
+  weight?: number;
   done: boolean;
   startedAt?: string;
   completedAt?: string;
@@ -54,6 +55,7 @@ const weeklyPlanId = '__weekly_plan__';
 const yearlyNotesId = '__yearly_notes__';
 const targetStateScope = '__meta__';
 const subtaskNotePattern = /\n?\[sg-subtasks:([A-Za-z0-9+/=]+)\]$/;
+const taskMetaNotePattern = /\n?\[sg-task-meta:([A-Za-z0-9+/=]+)\]$/;
 
 export const dynamic = 'force-dynamic';
 
@@ -79,7 +81,14 @@ function isGoalStore(value: unknown): value is GoalsStoreInput {
                 typeof subtask.done === 'boolean' &&
                 (subtask.updatedAt === undefined || typeof subtask.updatedAt === 'string')
             ));
-        return typeof t.id === 'string' && typeof t.text === 'string' && typeof t.priority === 'string' && typeof t.done === 'boolean' && hasValidSubtasks;
+        return (
+          typeof t.id === 'string' &&
+          typeof t.text === 'string' &&
+          typeof t.priority === 'string' &&
+          typeof t.done === 'boolean' &&
+          (t.weight === undefined || (typeof t.weight === 'number' && Number.isFinite(t.weight))) &&
+          hasValidSubtasks
+        );
       })
   );
 }
@@ -198,23 +207,55 @@ function parseSubtasks(value: unknown): GoalSubtaskInput[] | undefined {
     : undefined;
 }
 
+function normalizeTaskWeight(value: unknown, fallback = 1) {
+  const weight = Number(value);
+  if (!Number.isFinite(weight) || weight <= 0) return fallback;
+  return Math.min(100, Math.max(1, Math.round(weight)));
+}
+
+function parseTaskMeta(value: unknown) {
+  if (!value || typeof value !== 'object') return { weight: 1 };
+  const candidate = value as Partial<{ weight: unknown }>;
+  return { weight: normalizeTaskWeight(candidate.weight, 1) };
+}
+
 function splitStoredTaskNote(note: string | null | undefined) {
-  if (!note) return { note: undefined, subtasks: undefined };
-  const match = note.match(subtaskNotePattern);
-  if (!match) return { note, subtasks: undefined };
-  const visibleNote = note.replace(subtaskNotePattern, '').trim() || undefined;
+  if (!note) return { note: undefined, subtasks: undefined, weight: 1 };
+  let workingNote = note;
+  let weight = 1;
+  const metaMatch = workingNote.match(taskMetaNotePattern);
+  if (metaMatch) {
+    workingNote = workingNote.replace(taskMetaNotePattern, '').trim();
+    try {
+      const parsed = JSON.parse(Buffer.from(metaMatch[1], 'base64').toString('utf8')) as unknown;
+      weight = parseTaskMeta(parsed).weight;
+    } catch {
+      weight = 1;
+    }
+  }
+  const match = workingNote.match(subtaskNotePattern);
+  if (!match) return { note: workingNote || undefined, subtasks: undefined, weight };
+  const visibleNote = workingNote.replace(subtaskNotePattern, '').trim() || undefined;
   try {
     const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as unknown;
-    return { note: visibleNote, subtasks: parseSubtasks(parsed) };
+    return { note: visibleNote, subtasks: parseSubtasks(parsed), weight };
   } catch {
-    return { note: visibleNote, subtasks: undefined };
+    return { note: visibleNote, subtasks: undefined, weight };
   }
 }
 
-function composeStoredTaskNote(note: string | undefined, subtasks: GoalSubtaskInput[] | undefined) {
-  if (!subtasks?.length) return note || null;
-  const payload = Buffer.from(JSON.stringify(subtasks), 'utf8').toString('base64');
-  return `${note?.trim() || ''}\n[sg-subtasks:${payload}]`.trim();
+function composeStoredTaskNote(note: string | undefined, subtasks: GoalSubtaskInput[] | undefined, weight: number | undefined) {
+  let storedNote = note?.trim() || '';
+  if (subtasks?.length) {
+    const payload = Buffer.from(JSON.stringify(subtasks), 'utf8').toString('base64');
+    storedNote = `${storedNote}\n[sg-subtasks:${payload}]`.trim();
+  }
+  const normalizedWeight = normalizeTaskWeight(weight, 1);
+  if (normalizedWeight !== 1) {
+    const payload = Buffer.from(JSON.stringify({ weight: normalizedWeight }), 'utf8').toString('base64');
+    storedNote = `${storedNote}\n[sg-task-meta:${payload}]`.trim();
+  }
+  return storedNote || null;
 }
 
 export async function GET() {
@@ -243,6 +284,7 @@ export async function GET() {
         note: noteInfo.note,
         priority: row.priority,
         block: row.block || undefined,
+        weight: noteInfo.weight,
         done: row.done,
         startedAt: row.startedAt ? row.startedAt.toISOString() : undefined,
         completedAt: row.completedAt ? row.completedAt.toISOString() : undefined,
@@ -279,7 +321,7 @@ export async function PUT(req: NextRequest) {
         ownerKey,
         scope,
         text: task.text,
-        note: composeStoredTaskNote(task.note, task.subtasks),
+        note: composeStoredTaskNote(task.note, task.subtasks, task.weight),
         priority: task.priority,
         block: task.block || null,
         done: task.done,
