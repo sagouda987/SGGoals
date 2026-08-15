@@ -994,7 +994,7 @@ export function SgGoalsApp() {
   const [scoreOpen, setScoreOpen] = useState(false);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
-  const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: true });
+  const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: false });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
   const [habitCheckState, setHabitCheckState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
@@ -1692,7 +1692,7 @@ export function SgGoalsApp() {
 
   function resetDraft() {
     setEditing(null);
-    setDraft({ text: '', note: '', dueTime: '', priority: 'career', block: 'morning', allowSubtasks: true });
+    setDraft({ text: '', note: '', dueTime: '', priority: 'career', block: 'morning', allowSubtasks: false });
   }
 
   function updateWeeklyPlan(field: keyof Omit<WeeklyPlan, 'updatedAt'>, value: string) {
@@ -2759,6 +2759,8 @@ export function SgGoalsApp() {
                 <div className="mb-3 space-y-2">
                   {targetTasks.map((task, index) => {
                     const noteInfo = splitTaskNote(task.note);
+                    const targetSubtasks = allowsSubtasks(task) ? task.subtasks || [] : [];
+                    const targetDoneSubtasks = targetSubtasks.filter((subtask) => subtask.done).length;
                     return (
                       <div key={task.id} className="rounded-xl border border-[#1a1a30] bg-[#13132a] px-3 py-2">
                         <div className="flex items-start justify-between gap-3">
@@ -2776,6 +2778,7 @@ export function SgGoalsApp() {
                               {task.block ? blocks[task.block].label : priorities[task.priority].label}
                               {noteInfo.dueTime ? ` - By ${noteInfo.dueTime}` : ''}
                               {noteInfo.note ? ` - ${noteInfo.note}` : ''}
+                              {targetSubtasks.length ? ` - ${targetDoneSubtasks}/${targetSubtasks.length} subtasks` : ''}
                             </p>
                             <div className="mt-2 flex w-fit items-center gap-1 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] p-1 text-[11px] text-[#8b8bb3]">
                               <span className="px-1">Plan</span>
@@ -2840,6 +2843,27 @@ export function SgGoalsApp() {
                             </button>
                           </div>
                         </div>
+                        {targetSubtasks.length ? (
+                          <div className="mt-3 space-y-1.5 rounded-lg border border-[#1a1a30] bg-[#0b0b18] p-2">
+                            {targetSubtasks.map((subtask) => (
+                              <button
+                                key={subtask.id}
+                                type="button"
+                                onClick={() => toggleSubtask(task.id, subtask.id)}
+                                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-[#c8c8ee] hover:bg-[#13132a]"
+                              >
+                                <span
+                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
+                                    subtask.done ? 'border-[#00d97e] bg-[#00d97e15] text-[#00d97e]' : 'border-[#4f8ef740] text-[#4f8ef7]'
+                                  }`}
+                                >
+                                  {subtask.done ? <Check className="h-3 w-3" /> : null}
+                                </span>
+                                <span className={`min-w-0 flex-1 ${subtask.done ? 'text-[#52527a] line-through' : ''}`}>{subtask.text}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             onClick={() => toggleTask(task.id)}
