@@ -163,6 +163,25 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   EYECARE: 'Eye care',
   SALTGARGLE: 'Salt water gargle'
 };
+const habitDefaultWeights: Partial<Record<StrikeCode, number>> = {
+  O: 1,
+  L1: 2,
+  L2: 2,
+  L3: 2,
+  M: 1,
+  GYM: 4,
+  HEALTHYDRINKMORNING: 2,
+  HEALTHYDRINKEVENING: 2,
+  EYECARE: 2,
+  SALTGARGLE: 2,
+  BOOK: 4,
+  STUDY2: 5,
+  NOJUNK: 1,
+  OFFICEWORK2: 8,
+  NOSOCIAL: 1,
+  MANIFEST: 1,
+  SLEEP: 2
+};
 const DAILY_PRIORITY_STRIKE_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
 
 const starterStore: GoalsStore = {
@@ -553,6 +572,11 @@ function isHabitTask(text: string) {
   return normalizeStrikeCode(text) !== null;
 }
 
+function defaultHabitWeight(text: string) {
+  const code = normalizeStrikeCode(text);
+  return code ? habitDefaultWeights[code] || 1 : 1;
+}
+
 function allowsSubtasks(task: GoalTask) {
   const code = normalizeStrikeCode(task.text);
   if (code && NO_SUBTASK_STRIKE_CODES.includes(code)) return false;
@@ -760,7 +784,11 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
       today.push(task);
       return;
     }
-    const normalizedTask = task.text === canonicalText ? task : { ...task, text: canonicalText };
+    const defaultWeight = defaultHabitWeight(canonicalText);
+    const normalizedTask =
+      task.text === canonicalText && task.weight !== undefined
+        ? task
+        : { ...task, text: canonicalText, weight: task.weight ?? defaultWeight };
     if (normalizedTask !== task) changed = true;
     const existingIndex = seenHabitIndexes.get(code);
     if (existingIndex === undefined) {
@@ -786,7 +814,7 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
   if (!missingHabits.length && !changed) return store;
   return {
     ...store,
-    today: [...today, ...missingHabits.map((text) => makeTask(text, undefined, 'other', 'habit'))]
+    today: [...today, ...missingHabits.map((text) => makeTask(text, undefined, 'other', 'habit', false, defaultHabitWeight(text)))]
   };
 }
 
@@ -1273,6 +1301,16 @@ export function SgGoalsApp() {
   useEffect(() => {
     if (!targetDurationEditing) setTargetDurationDraft(String(targetDurationMinutes));
   }, [targetDurationEditing, targetDurationMinutes]);
+
+  useEffect(() => {
+    if (editing) return;
+    if (scope !== 'today') return;
+    const text = draft.text.trim();
+    if (!text) return;
+    if (draft.block !== 'habit' && !isHabitTask(text)) return;
+    const defaultWeight = String(defaultHabitWeight(text));
+    setDraft((current) => (current.weight === defaultWeight ? current : { ...current, weight: defaultWeight }));
+  }, [draft.block, draft.text, editing, scope]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -1784,7 +1822,7 @@ export function SgGoalsApp() {
     const note = composeTaskNote(draft.note.trim() || undefined, scope === 'today' ? draft.dueTime : '');
     const priority = scope === 'today' || scope === 'weekend' ? 'other' : draft.priority;
     const taskBlock = scope === 'today' ? (isHabitTask(text) ? 'habit' : draft.block) : undefined;
-    const weight = normalizeTaskWeight(draft.weight, 1);
+    const weight = normalizeTaskWeight(draft.weight, taskBlock === 'habit' ? defaultHabitWeight(text) : 1);
     persist((current) => {
       const next = { ...current };
       if (editing) {
@@ -2100,13 +2138,14 @@ export function SgGoalsApp() {
               ...existing,
               text,
               block: 'habit' as const,
+              weight: existing.weight ?? defaultHabitWeight(text),
               done: false,
               startedAt: undefined,
               completedAt: undefined,
               investedMinutes: undefined,
               updatedAt: new Date().toISOString()
             }
-          : makeTask(text, undefined, 'other', 'habit');
+          : makeTask(text, undefined, 'other', 'habit', false, defaultHabitWeight(text));
       });
       return { ...current, today: [...remainingTasks, ...freshHabits] };
     });

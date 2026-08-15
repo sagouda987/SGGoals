@@ -214,15 +214,15 @@ function normalizeTaskWeight(value: unknown, fallback = 1) {
 }
 
 function parseTaskMeta(value: unknown) {
-  if (!value || typeof value !== 'object') return { weight: 1 };
+  if (!value || typeof value !== 'object') return { weight: undefined };
   const candidate = value as Partial<{ weight: unknown }>;
-  return { weight: normalizeTaskWeight(candidate.weight, 1) };
+  return { weight: candidate.weight === undefined ? undefined : normalizeTaskWeight(candidate.weight, 1) };
 }
 
 function splitStoredTaskNote(note: string | null | undefined) {
-  if (!note) return { note: undefined, subtasks: undefined, weight: 1 };
+  if (!note) return { note: undefined, subtasks: undefined, weight: undefined };
   let workingNote = note;
-  let weight = 1;
+  let weight: number | undefined;
   const metaMatch = workingNote.match(taskMetaNotePattern);
   if (metaMatch) {
     workingNote = workingNote.replace(taskMetaNotePattern, '').trim();
@@ -230,7 +230,7 @@ function splitStoredTaskNote(note: string | null | undefined) {
       const parsed = JSON.parse(Buffer.from(metaMatch[1], 'base64').toString('utf8')) as unknown;
       weight = parseTaskMeta(parsed).weight;
     } catch {
-      weight = 1;
+      weight = undefined;
     }
   }
   const match = workingNote.match(subtaskNotePattern);
@@ -250,8 +250,8 @@ function composeStoredTaskNote(note: string | undefined, subtasks: GoalSubtaskIn
     const payload = Buffer.from(JSON.stringify(subtasks), 'utf8').toString('base64');
     storedNote = `${storedNote}\n[sg-subtasks:${payload}]`.trim();
   }
-  const normalizedWeight = normalizeTaskWeight(weight, 1);
-  if (normalizedWeight !== 1) {
+  if (weight !== undefined) {
+    const normalizedWeight = normalizeTaskWeight(weight, 1);
     const payload = Buffer.from(JSON.stringify({ weight: normalizedWeight }), 'utf8').toString('base64');
     storedNote = `${storedNote}\n[sg-task-meta:${payload}]`.trim();
   }
