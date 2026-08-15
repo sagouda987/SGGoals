@@ -42,6 +42,7 @@ type GoalActivity = {
   kind: ActivityKind;
   reason?: string;
   note?: string;
+  points?: number;
   minutes?: number;
   startedAt?: string;
   completedAt?: string;
@@ -301,6 +302,37 @@ function buildScopeCompletion(tasks: GoalTask[]) {
   const totalPoints = tasks.reduce((sum, task) => sum + taskWeight(task), 0);
   const donePoints = tasks.filter((task) => task.done).reduce((sum, task) => sum + taskWeight(task), 0);
   return { total, done, totalPoints, donePoints, pct: totalPoints ? Math.round((donePoints / totalPoints) * 100) : 0 };
+}
+
+function buildDailyPointHistory(activities: GoalActivity[], daysBack = 14) {
+  const byDate = new Map<
+    string,
+    { dateKey: string; completedPoints: number; failedPoints: number; completedTasks: Array<{ text: string; points: number }>; failedTasks: Array<{ text: string; points: number }> }
+  >();
+  for (let index = daysBack - 1; index >= 0; index -= 1) {
+    const date = new Date();
+    date.setDate(date.getDate() - index);
+    const dateKey = toISODate(date);
+    byDate.set(dateKey, { dateKey, completedPoints: 0, failedPoints: 0, completedTasks: [], failedTasks: [] });
+  }
+  activities.forEach((activity) => {
+    const dateKey = dateKeyFromValue(activity.createdAt);
+    const day = byDate.get(dateKey);
+    if (!day || isAutoHabitMiss(activity)) return;
+    const points = activityPoints(activity);
+    if (activity.kind === 'completion') {
+      day.completedPoints += points;
+      day.completedTasks.push({ text: activity.taskText, points });
+    }
+    if (activity.kind === 'undo') {
+      day.completedPoints = Math.max(0, day.completedPoints - points);
+    }
+    if (activity.kind === 'failure') {
+      day.failedPoints += points;
+      day.failedTasks.push({ text: activity.taskText, points });
+    }
+  });
+  return Array.from(byDate.values()).reverse();
 }
 
 function parseStartDate(timeValue: string) {
@@ -583,6 +615,14 @@ function isHabitTask(text: string) {
 function defaultHabitWeight(text: string) {
   const code = normalizeStrikeCode(text);
   return code ? habitDefaultWeights[code] || 1 : 1;
+}
+
+function defaultTaskWeightFromText(text: string) {
+  return isHabitTask(text) ? defaultHabitWeight(text) : 1;
+}
+
+function activityPoints(activity: Pick<GoalActivity, 'points' | 'taskText'>) {
+  return normalizeTaskWeight(activity.points, defaultTaskWeightFromText(activity.taskText));
 }
 
 function allowsSubtasks(task: GoalTask) {
@@ -1528,9 +1568,12 @@ export function SgGoalsApp() {
   const todayFocus = useMemo(() => {
     const todayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === todayKey && !isAutoHabitMiss(activity));
     const misses = todayActivities.filter((activity) => activity.kind === 'failure');
+    const failedPoints = misses.reduce((total, activity) => total + activityPoints(activity), 0);
     const minutes = todayActivities.reduce((total, activity) => (activity.kind === 'completion' ? total + (activity.minutes || 0) : total), 0);
-    return { misses, minutes };
+    return { misses, minutes, failedPoints };
   }, [activities, todayKey]);
+
+  const dailyPointHistory = useMemo(() => buildDailyPointHistory(activities, 14), [activities]);
 
   const yesterdaySummary = useMemo(() => {
     const yesterdayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === yesterdayKey && !isAutoHabitMiss(activity));
@@ -2092,11 +2135,12 @@ export function SgGoalsApp() {
         id: activityId(),
         scope,
         priority: currentTask.priority,
-        taskText: currentTask.text,
-        kind: 'undo',
-        note: splitTaskNote(currentTask.note).note,
-        createdAt: new Date().toISOString()
-      });
+      taskText: currentTask.text,
+      kind: 'undo',
+      note: splitTaskNote(currentTask.note).note,
+      points: taskWeight(currentTask),
+      createdAt: new Date().toISOString()
+    });
       return;
     }
 
@@ -2208,6 +2252,7 @@ export function SgGoalsApp() {
       taskText: timingTask.text,
       kind: 'completion',
       note: splitTaskNote(timingTask.note).note,
+      points: taskWeight(timingTask),
       minutes: investedMinutes,
       startedAt: startedAt ? startedAt.toISOString() : undefined,
       completedAt: completedAt.toISOString(),
@@ -2259,6 +2304,7 @@ export function SgGoalsApp() {
       kind: 'failure',
       reason: failureReason,
       note: failureNote.trim() || undefined,
+      points: taskWeight(failureTask),
       createdAt: now
     });
     if (failureScope === 'today') {
@@ -2903,6 +2949,29 @@ export function SgGoalsApp() {
 
       {scope === 'today' ? (
       <section className="mx-auto max-w-4xl px-5 pb-2">
+        <div className="mb-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Today points</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Completed vs failed weighted points today</h2>
+            </div>
+            <div className="rounded-lg bg-[#00d97e15] px-3 py-2 text-sm font-bold text-[#00d97e]">{completion.pct}%</div>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-3">
+            <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+              <p className="text-[10px] text-[#52527a]">Completed</p>
+              <p className="mt-1 text-xl font-bold text-[#00d97e]">{completion.donePoints} pts</p>
+            </div>
+            <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+              <p className="text-[10px] text-[#52527a]">Failed</p>
+              <p className="mt-1 text-xl font-bold text-[#ff6b6b]">{todayFocus.failedPoints} pts</p>
+            </div>
+            <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+              <p className="text-[10px] text-[#52527a]">Total available</p>
+              <p className="mt-1 text-xl font-bold text-[#e8e8f5]">{completion.totalPoints} pts</p>
+            </div>
+          </div>
+        </div>
         <div className="grid gap-3 md:grid-cols-[1.2fr,.8fr]">
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
@@ -3377,6 +3446,66 @@ export function SgGoalsApp() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+        <section className="mx-auto max-w-4xl px-5 pb-4">
+          <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Date-wise points history</p>
+                <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Completed and failed points by day</h2>
+              </div>
+              <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
+                <BarChart3 className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-4 space-y-2">
+              {dailyPointHistory.map((day) => {
+                const total = day.completedPoints + day.failedPoints;
+                const completedPct = total ? Math.round((day.completedPoints / total) * 100) : 0;
+                return (
+                  <div key={day.dateKey} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-[#e8e8f5]">{formatStartedDate(day.dateKey)}</p>
+                      <div className="flex items-center gap-2 text-xs font-bold">
+                        <span className="text-[#00d97e]">Done {day.completedPoints} pts</span>
+                        <span className="text-[#ff6b6b]">Failed {day.failedPoints} pts</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-[#1a1a30]">
+                      <div className="bg-[#00d97e]" style={{ width: `${completedPct}%` }} />
+                      <div className="bg-[#ff6b6b]" style={{ width: `${total ? 100 - completedPct : 0}%` }} />
+                    </div>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#00d97e]">Completed</p>
+                        {day.completedTasks.length ? (
+                          day.completedTasks.slice(0, 4).map((task, index) => (
+                            <p key={`${day.dateKey}-done-${index}`} className="truncate text-[11px] text-[#8b8bb3]">
+                              {task.text} - {task.points} pts
+                            </p>
+                          ))
+                        ) : (
+                          <p className="text-[11px] text-[#52527a]">No completed points.</p>
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#ff6b6b]">Failed</p>
+                        {day.failedTasks.length ? (
+                          day.failedTasks.slice(0, 4).map((task, index) => (
+                            <p key={`${day.dateKey}-fail-${index}`} className="truncate text-[11px] text-[#8b8bb3]">
+                              {task.text} - {task.points} pts
+                            </p>
+                          ))
+                        ) : (
+                          <p className="text-[11px] text-[#52527a]">No failed points.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>

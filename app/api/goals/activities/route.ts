@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 const ownerKey = 'default';
-const scopes = ['today', 'weekly', 'monthly', 'yearly'] as const;
+const scopes = ['today', 'weekly', 'weekend', 'monthly', 'yearly', 'tomorrow'] as const;
 const priorities = ['health', 'career', 'communication', 'looks', 'other'] as const;
+const activityMetaNotePattern = /\n?\[sg-activity-meta:([A-Za-z0-9+/=]+)\]$/;
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +16,7 @@ type GoalActivityInput = {
   kind: string;
   reason?: string;
   note?: string;
+  points?: number;
   minutes?: number;
   startedAt?: string;
   completedAt?: string;
@@ -47,7 +49,37 @@ function isActivity(input: unknown): input is GoalActivityInput {
   );
 }
 
+function normalizeActivityPoints(value: unknown) {
+  const points = Number(value);
+  if (!Number.isFinite(points) || points <= 0) return undefined;
+  return Math.min(100, Math.max(1, Math.round(points)));
+}
+
+function splitActivityNote(note: string | null | undefined) {
+  if (!note) return { note: undefined, points: undefined };
+  const match = note.match(activityMetaNotePattern);
+  if (!match) return { note, points: undefined };
+  const visibleNote = note.replace(activityMetaNotePattern, '').trim() || undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as Partial<{ points: unknown }>;
+    return { note: visibleNote, points: normalizeActivityPoints(parsed.points) };
+  } catch {
+    return { note: visibleNote, points: undefined };
+  }
+}
+
+function composeActivityNote(note: string | undefined, points: number | undefined) {
+  let storedNote = note?.trim() || '';
+  const normalizedPoints = normalizeActivityPoints(points);
+  if (normalizedPoints !== undefined) {
+    const payload = Buffer.from(JSON.stringify({ points: normalizedPoints }), 'utf8').toString('base64');
+    storedNote = `${storedNote}\n[sg-activity-meta:${payload}]`.trim();
+  }
+  return storedNote || null;
+}
+
 function toActivity(row: GoalActivityRow): GoalActivityInput {
+  const noteInfo = splitActivityNote(row.note);
   return {
     id: row.id,
     scope: row.scope,
@@ -55,7 +87,8 @@ function toActivity(row: GoalActivityRow): GoalActivityInput {
     taskText: row.taskText,
     kind: row.kind,
     reason: row.reason || undefined,
-    note: row.note || undefined,
+    note: noteInfo.note,
+    points: noteInfo.points,
     minutes: row.minutes ?? undefined,
     startedAt: row.startedAt ? row.startedAt.toISOString() : undefined,
     completedAt: row.completedAt ? row.completedAt.toISOString() : undefined,
@@ -101,7 +134,7 @@ export async function POST(req: NextRequest) {
         taskText: activity.taskText,
         kind: activity.kind,
         reason: activity.reason || null,
-        note: activity.note || null,
+        note: composeActivityNote(activity.note, activity.points),
         minutes: typeof activity.minutes === 'number' ? activity.minutes : null,
         startedAt: activity.startedAt ? new Date(activity.startedAt) : null,
         completedAt: activity.completedAt ? new Date(activity.completedAt) : null
