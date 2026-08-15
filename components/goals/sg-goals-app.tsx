@@ -295,6 +295,14 @@ function taskWeight(task: Pick<GoalTask, 'weight'>) {
   return normalizeTaskWeight(task.weight, 1);
 }
 
+function buildScopeCompletion(tasks: GoalTask[]) {
+  const total = tasks.length;
+  const done = tasks.filter((task) => task.done).length;
+  const totalPoints = tasks.reduce((sum, task) => sum + taskWeight(task), 0);
+  const donePoints = tasks.filter((task) => task.done).reduce((sum, task) => sum + taskWeight(task), 0);
+  return { total, done, totalPoints, donePoints, pct: totalPoints ? Math.round((donePoints / totalPoints) * 100) : 0 };
+}
+
 function parseStartDate(timeValue: string) {
   if (!timeValue) return null;
   const now = new Date();
@@ -1446,13 +1454,21 @@ export function SgGoalsApp() {
   }, [applyTargetState, cloudReady, ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
 
   const activeTasks = store[scope];
-  const completion = useMemo(() => {
-    const total = activeTasks.length;
-    const done = activeTasks.filter((task) => task.done).length;
-    const totalPoints = activeTasks.reduce((sum, task) => sum + taskWeight(task), 0);
-    const donePoints = activeTasks.filter((task) => task.done).reduce((sum, task) => sum + taskWeight(task), 0);
-    return { total, done, totalPoints, donePoints, pct: totalPoints ? Math.round((donePoints / totalPoints) * 100) : 0 };
-  }, [activeTasks]);
+  const completion = useMemo(() => buildScopeCompletion(activeTasks), [activeTasks]);
+  const scopeCompletionSummaries = useMemo(
+    () =>
+      ([
+        ['Today', 'today'],
+        ['Weekly', 'weekly'],
+        ['Monthly', 'monthly'],
+        ['Yearly', 'yearly']
+      ] as Array<[string, Scope]>).map(([label, itemScope]) => ({
+        label,
+        scope: itemScope,
+        ...buildScopeCompletion(store[itemScope])
+      })),
+    [store]
+  );
 
   const trendWindow = useMemo(() => {
     const days: Date[] = [];
@@ -2746,6 +2762,36 @@ export function SgGoalsApp() {
             </div>
           </div>
 
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {scopeCompletionSummaries.map((item) => (
+              <button
+                key={item.scope}
+                type="button"
+                onClick={() => {
+                  setScope(item.scope);
+                  resetDraft();
+                }}
+                className={`rounded-xl border px-3 py-3 text-left transition ${
+                  scope === item.scope ? 'border-[#00d97e40] bg-[#00d97e12]' : 'border-[#1a1a30] bg-[#0f0f1d]'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8b8bb3]">{item.label}</p>
+                  <span className="text-sm font-bold text-[#00d97e]">{item.pct}%</span>
+                </div>
+                <p className="mt-2 text-lg font-bold text-[#e8e8f5]">
+                  {item.donePoints}/{item.totalPoints} pts
+                </p>
+                <p className="mt-1 text-[11px] text-[#52527a]">
+                  {item.done}/{item.total} tasks completed
+                </p>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]">
+                  <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${item.pct}%` }} />
+                </div>
+              </button>
+            ))}
+          </div>
+
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-[#8b8bb3]">
               <span>Habit counter cycle starts {strikeCounts.counterCycleStart}</span>
@@ -2852,7 +2898,7 @@ export function SgGoalsApp() {
                 <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{targetTasks.length ? `${targetTasks.length} task${targetTasks.length === 1 ? '' : 's'} selected` : 'Select tasks from Morning, Afternoon, or Evening'}</h2>
                 {mainGoal ? (
                   <p className="mt-1 text-xs text-[#8b8bb3]">
-                    Current focus starts with {mainGoal.text}
+                    Current focus starts with {mainGoal.text} ({taskWeight(mainGoal)} pts)
                   </p>
                 ) : (
                   <p className="mt-1 text-xs text-[#8b8bb3]">Tap the star beside Today tasks to add them here.</p>
@@ -2881,14 +2927,18 @@ export function SgGoalsApp() {
                               <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[#4f8ef740] bg-[#4f8ef715] text-[11px] font-bold text-[#4f8ef7]">
                                 {index + 1}
                               </span>
-                              <p className={`text-sm font-bold ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</p>
+                              <p className={`flex flex-wrap items-center gap-2 text-sm font-bold ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>
+                                <span>{task.text}</span>
+                                <span className="rounded-full border border-[#ffd16640] bg-[#ffd16612] px-2 py-0.5 text-[10px] font-bold text-[#ffd166] no-underline">
+                                  {taskWeight(task)} pts
+                                </span>
+                              </p>
                               {targetTimer.running && targetTimer.activeTask?.id === task.id ? (
                                 <span className="rounded-full bg-[#00d97e22] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[.14em] text-[#00d97e]">Now</span>
                               ) : null}
                             </div>
                             <p className="mt-1 text-[11px] text-[#8b8bb3]">
                               {task.block ? blocks[task.block].label : priorities[task.priority].label}
-                              {` - ${taskWeight(task)} pts`}
                               {noteInfo.dueTime ? ` - By ${noteInfo.dueTime}` : ''}
                               {noteInfo.note ? ` - ${noteInfo.note}` : ''}
                               {targetSubtasks.length ? ` - ${targetDoneSubtasks}/${targetSubtasks.length} subtasks` : ''}
@@ -3003,7 +3053,7 @@ export function SgGoalsApp() {
                       </p>
                       {targetTimer.activeTask ? (
                         <p className="mt-1 text-[11px] font-bold text-[#8b8bb3]">
-                          Task {targetTimer.activeTaskIndex + 1} of {targetSequence.length}: <span className="text-[#e8e8f5]">{targetTimer.activeTask.text}</span>
+                          Task {targetTimer.activeTaskIndex + 1} of {targetSequence.length}: <span className="text-[#e8e8f5]">{targetTimer.activeTask.text}</span> <span className="text-[#ffd166]">({taskWeight(targetTimer.activeTask)} pts)</span>
                           {targetTimer.activeTaskMinutes ? ` (${targetTimer.activeTaskMinutes}m plan)` : ''}
                         </p>
                       ) : null}
@@ -3190,7 +3240,12 @@ export function SgGoalsApp() {
                     <div key={task.id} className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-[#e8e8f5]">{task.text}</p>
+                          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[#e8e8f5]">
+                            <span>{task.text}</span>
+                            <span className="rounded-full border border-[#ffd16640] bg-[#ffd16612] px-2 py-0.5 text-[10px] font-bold text-[#ffd166]">
+                              {taskWeight(task)} pts
+                            </span>
+                          </p>
                           <p className="mt-1 text-[11px] text-[#8b8bb3]">
                             <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
                             {task.block ? ` - ${blocks[task.block].label}` : ''}
@@ -3319,7 +3374,12 @@ export function SgGoalsApp() {
                     <div key={task.id} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm font-bold text-[#e8e8f5]">{task.text}</p>
+                          <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[#e8e8f5]">
+                            <span>{task.text}</span>
+                            <span className="rounded-full border border-[#ffd16640] bg-[#ffd16612] px-2 py-0.5 text-[10px] font-bold text-[#ffd166]">
+                              {taskWeight(task)} pts
+                            </span>
+                          </p>
                           <p className="mt-1 text-[11px]" style={{ color: priorities[task.priority].color }}>
                             {priorities[task.priority].label}
                           </p>
@@ -3415,10 +3475,14 @@ export function SgGoalsApp() {
                                   {task.done ? <Check className="h-3.5 w-3.5" style={{ color: taskColor }} /> : null}
                                 </span>
                                 <span className="min-w-0">
-                                  <span className={`block text-sm ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</span>
+                                  <span className="flex flex-wrap items-center gap-2">
+                                    <span className={`text-sm ${task.done ? 'text-[#52527a] line-through' : 'text-[#e8e8f5]'}`}>{task.text}</span>
+                                    <span className="rounded-full border border-[#ffd16640] bg-[#ffd16612] px-2 py-0.5 text-[10px] font-bold text-[#ffd166]">
+                                      {taskWeight(task)} pts
+                                    </span>
+                                  </span>
                                   <span className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#52527a]">
                                     {scope !== 'weekend' ? <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span> : null}
-                                    <span>{taskWeight(task)} pts</span>
                                     {noteInfo.dueTime ? <span style={{ color: '#00d97e' }}>By {noteInfo.dueTime}</span> : null}
                                     {noteInfo.note ? <span>{noteInfo.note}</span> : null}
                                     {habitMissWarning ? <span style={{ color: '#ff6b6b' }}>3-day miss streak</span> : null}
@@ -3689,10 +3753,14 @@ export function SgGoalsApp() {
                     <div key={task.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm text-[#e8e8f5]">{task.text}</p>
+                          <p className="flex flex-wrap items-center gap-2 text-sm text-[#e8e8f5]">
+                            <span>{task.text}</span>
+                            <span className="rounded-full border border-[#ffd16640] bg-[#ffd16612] px-2 py-0.5 text-[10px] font-bold text-[#ffd166]">
+                              {taskWeight(task)} pts
+                            </span>
+                          </p>
                           <p className="mt-1 flex flex-wrap gap-2 text-[11px] text-[#8b8bb3]">
                             <span style={{ color: priorities[task.priority].color }}>{priorities[task.priority].label}</span>
-                            <span>{taskWeight(task)} pts</span>
                             {noteInfo.dueTime ? <span className="text-[#00d97e]">By {noteInfo.dueTime}</span> : null}
                             {task.investedMinutes != null ? <span>{formatMinutes(task.investedMinutes)} invested</span> : null}
                             {allowsSubtasks(task) && task.subtasks?.length ? (
