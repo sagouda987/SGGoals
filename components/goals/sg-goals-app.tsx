@@ -2367,7 +2367,7 @@ export function SgGoalsApp() {
     window.setTimeout(() => setReportCopied(false), 1800);
   }
 
-  const completedToday = scope === 'today' ? activeTasks.filter((task) => task.done) : [];
+  const completedInCurrentScope = scope === 'today' || scope === 'weekend' ? activeTasks.filter((task) => task.done) : [];
 
   const groupedToday = (Object.keys(blocks) as Block[]).map((block) => {
     const blockTasks = activeTasks.filter((task) => {
@@ -2407,7 +2407,7 @@ export function SgGoalsApp() {
       title: 'Weekend work',
       sub: 'Write down all your weekend work',
       color: '#4f8ef7',
-      tasks: activeTasks,
+      tasks: activeTasks.filter((task) => !task.done),
       done: activeTasks.filter((task) => task.done).length,
       total: activeTasks.length
     }
@@ -3607,11 +3607,13 @@ export function SgGoalsApp() {
             </div>
           </div>
 
-          {scope === 'today' && completedToday.length ? (
+          {(scope === 'today' || scope === 'weekend') && completedInCurrentScope.length ? (
             <div className="mt-5 border-t border-[#1a1a30] pt-4">
-              <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">Completed tasks</h3>
+              <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">
+                {scope === 'weekend' ? 'Completed weekend tasks' : 'Completed tasks'}
+              </h3>
               <div className="mt-3 space-y-2">
-                {completedToday.map((task) => {
+                {completedInCurrentScope.map((task) => {
                   const noteInfo = splitTaskNote(task.note);
                   return (
                     <div key={task.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
