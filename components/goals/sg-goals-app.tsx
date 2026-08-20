@@ -2962,10 +2962,14 @@ export function SgGoalsApp() {
                   {streak > 0 ? (
                     <span
                       className={`rounded-full border px-2 py-1 text-[10px] font-bold ${
-                        activeStreak ? 'border-[#f9731644] bg-[#f9731618] text-[#f97316]' : 'border-[#ffd16644] bg-[#ffd16612] text-[#ffd166]'
+                        isDailyPriority
+                          ? activeStreak
+                            ? 'border-[#f9731644] bg-[#f9731618] text-[#f97316]'
+                            : 'border-[#ffd16644] bg-[#ffd16612] text-[#ffd166]'
+                          : 'border-[#1a1a30] bg-transparent text-[#8b8bb3]'
                       }`}
                     >
-                      {activeStreak ? <Flame className="mr-1 inline h-3 w-3" /> : 'At risk '} {streak}d
+                      {isDailyPriority && activeStreak ? <Flame className="mr-1 inline h-3 w-3" /> : isDailyPriority && streakAtRisk ? 'At risk ' : ''} {streak}d
                     </span>
                   ) : null}
                 </div>
