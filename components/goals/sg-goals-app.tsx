@@ -318,7 +318,7 @@ function buildDailyPointHistory(activities: GoalActivity[], daysBack = 14) {
   activities.forEach((activity) => {
     const dateKey = dateKeyFromValue(activity.createdAt);
     const day = byDate.get(dateKey);
-    if (!day || isAutoHabitMiss(activity)) return;
+    if (!day) return;
     const points = activityPoints(activity);
     if (activity.kind === 'completion') {
       day.completedPoints += points;

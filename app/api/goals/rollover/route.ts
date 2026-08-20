@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 
 const ownerKey = 'default';
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
+const taskMetaNotePattern = /\n?\[sg-task-meta:([A-Za-z0-9+/=]+)\]$/;
 
 const habitLabels: Record<string, string> = {
   O: 'O',
@@ -13,7 +14,7 @@ const habitLabels: Record<string, string> = {
   GYM: 'Gym',
   HEALTHYDRINKMORNING: 'Healthy drink morning',
   HEALTHYDRINKEVENING: 'Healthy drink evening',
-  BOOK: 'Book read',
+  BOOK: 'Book read and communication practice',
   STUDY2: 'Study 2 hour',
   OFFICEWORK2: 'Office work',
   SLEEP: 'Sleep 11 to 6',
@@ -22,6 +23,26 @@ const habitLabels: Record<string, string> = {
   NOSOCIAL: 'No Social Media',
   EYECARE: 'Eye care',
   SALTGARGLE: 'Salt water gargle'
+};
+
+const habitDefaultWeights: Record<string, number> = {
+  O: 1,
+  L1: 2,
+  L2: 2,
+  L3: 2,
+  M: 1,
+  GYM: 4,
+  HEALTHYDRINKMORNING: 2,
+  HEALTHYDRINKEVENING: 2,
+  BOOK: 4,
+  STUDY2: 5,
+  OFFICEWORK2: 8,
+  SLEEP: 2,
+  NOJUNK: 1,
+  MANIFEST: 1,
+  NOSOCIAL: 1,
+  EYECARE: 2,
+  SALTGARGLE: 2
 };
 
 export const dynamic = 'force-dynamic';
@@ -61,6 +82,29 @@ function normalizeHabitCode(text: string) {
   return null;
 }
 
+function normalizeTaskWeight(value: unknown, fallback = 1) {
+  const weight = Number(value);
+  if (!Number.isFinite(weight) || weight <= 0) return fallback;
+  return Math.min(100, Math.max(1, Math.round(weight)));
+}
+
+function taskWeightFromNote(note: string | null, fallback: number) {
+  if (!note) return fallback;
+  const match = note.match(taskMetaNotePattern);
+  if (!match) return fallback;
+  try {
+    const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as Partial<{ weight: unknown }>;
+    return normalizeTaskWeight(parsed.weight, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function composeAutoMissNote(dateKey: string, points: number) {
+  const payload = Buffer.from(JSON.stringify({ points: normalizeTaskWeight(points) }), 'utf8').toString('base64');
+  return `${AUTO_HABIT_MISS_NOTE}:${dateKey}\n[sg-activity-meta:${payload}]`;
+}
+
 async function recordHabitMisses() {
   const missedDateKey = previousIstDateKey();
   const createdAt = istDateKeyToUtcDate(missedDateKey, 23, 59);
@@ -78,7 +122,7 @@ async function recordHabitMisses() {
       scope: 'today',
       kind: 'failure',
       reason: 'Missed habit',
-      note: autoMissNote
+      note: { startsWith: autoMissNote }
     },
     select: {
       id: true,
@@ -95,6 +139,7 @@ async function recordHabitMisses() {
       if (!code || plannedCodes.has(code)) return [];
       const id = `habit-miss-${missedDateKey}-${code}`;
       const taskText = habitLabels[code] || task.text;
+      const points = taskWeightFromNote(task.note, habitDefaultWeights[code] || 1);
       if (existingKeys.has(id) || existingKeys.has(taskText)) return [];
       plannedCodes.add(code);
       return [{
@@ -105,7 +150,7 @@ async function recordHabitMisses() {
         taskText,
         kind: 'failure',
         reason: 'Missed habit',
-        note: autoMissNote,
+        note: composeAutoMissNote(missedDateKey, points),
         createdAt
       }];
     })
