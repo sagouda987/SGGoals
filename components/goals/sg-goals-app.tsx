@@ -2932,15 +2932,17 @@ export function SgGoalsApp() {
               const streak = strikeCounts.streaks[item.key];
               const activeStreak = streak > 0 && item.todayDone;
               const streakAtRisk = streak > 0 && !item.todayDone;
+              const priorityActiveStreak = isDailyPriority && activeStreak;
+              const priorityStreakAtRisk = isDailyPriority && streakAtRisk;
               return (
               <div
                 key={item.key}
                 className={`rounded-xl border px-3 py-2 ${
                   reachedTarget
                     ? 'border-[#ffd16699] bg-[#ffd16614] shadow-[0_0_18px_rgba(255,209,102,.14)]'
-                    : activeStreak
+                    : priorityActiveStreak
                       ? 'border-[#f9731699] bg-[#f9731614] shadow-[0_0_18px_rgba(249,115,22,.16)]'
-                      : streakAtRisk
+                      : priorityStreakAtRisk
                         ? 'border-[#ffd16666] bg-[#ffd16610]'
                     : isDailyPriority
                       ? item.todayDone
