@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 
 type Scope = 'today' | 'weekly' | 'weekend' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
@@ -959,6 +959,42 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     eyeCare: codes.has('EYECARE'),
     saltGargle: codes.has('SALTGARGLE')
   }));
+  const dayResultMap = new Map(dayResults.map((day) => [day.day, day]));
+  const emptyDay = { day: todayKey, o: false, l: false, m: false, gym: false, healthyDrinkMorning: false, healthyDrinkEvening: false, book: false, study2: false, officeWork2: false, sleep: false, noJunk: false, manifest: false, noSocial: false, eyeCare: false, saltGargle: false };
+  const dayCompleteForFamily = (day: typeof emptyDay, family: StrikeFamily) => {
+    if (family === 'O') return day.o;
+    if (family === 'L') return day.l;
+    if (family === 'M') return day.m;
+    if (family === 'GYM') return day.gym;
+    if (family === 'HEALTHYDRINKMORNING') return day.healthyDrinkMorning;
+    if (family === 'HEALTHYDRINKEVENING') return day.healthyDrinkEvening;
+    if (family === 'BOOK') return day.book;
+    if (family === 'STUDY2') return day.study2;
+    if (family === 'OFFICEWORK2') return day.officeWork2;
+    if (family === 'SLEEP') return day.sleep;
+    if (family === 'NOJUNK') return day.noJunk;
+    if (family === 'MANIFEST') return day.manifest;
+    if (family === 'NOSOCIAL') return day.noSocial;
+    if (family === 'EYECARE') return day.eyeCare;
+    return day.saltGargle;
+  };
+  const buildFamilyStreak = (family: StrikeFamily) => {
+    const cursor = new Date(`${todayKey}T00:00:00`);
+    const cycleStart = new Date(`${counterCycleStart}T00:00:00`);
+    const todayResult = dayResultMap.get(todayKey) || emptyDay;
+    if (!dayCompleteForFamily(todayResult, family)) {
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    let streak = 0;
+    while (cursor >= cycleStart) {
+      const key = toISODate(cursor);
+      const day = dayResultMap.get(key) || { ...emptyDay, day: key };
+      if (!dayCompleteForFamily(day, family)) break;
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  };
 
   return {
     o: dayResults.filter((day) => day.o).length,
@@ -976,9 +1012,26 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     noSocial: dayResults.filter((day) => day.noSocial).length,
     eyeCare: dayResults.filter((day) => day.eyeCare).length,
     saltGargle: dayResults.filter((day) => day.saltGargle).length,
+    streaks: {
+      O: buildFamilyStreak('O'),
+      L: buildFamilyStreak('L'),
+      M: buildFamilyStreak('M'),
+      GYM: buildFamilyStreak('GYM'),
+      HEALTHYDRINKMORNING: buildFamilyStreak('HEALTHYDRINKMORNING'),
+      HEALTHYDRINKEVENING: buildFamilyStreak('HEALTHYDRINKEVENING'),
+      BOOK: buildFamilyStreak('BOOK'),
+      STUDY2: buildFamilyStreak('STUDY2'),
+      OFFICEWORK2: buildFamilyStreak('OFFICEWORK2'),
+      SLEEP: buildFamilyStreak('SLEEP'),
+      NOJUNK: buildFamilyStreak('NOJUNK'),
+      MANIFEST: buildFamilyStreak('MANIFEST'),
+      NOSOCIAL: buildFamilyStreak('NOSOCIAL'),
+      EYECARE: buildFamilyStreak('EYECARE'),
+      SALTGARGLE: buildFamilyStreak('SALTGARGLE')
+    },
     counterCycleStart,
     resetAt,
-    today: dayResults.find((day) => day.day === todayKey) || { day: todayKey, o: false, l: false, m: false, gym: false, healthyDrinkMorning: false, healthyDrinkEvening: false, book: false, study2: false, officeWork2: false, sleep: false, noJunk: false, manifest: false, noSocial: false, eyeCare: false, saltGargle: false }
+    today: dayResults.find((day) => day.day === todayKey) || emptyDay
   };
 }
 
@@ -2876,12 +2929,19 @@ export function SgGoalsApp() {
             ].map((item) => {
               const reachedTarget = item.value >= HABIT_TARGET_COUNT;
               const isDailyPriority = DAILY_PRIORITY_STRIKE_KEYS.includes(item.key as (typeof DAILY_PRIORITY_STRIKE_KEYS)[number]);
+              const streak = strikeCounts.streaks[item.key];
+              const activeStreak = streak > 0 && item.todayDone;
+              const streakAtRisk = streak > 0 && !item.todayDone;
               return (
               <div
                 key={item.key}
                 className={`rounded-xl border px-3 py-2 ${
                   reachedTarget
                     ? 'border-[#ffd16699] bg-[#ffd16614] shadow-[0_0_18px_rgba(255,209,102,.14)]'
+                    : activeStreak
+                      ? 'border-[#f9731699] bg-[#f9731614] shadow-[0_0_18px_rgba(249,115,22,.16)]'
+                      : streakAtRisk
+                        ? 'border-[#ffd16666] bg-[#ffd16610]'
                     : isDailyPriority
                       ? item.todayDone
                         ? 'border-[#00d97e66] bg-[#00d97e10]'
@@ -2895,7 +2955,18 @@ export function SgGoalsApp() {
                     {reachedTarget ? '21 reached' : item.todayDone ? 'Today +1' : isDailyPriority ? 'Must today' : 'Pending'}
                   </span>
                 </div>
-                <p className="mt-1 text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
+                <div className="mt-1 flex items-end justify-between gap-2">
+                  <p className="text-2xl font-bold" style={{ color: item.color }}>{item.value}</p>
+                  {streak > 0 ? (
+                    <span
+                      className={`rounded-full border px-2 py-1 text-[10px] font-bold ${
+                        activeStreak ? 'border-[#f9731644] bg-[#f9731618] text-[#f97316]' : 'border-[#ffd16644] bg-[#ffd16612] text-[#ffd166]'
+                      }`}
+                    >
+                      {activeStreak ? <Flame className="mr-1 inline h-3 w-3" /> : 'At risk '} {streak}d
+                    </span>
+                  ) : null}
+                </div>
                 <div className="mt-1 flex items-center justify-between gap-2">
                   <p className="text-[10px] text-[#8b8bb3]">{item.rule}</p>
                   <button onClick={() => resetStrikeCount(item.key)} className="rounded-md border border-[#ff6b6b44] px-2 py-1 text-[10px] font-bold text-[#ff6b6b]">
