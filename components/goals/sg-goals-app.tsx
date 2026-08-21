@@ -2932,23 +2932,13 @@ export function SgGoalsApp() {
               const streak = strikeCounts.streaks[item.key];
               const activeStreak = streak > 0 && item.todayDone;
               const streakAtRisk = streak > 0 && !item.todayDone;
-              const priorityActiveStreak = isDailyPriority && activeStreak;
-              const priorityStreakAtRisk = isDailyPriority && streakAtRisk;
               return (
               <div
                 key={item.key}
                 className={`rounded-xl border px-3 py-2 ${
-                  reachedTarget
-                    ? 'border-[#ffd16699] bg-[#ffd16614] shadow-[0_0_18px_rgba(255,209,102,.14)]'
-                    : priorityActiveStreak
-                      ? 'border-[#00d97e66] bg-[#00d97e10] shadow-[0_0_18px_rgba(0,217,126,.12)]'
-                      : priorityStreakAtRisk
-                        ? 'border-[#f9731699] bg-[#f9731614] shadow-[0_0_18px_rgba(249,115,22,.12)]'
-                    : isDailyPriority
-                      ? item.todayDone
-                        ? 'border-[#00d97e66] bg-[#00d97e10]'
-                        : 'border-[#ff6b6b66] bg-[#ff6b6b10]'
-                      : 'border-[#1a1a30] bg-[#0f0f1d]'
+                  item.todayDone
+                    ? 'border-[#00d97e66] bg-[#00d97e10] shadow-[0_0_18px_rgba(0,217,126,.12)]'
+                    : 'border-[#f9731699] bg-[#f9731614] shadow-[0_0_18px_rgba(249,115,22,.12)]'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -2962,14 +2952,12 @@ export function SgGoalsApp() {
                   {streak > 0 ? (
                     <span
                       className={`rounded-full border px-2 py-1 text-[10px] font-bold ${
-                        isDailyPriority
-                          ? activeStreak
-                            ? 'border-[#00d97e44] bg-[#00d97e14] text-[#00d97e]'
-                            : 'border-[#f9731644] bg-[#f9731618] text-[#f97316]'
-                          : 'border-[#1a1a30] bg-transparent text-[#8b8bb3]'
+                        activeStreak
+                          ? 'border-[#00d97e44] bg-[#00d97e14] text-[#00d97e]'
+                          : 'border-[#f9731644] bg-[#f9731618] text-[#f97316]'
                       }`}
                     >
-                      {isDailyPriority && activeStreak ? <Flame className="mr-1 inline h-3 w-3" /> : isDailyPriority && streakAtRisk ? 'At risk ' : ''} {streak}d
+                      {activeStreak ? <Flame className="mr-1 inline h-3 w-3" /> : streakAtRisk ? 'At risk ' : ''} {streak}d
                     </span>
                   ) : null}
                 </div>
