@@ -670,30 +670,25 @@ function isAutoHabitMiss(activity: GoalActivity) {
 }
 
 function buildCounterCycleStart(todayKey: string) {
-  const today = new Date(`${todayKey}T00:00:00`);
-  const start = new Date(today);
-  start.setDate(COUNTER_RESET_DAY);
-  if (today.getDate() < COUNTER_RESET_DAY) {
-    start.setMonth(start.getMonth() - 1);
-  }
+  const today = new Date(`${todayKey}T00:00:00Z`);
+  const monthOffset = today.getUTCDate() < COUNTER_RESET_DAY ? -1 : 0;
+  const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + monthOffset, COUNTER_RESET_DAY));
   return toISODate(start);
 }
 
 function buildNextCounterReset(todayKey: string) {
-  const today = new Date(`${todayKey}T00:00:00`);
-  const next = new Date(today);
-  next.setDate(COUNTER_RESET_DAY);
-  if (today.getDate() >= COUNTER_RESET_DAY) {
-    next.setMonth(next.getMonth() + 1);
-  }
+  const today = new Date(`${todayKey}T00:00:00Z`);
+  const monthOffset = today.getUTCDate() >= COUNTER_RESET_DAY ? 1 : 0;
+  const next = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + monthOffset, COUNTER_RESET_DAY));
   return toISODate(next);
 }
 
 function buildCounterResetRemaining(todayKey: string) {
-  const today = new Date(`${todayKey}T00:00:00`);
-  const nextReset = new Date(`${buildNextCounterReset(todayKey)}T00:00:00`);
+  const today = new Date(`${todayKey}T00:00:00Z`);
+  const nextResetKey = buildNextCounterReset(todayKey);
+  const nextReset = new Date(`${nextResetKey}T00:00:00Z`);
   const days = Math.max(0, Math.ceil((nextReset.getTime() - today.getTime()) / 86400000));
-  return { nextReset: toISODate(nextReset), days };
+  return { nextReset: nextResetKey, days };
 }
 
 function isAfterCounterReset(dateValue: string) {
