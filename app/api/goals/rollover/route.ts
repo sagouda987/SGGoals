@@ -4,6 +4,9 @@ import { prisma } from '@/lib/prisma';
 const ownerKey = 'default';
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
 const taskMetaNotePattern = /\n?\[sg-task-meta:([A-Za-z0-9+/=]+)\]$/;
+const activityMetaNotePattern = /\n?\[sg-activity-meta:([A-Za-z0-9+/=]+)\]$/;
+const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
+const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 
 const habitLabels: Record<string, string> = {
   O: 'O',
@@ -57,6 +60,32 @@ function previousIstDateKey(date = new Date()) {
   return toISODate(ist);
 }
 
+function currentIstDate(date = new Date()) {
+  return new Date(date.getTime() + 330 * 60000);
+}
+
+function previousIstMonthKey(date = new Date()) {
+  const ist = currentIstDate(date);
+  if (ist.getUTCDate() !== 1 || ist.getUTCHours() < 3) return null;
+  const previousMonth = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() - 1, 1));
+  return `${previousMonth.getUTCFullYear()}-${String(previousMonth.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthRange(monthKey: string) {
+  const [year, month] = monthKey.split('-').map(Number);
+  const start = istDateKeyToUtcDate(`${monthKey}-01`, 0, 0);
+  const end = istDateKeyToUtcDate(
+    `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}-01`,
+    0,
+    0
+  );
+  return { start, end };
+}
+
+function istDateKey(date: Date) {
+  return toISODate(currentIstDate(date));
+}
+
 function istDateKeyToUtcDate(dateKey: string, hours: number, minutes: number) {
   const [year, month, day] = dateKey.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day, hours - 5, minutes - 30, 0, 0));
@@ -103,6 +132,176 @@ function taskWeightFromNote(note: string | null, fallback: number) {
 function composeAutoMissNote(dateKey: string, points: number) {
   const payload = Buffer.from(JSON.stringify({ points: normalizeTaskWeight(points) }), 'utf8').toString('base64');
   return `${AUTO_HABIT_MISS_NOTE}:${dateKey}\n[sg-activity-meta:${payload}]`;
+}
+
+function activityPointsFromNote(note: string | null, taskText: string) {
+  if (note) {
+    const match = note.match(activityMetaNotePattern);
+    if (match) {
+      try {
+        const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as Partial<{ points: unknown }>;
+        const points = normalizeTaskWeight(parsed.points, 0);
+        if (points > 0) return points;
+      } catch {
+        // Fall back to the current habit weight below.
+      }
+    }
+  }
+  const code = normalizeHabitCode(taskText);
+  return code ? habitDefaultWeights[code] || 1 : 1;
+}
+
+function escapePdfText(value: string) {
+  return value.replace(/[^\x20-\x7E]/g, '?').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function buildMonthlySummaryPdf(summary: {
+  monthKey: string;
+  completedPoints: number;
+  failedPoints: number;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number }>;
+}) {
+  const lines = [
+    `SG Goals - Monthly Summary ${summary.monthKey}`,
+    `Completed points: ${summary.completedPoints}`,
+    `Failed points: ${summary.failedPoints}`,
+    '',
+    'Date-wise points:'
+  ];
+  summary.days.filter((day) => day.completedPoints || day.failedPoints).forEach((day) => {
+    lines.push(`${day.dateKey} - Done ${day.completedPoints} pts, Failed ${day.failedPoints} pts`);
+  });
+  const content = `BT\n/F1 12 Tf\n50 760 Td\n${lines.map((line, index) => `${index ? '0 -16 Td\n' : ''}(${escapePdfText(line)}) Tj`).join('\n')}\nET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${Buffer.byteLength(content, 'binary')} >>\nstream\n${content}\nendstream`
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(pdf, 'binary'));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(pdf, 'binary');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let index = 1; index <= objects.length; index += 1) {
+    pdf += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf, 'binary');
+}
+
+async function emailMonthlySummary(summary: {
+  monthKey: string;
+  completedPoints: number;
+  failedPoints: number;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number }>;
+}) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !from) return null;
+  const pdf = buildMonthlySummaryPdf(summary);
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [MONTHLY_SUMMARY_RECIPIENT],
+      subject: `SG Goals monthly summary - ${summary.monthKey}`,
+      text: `Your SG Goals summary for ${summary.monthKey}: ${summary.completedPoints} completed points and ${summary.failedPoints} failed points.`,
+      attachments: [{ filename: `sg-goals-${summary.monthKey}.pdf`, content: pdf.toString('base64') }]
+    })
+  });
+  if (!response.ok) throw new Error(`Monthly summary email failed with status ${response.status}`);
+  return new Date().toISOString();
+}
+
+async function archiveMonthlySummary() {
+  const monthKey = previousIstMonthKey();
+  if (!monthKey) return { archived: false, monthKey: null, emailed: false };
+  const summaryId = `monthly-summary-${monthKey}`;
+  const existing = await prisma.goalActivity.findUnique({ where: { id: summaryId } });
+  if (existing) {
+    if (existing.note?.startsWith(MONTHLY_SUMMARY_NOTE_PREFIX) && !existing.note.includes('"emailedAt"')) {
+      const raw = existing.note.slice(MONTHLY_SUMMARY_NOTE_PREFIX.length);
+      const summary = JSON.parse(raw) as {
+        monthKey: string;
+        completedPoints: number;
+        failedPoints: number;
+        days: Array<{ dateKey: string; completedPoints: number; failedPoints: number }>;
+        emailedAt?: string;
+      };
+      const emailedAt = await emailMonthlySummary(summary);
+      if (emailedAt) {
+        await prisma.goalActivity.update({
+          where: { id: summaryId },
+          data: { note: `${MONTHLY_SUMMARY_NOTE_PREFIX}${JSON.stringify({ ...summary, emailedAt })}` }
+        });
+      }
+      return { archived: true, monthKey, emailed: Boolean(emailedAt) };
+    }
+    return { archived: true, monthKey, emailed: Boolean(existing.note?.includes('"emailedAt"')) };
+  }
+
+  const { start, end } = monthRange(monthKey);
+  const activities = await prisma.goalActivity.findMany({
+    where: { ownerKey, createdAt: { gte: start, lt: end } },
+    orderBy: { createdAt: 'asc' },
+    select: { taskText: true, kind: true, note: true, createdAt: true }
+  });
+  const completedHabitKeys = new Set(
+    activities
+      .filter((activity) => activity.kind === 'completion')
+      .map((activity) => {
+        const code = normalizeHabitCode(activity.taskText);
+        return code ? `${istDateKey(activity.createdAt)}:${code}` : null;
+      })
+      .filter((key): key is string => Boolean(key))
+  );
+  const days = new Map<string, { dateKey: string; completedPoints: number; failedPoints: number }>();
+  const cursor = new Date(start.getTime());
+  while (cursor < end) {
+    const key = istDateKey(cursor);
+    days.set(key, { dateKey: key, completedPoints: 0, failedPoints: 0 });
+    cursor.setTime(cursor.getTime() + 24 * 60 * 60 * 1000);
+  }
+  activities.forEach((activity) => {
+    const day = days.get(istDateKey(activity.createdAt));
+    if (!day) return;
+    const points = activityPointsFromNote(activity.note, activity.taskText);
+    if (activity.kind === 'completion') day.completedPoints += points;
+    if (activity.kind === 'undo') day.completedPoints = Math.max(0, day.completedPoints - points);
+    if (activity.kind === 'failure') {
+      const code = normalizeHabitCode(activity.taskText);
+      if (activity.note?.startsWith(AUTO_HABIT_MISS_NOTE) && code && completedHabitKeys.has(`${day.dateKey}:${code}`)) return;
+      day.failedPoints += points;
+    }
+  });
+  const summary = {
+    monthKey,
+    completedPoints: Array.from(days.values()).reduce((total, day) => total + day.completedPoints, 0),
+    failedPoints: Array.from(days.values()).reduce((total, day) => total + day.failedPoints, 0),
+    days: Array.from(days.values()),
+    createdAt: new Date().toISOString()
+  };
+  const emailedAt = await emailMonthlySummary(summary);
+  const storedSummary = emailedAt ? { ...summary, emailedAt } : summary;
+  await prisma.goalActivity.create({
+    data: {
+      id: summaryId,
+      ownerKey,
+      scope: 'yearly',
+      priority: 'other',
+      taskText: `Monthly summary ${monthKey}`,
+      kind: 'monthly-summary',
+      note: `${MONTHLY_SUMMARY_NOTE_PREFIX}${JSON.stringify(storedSummary)}`,
+      createdAt: new Date()
+    }
+  });
+  return { archived: true, monthKey, emailed: Boolean(emailedAt) };
 }
 
 async function recordHabitMisses() {
@@ -191,8 +390,9 @@ async function recordHabitMisses() {
 
 export async function GET() {
   try {
+    const monthlySummary = await archiveMonthlySummary();
     const result = await recordHabitMisses();
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, monthlySummary, ...result });
   } catch (error) {
     console.error('Failed to roll over habit misses', error);
     return NextResponse.json({ error: 'Could not record habit misses.' }, { status: 503 });

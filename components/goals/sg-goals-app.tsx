@@ -30,7 +30,7 @@ type GoalTask = {
   updatedAt: string;
 };
 
-type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset';
+type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary';
 type StrikeCode = 'O' | 'L1' | 'L2' | 'L3' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'EYECARE' | 'SALTGARGLE';
 type StrikeFamily = 'O' | 'L' | 'M' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'EYECARE' | 'SALTGARGLE';
 
@@ -46,6 +46,14 @@ type GoalActivity = {
   minutes?: number;
   startedAt?: string;
   completedAt?: string;
+  createdAt: string;
+};
+type MonthlySummary = {
+  monthKey: string;
+  completedPoints: number;
+  failedPoints: number;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number }>;
+  emailedAt?: string;
   createdAt: string;
 };
 
@@ -91,6 +99,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
 const APP_VERSION = 'cloud-sync-v59';
+const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
@@ -305,17 +314,15 @@ function buildScopeCompletion(tasks: GoalTask[]) {
   return { total, done, totalPoints, donePoints, pct: totalPoints ? Math.round((donePoints / totalPoints) * 100) : 0 };
 }
 
-function buildDailyPointHistory(activities: GoalActivity[], daysBack = 14) {
+function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
   const byDate = new Map<
     string,
     { dateKey: string; completedPoints: number; failedPoints: number; completedTasks: Array<{ text: string; points: number }>; failedTasks: Array<{ text: string; points: number }> }
   >();
-  for (let index = daysBack - 1; index >= 0; index -= 1) {
-    const date = new Date();
-    date.setDate(date.getDate() - index);
+  dates.forEach((date) => {
     const dateKey = toISODate(date);
     byDate.set(dateKey, { dateKey, completedPoints: 0, failedPoints: 0, completedTasks: [], failedTasks: [] });
-  }
+  });
   const completedHabitKeys = new Set<string>();
   activities.forEach((activity) => {
     if (activity.kind !== 'completion') return;
@@ -342,6 +349,38 @@ function buildDailyPointHistory(activities: GoalActivity[], daysBack = 14) {
     }
   });
   return Array.from(byDate.values()).reverse();
+}
+
+function parseMonthlySummary(activity: GoalActivity): MonthlySummary | null {
+  if (activity.kind !== 'monthly-summary' || !activity.note?.startsWith(MONTHLY_SUMMARY_NOTE_PREFIX)) return null;
+  try {
+    const parsed = JSON.parse(activity.note.slice(MONTHLY_SUMMARY_NOTE_PREFIX.length)) as Partial<MonthlySummary>;
+    if (
+      typeof parsed.monthKey !== 'string' ||
+      typeof parsed.completedPoints !== 'number' ||
+      typeof parsed.failedPoints !== 'number' ||
+      !Array.isArray(parsed.days)
+    ) {
+      return null;
+    }
+    return {
+      monthKey: parsed.monthKey,
+      completedPoints: parsed.completedPoints,
+      failedPoints: parsed.failedPoints,
+      days: parsed.days.filter(
+        (day): day is { dateKey: string; completedPoints: number; failedPoints: number } =>
+          Boolean(day) &&
+          typeof day === 'object' &&
+          typeof (day as { dateKey?: unknown }).dateKey === 'string' &&
+          typeof (day as { completedPoints?: unknown }).completedPoints === 'number' &&
+          typeof (day as { failedPoints?: unknown }).failedPoints === 'number'
+      ),
+      emailedAt: typeof parsed.emailedAt === 'string' ? parsed.emailedAt : undefined,
+      createdAt: activity.createdAt
+    };
+  } catch {
+    return null;
+  }
 }
 
 function parseStartDate(timeValue: string) {
@@ -547,6 +586,10 @@ function activityId() {
 
 function formatDateShort(dateValue: string) {
   return new Date(dateValue).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatMonthKey(monthKey: string) {
+  return new Date(`${monthKey}-01T00:00:00`).toLocaleDateString([], { month: 'long', year: 'numeric' });
 }
 
 function formatTimeShort(dateValue?: string) {
@@ -1575,6 +1618,17 @@ export function SgGoalsApp() {
     return days;
   }, []);
 
+  const monthWindow = useMemo(() => {
+    const today = new Date(`${currentDateKey}T00:00:00`);
+    const days: Date[] = [];
+    for (let day = 1; day <= today.getDate(); day += 1) {
+      const date = new Date(today.getFullYear(), today.getMonth(), day);
+      date.setHours(0, 0, 0, 0);
+      days.push(date);
+    }
+    return days;
+  }, [currentDateKey]);
+
   const weeklyHabitMissWindow = useMemo(() => buildWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
   const previousWeeklyHabitMissWindow = useMemo(() => buildPreviousWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
 
@@ -1602,7 +1656,11 @@ export function SgGoalsApp() {
     return { misses, minutes, failedPoints };
   }, [activities, todayKey]);
 
-  const dailyPointHistory = useMemo(() => buildDailyPointHistory(activities, 14), [activities]);
+  const monthlyPointHistory = useMemo(() => buildPointHistory(activities, monthWindow), [activities, monthWindow]);
+  const monthlySummaries = useMemo(
+    () => activities.map(parseMonthlySummary).filter((summary): summary is MonthlySummary => Boolean(summary)).sort((a, b) => b.monthKey.localeCompare(a.monthKey)),
+    [activities]
+  );
 
   const yesterdaySummary = useMemo(() => {
     const yesterdayActivities = activities.filter((activity) => activity.scope === 'today' && dateKeyFromValue(activity.createdAt) === yesterdayKey && !isAutoHabitMiss(activity));
@@ -2799,6 +2857,71 @@ export function SgGoalsApp() {
     );
   }
 
+  function renderPointHistorySection(title: string, subtitle: string, history: ReturnType<typeof buildPointHistory>) {
+    return (
+      <section className="mx-auto max-w-4xl px-5 pb-4">
+        <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">{title}</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{subtitle}</h2>
+            </div>
+            <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
+              <BarChart3 className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-4 space-y-2">
+            {history.map((day) => {
+              const total = day.completedPoints + day.failedPoints;
+              const completedPct = total ? Math.round((day.completedPoints / total) * 100) : 0;
+              return (
+                <div key={day.dateKey} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-[#e8e8f5]">{formatStartedDate(day.dateKey)}</p>
+                    <div className="flex items-center gap-2 text-xs font-bold">
+                      <span className="text-[#00d97e]">Done {day.completedPoints} pts</span>
+                      <span className="text-[#ff6b6b]">Failed {day.failedPoints} pts</span>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-[#1a1a30]">
+                    <div className="bg-[#00d97e]" style={{ width: `${completedPct}%` }} />
+                    <div className="bg-[#ff6b6b]" style={{ width: `${total ? 100 - completedPct : 0}%` }} />
+                  </div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#00d97e]">Completed</p>
+                      {day.completedTasks.length ? (
+                        day.completedTasks.slice(0, 4).map((task, index) => (
+                          <p key={`${day.dateKey}-done-${index}`} className="truncate text-[11px] text-[#8b8bb3]">
+                            {task.text} - {task.points} pts
+                          </p>
+                        ))
+                      ) : (
+                        <p className="text-[11px] text-[#52527a]">No completed points.</p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#ff6b6b]">Failed</p>
+                      {day.failedTasks.length ? (
+                        day.failedTasks.slice(0, 4).map((task, index) => (
+                          <p key={`${day.dateKey}-fail-${index}`} className="truncate text-[11px] text-[#8b8bb3]">
+                            {task.text} - {task.points} pts
+                          </p>
+                        ))
+                      ) : (
+                        <p className="text-[11px] text-[#52527a]">No failed points.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#07070f] pb-24 text-[#e8e8f5]">
       <section className="border-b border-[#1a1a30] bg-[#0b0b1c] px-5 pb-5 pt-10">
@@ -3421,6 +3544,7 @@ export function SgGoalsApp() {
       {scope === 'monthly' ? (
         <>
           {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
+          {renderPointHistorySection('Date-wise points history', 'Completed and failed points for the current month.', monthlyPointHistory)}
         </>
       ) : null}
 
@@ -3476,62 +3600,37 @@ export function SgGoalsApp() {
           </div>
         </section>
         <section className="mx-auto max-w-4xl px-5 pb-4">
-          <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="rounded-xl border border-[#4f8ef740] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Date-wise points history</p>
-                <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Completed and failed points by day</h2>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#8b8bb3]">Archived monthly summaries</p>
+                <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Each month is saved here after the 3 AM reset</h2>
               </div>
               <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
-                <BarChart3 className="h-5 w-5" />
+                <CalendarDays className="h-5 w-5" />
               </div>
             </div>
-            <div className="mt-4 space-y-2">
-              {dailyPointHistory.map((day) => {
-                const total = day.completedPoints + day.failedPoints;
-                const completedPct = total ? Math.round((day.completedPoints / total) * 100) : 0;
-                return (
-                  <div key={day.dateKey} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-bold text-[#e8e8f5]">{formatStartedDate(day.dateKey)}</p>
-                      <div className="flex items-center gap-2 text-xs font-bold">
-                        <span className="text-[#00d97e]">Done {day.completedPoints} pts</span>
-                        <span className="text-[#ff6b6b]">Failed {day.failedPoints} pts</span>
-                      </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {monthlySummaries.length ? (
+                monthlySummaries.map((summary) => (
+                  <div key={summary.monthKey} className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-[#e8e8f5]">{formatMonthKey(summary.monthKey)}</p>
+                      <span className="text-[10px] text-[#00d97e]">Archived</span>
                     </div>
-                    <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-[#1a1a30]">
-                      <div className="bg-[#00d97e]" style={{ width: `${completedPct}%` }} />
-                      <div className="bg-[#ff6b6b]" style={{ width: `${total ? 100 - completedPct : 0}%` }} />
-                    </div>
-                    <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#00d97e]">Completed</p>
-                        {day.completedTasks.length ? (
-                          day.completedTasks.slice(0, 4).map((task, index) => (
-                            <p key={`${day.dateKey}-done-${index}`} className="truncate text-[11px] text-[#8b8bb3]">
-                              {task.text} - {task.points} pts
-                            </p>
-                          ))
-                        ) : (
-                          <p className="text-[11px] text-[#52527a]">No completed points.</p>
-                        )}
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#ff6b6b]">Failed</p>
-                        {day.failedTasks.length ? (
-                          day.failedTasks.slice(0, 4).map((task, index) => (
-                            <p key={`${day.dateKey}-fail-${index}`} className="truncate text-[11px] text-[#8b8bb3]">
-                              {task.text} - {task.points} pts
-                            </p>
-                          ))
-                        ) : (
-                          <p className="text-[11px] text-[#52527a]">No failed points.</p>
-                        )}
-                      </div>
-                    </div>
+                    <p className="mt-2 text-xs text-[#8b8bb3]">
+                      Done <span className="font-bold text-[#00d97e]">{summary.completedPoints} pts</span>
+                      {' · '}
+                      Failed <span className="font-bold text-[#ff6b6b]">{summary.failedPoints} pts</span>
+                    </p>
+                    <p className="mt-1 text-[11px] text-[#52527a]">{summary.days.filter((day) => day.completedPoints || day.failedPoints).length} active day(s)</p>
                   </div>
-                );
-              })}
+                ))
+              ) : (
+                <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a] md:col-span-2">
+                  Your first monthly summary will appear here after the next reset.
+                </div>
+              )}
             </div>
           </div>
         </section>
