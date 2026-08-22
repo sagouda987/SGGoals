@@ -105,7 +105,7 @@ const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-08-07';
 const COUNTER_FORCE_RESET_AT = '2026-08-07T11:32:03+05:30';
-const COUNTER_RESET_DAY = 7;
+const COUNTER_RESET_DAY = 5;
 const HABIT_TARGET_COUNT = 21;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -1620,11 +1620,12 @@ export function SgGoalsApp() {
 
   const monthWindow = useMemo(() => {
     const today = new Date(`${currentDateKey}T00:00:00`);
+    const cycleStart = new Date(`${buildCounterCycleStart(currentDateKey)}T00:00:00`);
     const days: Date[] = [];
-    for (let day = 1; day <= today.getDate(); day += 1) {
-      const date = new Date(today.getFullYear(), today.getMonth(), day);
-      date.setHours(0, 0, 0, 0);
-      days.push(date);
+    const cursor = new Date(cycleStart);
+    while (cursor <= today) {
+      days.push(new Date(cursor));
+      cursor.setDate(cursor.getDate() + 1);
     }
     return days;
   }, [currentDateKey]);

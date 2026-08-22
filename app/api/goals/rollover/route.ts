@@ -7,6 +7,7 @@ const taskMetaNotePattern = /\n?\[sg-task-meta:([A-Za-z0-9+/=]+)\]$/;
 const activityMetaNotePattern = /\n?\[sg-activity-meta:([A-Za-z0-9+/=]+)\]$/;
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
+const MONTHLY_RESET_DAY = 5;
 
 const habitLabels: Record<string, string> = {
   O: 'O',
@@ -66,16 +67,16 @@ function currentIstDate(date = new Date()) {
 
 function previousIstMonthKey(date = new Date()) {
   const ist = currentIstDate(date);
-  if (ist.getUTCDate() !== 1 || ist.getUTCHours() < 3) return null;
+  if (ist.getUTCDate() !== MONTHLY_RESET_DAY || ist.getUTCHours() < 3) return null;
   const previousMonth = new Date(Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth() - 1, 1));
   return `${previousMonth.getUTCFullYear()}-${String(previousMonth.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function monthRange(monthKey: string) {
   const [year, month] = monthKey.split('-').map(Number);
-  const start = istDateKeyToUtcDate(`${monthKey}-01`, 0, 0);
+  const start = istDateKeyToUtcDate(`${monthKey}-${String(MONTHLY_RESET_DAY).padStart(2, '0')}`, 0, 0);
   const end = istDateKeyToUtcDate(
-    `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}-01`,
+    `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}-${String(MONTHLY_RESET_DAY).padStart(2, '0')}`,
     0,
     0
   );
