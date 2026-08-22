@@ -316,6 +316,12 @@ function buildDailyPointHistory(activities: GoalActivity[], daysBack = 14) {
     const dateKey = toISODate(date);
     byDate.set(dateKey, { dateKey, completedPoints: 0, failedPoints: 0, completedTasks: [], failedTasks: [] });
   }
+  const completedHabitKeys = new Set<string>();
+  activities.forEach((activity) => {
+    if (activity.kind !== 'completion') return;
+    const code = normalizeStrikeCode(activity.taskText);
+    if (code) completedHabitKeys.add(`${dateKeyFromValue(activity.createdAt)}:${code}`);
+  });
   activities.forEach((activity) => {
     const dateKey = dateKeyFromValue(activity.createdAt);
     const day = byDate.get(dateKey);
@@ -329,6 +335,8 @@ function buildDailyPointHistory(activities: GoalActivity[], daysBack = 14) {
       day.completedPoints = Math.max(0, day.completedPoints - points);
     }
     if (activity.kind === 'failure') {
+      const habitCode = normalizeStrikeCode(activity.taskText);
+      if (isAutoHabitMiss(activity) && habitCode && completedHabitKeys.has(`${dateKey}:${habitCode}`)) return;
       day.failedPoints += points;
       day.failedTasks.push({ text: activity.taskText, points });
     }
