@@ -287,9 +287,10 @@ function normalizeTimerMinutes(value: unknown, fallback = DEFAULT_TARGET_DURATIO
 }
 
 function normalizeTaskWeight(value: unknown, fallback = 1) {
+  if (value === '' || value === null || value === undefined) return fallback;
   const weight = Number(value);
-  if (!Number.isFinite(weight) || weight <= 0) return fallback;
-  return Math.min(100, Math.max(1, Math.round(weight)));
+  if (!Number.isFinite(weight) || weight < 0) return fallback;
+  return Math.min(100, Math.max(0, Math.round(weight)));
 }
 
 function taskWeight(task: Pick<GoalTask, 'weight'>) {
@@ -3854,7 +3855,7 @@ export function SgGoalsApp() {
               <span className="mb-2 block text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Weight points</span>
               <input
                 type="number"
-                min="1"
+                min="0"
                 max="100"
                 inputMode="numeric"
                 value={draft.weight}
