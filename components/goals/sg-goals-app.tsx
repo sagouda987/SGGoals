@@ -509,29 +509,11 @@ function buildWeeklyHabitMissWindow(now = new Date()) {
   return buildIstDateWindow(start, istNow);
 }
 
-function buildMonthlyHabitMissWindow(now = new Date()) {
-  const istNow = new Date(now.getTime() + 330 * 60000);
-  const start = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), 1));
-  if (istNow.getUTCDate() === 1 && istNow.getUTCHours() < 3) {
-    start.setUTCMonth(start.getUTCMonth() - 1);
-  }
-  return buildIstDateWindow(start, istNow);
-}
-
 function buildPreviousWeeklyHabitMissWindow(now = new Date()) {
   const current = buildWeeklyHabitMissWindow(now);
   const currentStart = current[0] || new Date();
   const previousStart = new Date(currentStart);
   previousStart.setUTCDate(previousStart.getUTCDate() - 7);
-  const previousEnd = new Date(currentStart);
-  previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
-  return buildIstDateWindow(previousStart, previousEnd);
-}
-
-function buildPreviousMonthlyHabitMissWindow(now = new Date()) {
-  const current = buildMonthlyHabitMissWindow(now);
-  const currentStart = current[0] || new Date();
-  const previousStart = new Date(Date.UTC(currentStart.getUTCFullYear(), currentStart.getUTCMonth() - 1, 1));
   const previousEnd = new Date(currentStart);
   previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
   return buildIstDateWindow(previousStart, previousEnd);
@@ -1597,14 +1579,11 @@ export function SgGoalsApp() {
     return days;
   }, [currentDateKey]);
   const weeklyHabitMissWindow = useMemo(() => buildWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
-  const monthlyHabitMissWindow = useMemo(() => buildMonthlyHabitMissWindow(new Date(timerNow)), [timerNow]);
   const previousWeeklyHabitMissWindow = useMemo(() => buildPreviousWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
-  const previousMonthlyHabitMissWindow = useMemo(() => buildPreviousMonthlyHabitMissWindow(new Date(timerNow)), [timerNow]);
 
   const analytics = useMemo(() => buildAnalytics(activities, trendWindow), [activities, trendWindow]);
   const monthlyAnalytics = useMemo(() => buildAnalytics(activities, monthWindow, 10), [activities, monthWindow]);
   const weeklyHabitInsights = useMemo(() => buildHabitInsights(activities, weeklyHabitMissWindow, previousWeeklyHabitMissWindow), [activities, previousWeeklyHabitMissWindow, weeklyHabitMissWindow]);
-  const monthlyHabitInsights = useMemo(() => buildHabitInsights(activities, monthlyHabitMissWindow, previousMonthlyHabitMissWindow), [activities, monthlyHabitMissWindow, previousMonthlyHabitMissWindow]);
 
   const overallScore = useMemo(() => {
     if (!analytics.scorecard.length) return 0;
@@ -3457,9 +3436,6 @@ export function SgGoalsApp() {
       {scope === 'monthly' ? (
         <>
           {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
-          {renderHabitMissCountsSection('Monthly habit missed count', 'Monthly counter resets on the 1st day at 3:00 AM IST.', monthlyHabitInsights, {
-            summaryLabel: 'Last month summary'
-          })}
           {renderFailurePatternsSection('Monthly failure patterns', 'Review recurring misses for this month without mixing them into today.', monthlyAnalytics, monthlyFailurePatterns)}
         </>
       ) : null}
