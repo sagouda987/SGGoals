@@ -1567,22 +1567,10 @@ export function SgGoalsApp() {
     return days;
   }, []);
 
-  const monthWindow = useMemo(() => {
-    const today = new Date(`${currentDateKey}T00:00:00`);
-    const days: Date[] = [];
-    const daysInMonth = today.getDate();
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const date = new Date(today.getFullYear(), today.getMonth(), day);
-      date.setHours(0, 0, 0, 0);
-      days.push(date);
-    }
-    return days;
-  }, [currentDateKey]);
   const weeklyHabitMissWindow = useMemo(() => buildWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
   const previousWeeklyHabitMissWindow = useMemo(() => buildPreviousWeeklyHabitMissWindow(new Date(timerNow)), [timerNow]);
 
   const analytics = useMemo(() => buildAnalytics(activities, trendWindow), [activities, trendWindow]);
-  const monthlyAnalytics = useMemo(() => buildAnalytics(activities, monthWindow, 10), [activities, monthWindow]);
   const weeklyHabitInsights = useMemo(() => buildHabitInsights(activities, weeklyHabitMissWindow, previousWeeklyHabitMissWindow), [activities, previousWeeklyHabitMissWindow, weeklyHabitMissWindow]);
 
   const overallScore = useMemo(() => {
@@ -1634,17 +1622,6 @@ export function SgGoalsApp() {
       .map(([reason, count]) => ({ reason, count }))
       .sort((a, b) => b.count - a.count);
   }, [analytics.failures]);
-
-  const monthlyFailurePatterns = useMemo(() => {
-    const counts = new Map<string, number>();
-    monthlyAnalytics.failures.forEach((activity) => {
-      const key = activity.reason || 'Missed';
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-    return Array.from(counts.entries())
-      .map(([reason, count]) => ({ reason, count }))
-      .sort((a, b) => b.count - a.count);
-  }, [monthlyAnalytics.failures]);
 
   const targetTasks = useMemo(() => {
     return targetTaskIds.map((taskId) => store.today.find((task) => task.id === taskId)).filter((task): task is GoalTask => Boolean(task));
@@ -2574,8 +2551,8 @@ export function SgGoalsApp() {
 
   const taskGroups = scope === 'today' ? todayDisplayGroups : scope === 'weekend' ? weekendGroups : groupedPriority;
 
-  const sideMissLog = (scope === 'monthly' ? monthlyAnalytics.failures : scope === 'today' ? todayFocus.misses : analytics.failures).filter((activity) => !isAutoHabitMiss(activity));
-  const sideMissLogTitle = scope === 'monthly' ? 'Monthly miss log' : scope === 'today' ? 'Today miss log' : '7-day miss log';
+  const sideMissLog = (scope === 'today' ? todayFocus.misses : analytics.failures).filter((activity) => !isAutoHabitMiss(activity));
+  const sideMissLogTitle = scope === 'today' ? 'Today miss log' : '7-day miss log';
   const taskSyncLabel = syncState === 'saved' ? 'Tasks synced' : syncState === 'saving' ? 'Tasks saving' : syncState === 'loading' ? 'Tasks loading' : syncState === 'error' ? 'Tasks save failed' : 'Tasks local';
   const timerSyncLabel =
     timerSyncState === 'saved'
@@ -3436,7 +3413,6 @@ export function SgGoalsApp() {
       {scope === 'monthly' ? (
         <>
           {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
-          {renderFailurePatternsSection('Monthly failure patterns', 'Review recurring misses for this month without mixing them into today.', monthlyAnalytics, monthlyFailurePatterns)}
         </>
       ) : null}
 
@@ -3955,28 +3931,30 @@ export function SgGoalsApp() {
             </div>
           </div>
 
-          <div className="mt-5 border-t border-[#1a1a30] pt-4">
-            <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">{sideMissLogTitle}</h3>
-            <div className="mt-3 space-y-2">
-              {sideMissLog.length ? (
-                sideMissLog.map((activity) => (
-                  <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
-                    <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
-                    <p className="mt-1 text-[11px] text-[#8b8bb3]">
-                      {activity.reason || 'Missed'}
-                      {activity.note ? ` - ${activity.note}` : ''}
-                      {' - '}
-                      {formatDateShort(activity.createdAt)}
-                    </p>
+          {scope !== 'monthly' ? (
+            <div className="mt-5 border-t border-[#1a1a30] pt-4">
+              <h3 className="text-xs font-bold uppercase tracking-[.2em] text-[#52527a]">{sideMissLogTitle}</h3>
+              <div className="mt-3 space-y-2">
+                {sideMissLog.length ? (
+                  sideMissLog.map((activity) => (
+                    <div key={activity.id} className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-3 py-2">
+                      <p className="text-sm text-[#e8e8f5]">{activity.taskText}</p>
+                      <p className="mt-1 text-[11px] text-[#8b8bb3]">
+                        {activity.reason || 'Missed'}
+                        {activity.note ? ` - ${activity.note}` : ''}
+                        {' - '}
+                        {formatDateShort(activity.createdAt)}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
+                    Nothing logged yet.
                   </div>
-                ))
-              ) : (
-                <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-[11px] text-[#52527a]">
-                  Nothing logged yet.
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
 
           {(scope === 'today' || scope === 'weekend') && completedInCurrentScope.length ? (
             <div className="mt-5 border-t border-[#1a1a30] pt-4">
