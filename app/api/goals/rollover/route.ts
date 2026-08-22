@@ -109,6 +109,8 @@ async function recordHabitMisses() {
   const missedDateKey = previousIstDateKey();
   const createdAt = istDateKeyToUtcDate(missedDateKey, 23, 59);
   const autoMissNote = `${AUTO_HABIT_MISS_NOTE}:${missedDateKey}`;
+  const missedDateStart = istDateKeyToUtcDate(missedDateKey, 0, 0);
+  const nextDateStart = new Date(missedDateStart.getTime() + 24 * 60 * 60 * 1000);
   const habitTasks = await prisma.goalTask.findMany({
     where: {
       ownerKey,
@@ -129,14 +131,36 @@ async function recordHabitMisses() {
       taskText: true
     }
   });
+  const dayActivities = await prisma.goalActivity.findMany({
+    where: {
+      ownerKey,
+      scope: 'today',
+      createdAt: {
+        gte: missedDateStart,
+        lt: nextDateStart
+      }
+    },
+    select: {
+      taskText: true,
+      kind: true
+    }
+  });
   const existingKeys = new Set(existingMisses.flatMap((activity) => [activity.id, activity.taskText]));
+  // Completed rows are removed from the active daily list after midnight, so
+  // use the activity log as the source of truth for the missed date.
+  const handledHabitCodes = new Set(
+    dayActivities
+      .filter((activity) => activity.kind === 'completion' || activity.kind === 'failure')
+      .map((activity) => normalizeHabitCode(activity.taskText))
+      .filter((code): code is string => Boolean(code))
+  );
   const plannedCodes = new Set<string>();
 
   const rows = habitTasks
     .filter((task) => !task.done)
     .flatMap((task) => {
       const code = normalizeHabitCode(task.text);
-      if (!code || plannedCodes.has(code)) return [];
+      if (!code || plannedCodes.has(code) || handledHabitCodes.has(code)) return [];
       const id = `habit-miss-${missedDateKey}-${code}`;
       const taskText = habitLabels[code] || task.text;
       const points = taskWeightFromNote(task.note, habitDefaultWeights[code] || 1);
