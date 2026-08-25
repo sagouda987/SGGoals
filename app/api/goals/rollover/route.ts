@@ -25,6 +25,7 @@ const habitLabels: Record<string, string> = {
   NOJUNK: 'No junk food',
   MANIFEST: 'Manifestation',
   NOSOCIAL: 'No Social Media',
+  NOE: 'No E',
   EYECARE: 'Eye care',
   SALTGARGLE: 'Salt water gargle'
 };
@@ -45,6 +46,7 @@ const habitDefaultWeights: Record<string, number> = {
   NOJUNK: 1,
   MANIFEST: 1,
   NOSOCIAL: 1,
+  NOE: 1,
   EYECARE: 2,
   SALTGARGLE: 2
 };
@@ -106,6 +108,7 @@ function normalizeHabitCode(text: string) {
   if (compact === 'SLEEP11TO6') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
   if (compact === 'NOSOCIALMEDIA') return 'NOSOCIAL';
+  if (compact === 'NOE') return 'NOE';
   if (compact === 'EYECARE') return 'EYECARE';
   if (compact === 'SALTWATERGARGLE' || compact === 'SALTGARGLE') return 'SALTGARGLE';
   if (compact === 'MANIFESTATION' || compact === 'MANIFESTNATION') return 'MANIFEST';
