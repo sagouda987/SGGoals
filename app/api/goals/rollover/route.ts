@@ -18,6 +18,8 @@ const habitLabels: Record<string, string> = {
   GYM: 'Gym',
   HEALTHYDRINKMORNING: 'Healthy drink morning',
   HEALTHYDRINKEVENING: 'Healthy drink evening',
+  SKINCAREMORNING: 'Morning skin care',
+  SKINCAREEVENING: 'Evening skin care',
   BOOK: 'Book read and communication practice',
   STUDY2: 'Study 2 hour',
   OFFICEWORK2: 'Office work',
@@ -39,6 +41,8 @@ const habitDefaultWeights: Record<string, number> = {
   GYM: 4,
   HEALTHYDRINKMORNING: 2,
   HEALTHYDRINKEVENING: 2,
+  SKINCAREMORNING: 1,
+  SKINCAREEVENING: 1,
   BOOK: 4,
   STUDY2: 5,
   OFFICEWORK2: 8,
@@ -102,6 +106,8 @@ function normalizeHabitCode(text: string) {
   if (compact === 'GYM') return 'GYM';
   if (compact === 'HEALTHYDRINKMORNING') return 'HEALTHYDRINKMORNING';
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
+  if (compact === 'MORNINGSKINCARE' || compact === 'SKINCAREMORNING') return 'SKINCAREMORNING';
+  if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
   if (compact === 'BOOKREAD') return 'BOOK';
   if (compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
