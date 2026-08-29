@@ -45,6 +45,7 @@ type TargetStateInput = {
   remainingMs: number;
   durationMs?: number;
   durationMinutes?: number;
+  dailyGoalMinutes?: number;
   updatedAt: string;
 };
 
@@ -108,6 +109,7 @@ function isTargetState(value: unknown): value is TargetStateInput {
     typeof candidate.remainingMs === 'number' &&
     (candidate.durationMs === undefined || typeof candidate.durationMs === 'number') &&
     (candidate.durationMinutes === undefined || typeof candidate.durationMinutes === 'number') &&
+    (candidate.dailyGoalMinutes === undefined || typeof candidate.dailyGoalMinutes === 'number') &&
     typeof candidate.updatedAt === 'string'
   );
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 
 type Scope = 'today' | 'weekly' | 'weekend' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
@@ -80,6 +80,7 @@ type TargetState = {
   remainingMs: number;
   durationMs?: number;
   durationMinutes?: number;
+  dailyGoalMinutes?: number;
   updatedAt: string;
 };
 
@@ -95,10 +96,11 @@ const TARGET_TIMER_KEY = 'sg-goals-target-timer-v3';
 const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v3';
 const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_DURATION_MINUTES_KEY = 'sg-goals-target-duration-minutes-v1';
+const FOCUS_DAILY_GOAL_KEY = 'sg-goals-focus-daily-goal-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v62';
+const APP_VERSION = 'cloud-sync-v63';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -521,6 +523,7 @@ function isTargetState(value: unknown): value is TargetState {
     typeof candidate.remainingMs === 'number' &&
     (candidate.durationMs === undefined || typeof candidate.durationMs === 'number') &&
     (candidate.durationMinutes === undefined || typeof candidate.durationMinutes === 'number') &&
+    (candidate.dailyGoalMinutes === undefined || typeof candidate.dailyGoalMinutes === 'number') &&
     typeof candidate.updatedAt === 'string'
   );
 }
@@ -595,11 +598,11 @@ function activityId() {
 }
 
 function formatDateShort(dateValue: string) {
-  return new Date(dateValue).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return new Date(dateValue).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 function formatMonthKey(monthKey: string) {
-  return new Date(`${monthKey}-01T00:00:00`).toLocaleDateString([], { month: 'long', year: 'numeric' });
+  return new Date(`${monthKey}-01T00:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
 function formatTimeShort(dateValue?: string) {
@@ -1203,9 +1206,12 @@ export function SgGoalsApp() {
   const [targetDurationMinutes, setTargetDurationMinutes] = useState(DEFAULT_TARGET_DURATION_MINUTES);
   const [targetDurationDraft, setTargetDurationDraft] = useState(String(DEFAULT_TARGET_DURATION_MINUTES));
   const [targetDurationEditing, setTargetDurationEditing] = useState(false);
+  const [focusDailyGoalMinutes, setFocusDailyGoalMinutes] = useState(DEFAULT_TARGET_DURATION_MINUTES);
+  const [focusDailyGoalDraft, setFocusDailyGoalDraft] = useState(String(DEFAULT_TARGET_DURATION_MINUTES));
+  const [focusDailyGoalEditing, setFocusDailyGoalEditing] = useState(false);
   const [targetRemainingMs, setTargetRemainingMs] = useState(TARGET_DURATION_MS);
   const [targetUpdatedAt, setTargetUpdatedAt] = useState(() => '1970-01-01T00:00:00.000Z');
-  const [timerNow, setTimerNow] = useState(() => Date.now());
+  const [timerNow, setTimerNow] = useState(0);
   const [reportCopied, setReportCopied] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [scoreOpen, setScoreOpen] = useState(false);
@@ -1257,6 +1263,7 @@ export function SgGoalsApp() {
     setTargetEndAt(upgradedEndAt);
     setTargetRunning(targetState.running);
     setTargetDurationMinutes(nextDurationMinutes);
+    setFocusDailyGoalMinutes(normalizeTimerMinutes(targetState.dailyGoalMinutes));
     setTargetRemainingMs(Number.isFinite(upgradedRemaining) && upgradedRemaining >= 0 ? Math.min(nextDurationMs, upgradedRemaining) : nextDurationMs);
     setTargetUpdatedAt(needsDurationUpgrade ? new Date().toISOString() : targetState.updatedAt);
   }, []);
@@ -1288,6 +1295,7 @@ export function SgGoalsApp() {
     const savedEndAt = window.localStorage.getItem(TARGET_TIMER_KEY) || '';
     const savedRemaining = Number(window.localStorage.getItem(TARGET_REMAINING_KEY));
     const savedTargetDurationMinutes = normalizeTimerMinutes(window.localStorage.getItem(TARGET_DURATION_MINUTES_KEY));
+    const savedFocusDailyGoalMinutes = normalizeTimerMinutes(window.localStorage.getItem(FOCUS_DAILY_GOAL_KEY));
     const savedTargetDurationMs = savedTargetDurationMinutes * 60000;
     const savedTargetUpdatedAt = window.localStorage.getItem(TARGET_UPDATED_KEY) || '1970-01-01T00:00:00.000Z';
     setStore(localStore);
@@ -1299,6 +1307,7 @@ export function SgGoalsApp() {
     setTargetTaskMinutes(savedTargetMinutes);
     setTargetEndAt(savedEndAt);
     setTargetDurationMinutes(savedTargetDurationMinutes);
+    setFocusDailyGoalMinutes(savedFocusDailyGoalMinutes);
     setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? Math.min(savedTargetDurationMs, savedRemaining) : savedTargetDurationMs);
     setTargetRunning(window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt));
     setTargetUpdatedAt(savedTargetUpdatedAt);
@@ -1344,6 +1353,7 @@ export function SgGoalsApp() {
                 remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? Math.min(savedTargetDurationMs, savedRemaining) : savedTargetDurationMs,
                 durationMs: savedTargetDurationMs,
                 durationMinutes: savedTargetDurationMinutes,
+                dailyGoalMinutes: savedFocusDailyGoalMinutes,
                 updatedAt: savedTargetUpdatedAt
               },
               weeklyPlan: localWeeklyPlan,
@@ -1465,12 +1475,17 @@ export function SgGoalsApp() {
     window.localStorage.setItem(TARGET_REMAINING_KEY, String(Math.max(0, Math.round(targetRemainingMs))));
     window.localStorage.setItem(TARGET_RUNNING_KEY, targetRunning ? 'true' : 'false');
     window.localStorage.setItem(TARGET_DURATION_MINUTES_KEY, String(targetDurationMinutes));
+    window.localStorage.setItem(FOCUS_DAILY_GOAL_KEY, String(focusDailyGoalMinutes));
     window.localStorage.setItem(TARGET_UPDATED_KEY, targetUpdatedAt);
-  }, [ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetUpdatedAt]);
+  }, [focusDailyGoalMinutes, ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetUpdatedAt]);
 
   useEffect(() => {
     if (!targetDurationEditing) setTargetDurationDraft(String(targetDurationMinutes));
   }, [targetDurationEditing, targetDurationMinutes]);
+
+  useEffect(() => {
+    if (!focusDailyGoalEditing) setFocusDailyGoalDraft(String(focusDailyGoalMinutes));
+  }, [focusDailyGoalEditing, focusDailyGoalMinutes]);
 
   useEffect(() => {
     if (editing) return;
@@ -1483,6 +1498,7 @@ export function SgGoalsApp() {
   }, [draft.block, draft.text, editing, scope]);
 
   useEffect(() => {
+    setTimerNow(Date.now());
     const interval = window.setInterval(() => {
       setTimerNow(Date.now());
     }, 1000);
@@ -1538,6 +1554,7 @@ export function SgGoalsApp() {
               remainingMs: targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs,
               durationMs: targetDurationMinutes * 60000,
               durationMinutes: targetDurationMinutes,
+              dailyGoalMinutes: focusDailyGoalMinutes,
               updatedAt: targetUpdatedAt
             },
             weeklyPlan,
@@ -1554,7 +1571,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, ready, store, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
+  }, [cloudReady, focusDailyGoalMinutes, ready, store, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1591,6 +1608,7 @@ export function SgGoalsApp() {
           const cloudMinutes = targetMinutesSignature(data.targetState.taskMinutes);
           const localMinutes = targetMinutesSignature(targetTaskMinutes);
           const cloudDurationMinutes = normalizeTimerMinutes(data.targetState.durationMinutes ?? (data.targetState.durationMs ? data.targetState.durationMs / 60000 : undefined));
+          const cloudDailyGoalMinutes = normalizeTimerMinutes(data.targetState.dailyGoalMinutes);
           const cloudRemaining = Math.round(data.targetState.remainingMs / 1000);
           const localRemainingMs = targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs;
           const localRemaining = Math.round(localRemainingMs / 1000);
@@ -1598,6 +1616,7 @@ export function SgGoalsApp() {
             cloudIds !== localIds ||
             cloudMinutes !== localMinutes ||
             cloudDurationMinutes !== targetDurationMinutes ||
+            cloudDailyGoalMinutes !== focusDailyGoalMinutes ||
             data.targetState.running !== targetRunning ||
             Math.abs(cloudRemaining - localRemaining) > 5
           ) {
@@ -1613,7 +1632,7 @@ export function SgGoalsApp() {
       }
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [applyTargetState, cloudReady, ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
+  }, [applyTargetState, cloudReady, focusDailyGoalMinutes, ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => buildScopeCompletion(activeTasks), [activeTasks]);
@@ -1710,6 +1729,26 @@ export function SgGoalsApp() {
     return { completed, failures, minutes, hadActivity: yesterdayActivities.length > 0 };
   }, [activities, yesterdayKey]);
 
+  const focusProgress = Math.min(100, Math.max(0, Math.round((todayFocus.minutes / focusDailyGoalMinutes) * 100)));
+  const focusStreak = useMemo(() => {
+    const minutesByDay = new Map<string, number>();
+    activities.forEach((activity) => {
+      if (activity.scope !== 'today' || activity.kind !== 'completion' || isAutoHabitMiss(activity)) return;
+      const dayKey = dateKeyFromValue(activity.createdAt);
+      minutesByDay.set(dayKey, (minutesByDay.get(dayKey) || 0) + (activity.minutes || 0));
+    });
+    const cursor = new Date(`${todayKey}T00:00:00Z`);
+    if ((minutesByDay.get(todayKey) || 0) < focusDailyGoalMinutes) cursor.setUTCDate(cursor.getUTCDate() - 1);
+    let streak = 0;
+    for (let index = 0; index < 365; index += 1) {
+      const dayKey = toISODate(cursor);
+      if ((minutesByDay.get(dayKey) || 0) < focusDailyGoalMinutes) break;
+      streak += 1;
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+    }
+    return streak;
+  }, [activities, focusDailyGoalMinutes, todayKey]);
+
   const strikeCounts = useMemo(() => buildStrikeCounts(activities, store.today, todayKey), [activities, store.today, todayKey]);
   const dayCounter = useMemo(() => buildDayCounter(todayKey), [todayKey]);
   const counterResetRemaining = useMemo(() => buildCounterResetRemaining(todayKey), [todayKey]);
@@ -1750,7 +1789,7 @@ export function SgGoalsApp() {
 
   const targetPlannedDurationMs = targetDurationMinutes * 60000;
   const targetPlanSignature = `${targetTaskIds.join('|')}::${targetMinutesSignature(targetTaskMinutes)}::${targetPlannedDurationMs}`;
-  const istClockLabel = useMemo(() => formatIstClock(timerNow), [timerNow]);
+  const istClockLabel = useMemo(() => (timerNow ? formatIstClock(timerNow) : '--:--:--'), [timerNow]);
 
   const mainGoal = targetTasks[0] || null;
 
@@ -1778,6 +1817,10 @@ export function SgGoalsApp() {
       label: formatCountdown(activeSegment ? activeTaskRemainingMs : remainingMs)
     };
   }, [targetEndAt, targetPlannedDurationMs, targetRemainingMs, targetRunning, targetSequence, targetTasks.length, timerNow]);
+
+  const focusPeriodProgress = targetTimer.activeTaskMinutes
+    ? Math.min(100, Math.max(0, Math.round(((targetTimer.activeTaskMinutes * 60000 - targetTimer.activeTaskRemainingMs) / (targetTimer.activeTaskMinutes * 60000)) * 100)))
+    : targetTimer.progress;
 
   useEffect(() => {
     if (!ready) return;
@@ -2169,6 +2212,22 @@ export function SgGoalsApp() {
     const nextMinutes = normalizeTimerMinutes(targetDurationDraft, targetDurationMinutes);
     setTargetDurationDraft(String(nextMinutes));
     if (nextMinutes !== targetDurationMinutes) updateTargetDurationMinutes(String(nextMinutes));
+  }
+
+  function updateFocusDailyGoal(value: string) {
+    const cleanValue = value.replace(/[^\d]/g, '');
+    setFocusDailyGoalDraft(cleanValue);
+    if (!cleanValue) return;
+    const nextMinutes = normalizeTimerMinutes(cleanValue);
+    setFocusDailyGoalMinutes(nextMinutes);
+    markTargetChanged();
+  }
+
+  function finishFocusDailyGoalEdit() {
+    setFocusDailyGoalEditing(false);
+    const nextMinutes = normalizeTimerMinutes(focusDailyGoalDraft, focusDailyGoalMinutes);
+    setFocusDailyGoalDraft(String(nextMinutes));
+    if (nextMinutes !== focusDailyGoalMinutes) updateFocusDailyGoal(String(nextMinutes));
   }
 
   function toggleTargetTimer() {
@@ -3167,7 +3226,7 @@ export function SgGoalsApp() {
           </div>
         </div>
         <div className="grid gap-3 md:grid-cols-[1.2fr,.8fr]">
-          <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+          <div className="min-w-0 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next target</p>
@@ -3320,59 +3379,136 @@ export function SgGoalsApp() {
                     );
                   })}
                 </div>
-                <div className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
-                  <div className="flex items-end justify-between gap-3">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Timer</p>
-                      <p className={`mt-1 text-3xl font-bold ${targetTimer.complete ? 'text-[#f7a04f]' : 'text-[#00d97e]'}`}>
-                        {targetTimer.complete ? '00:00' : targetTimer.label}
-                      </p>
-                      {targetTimer.activeTask ? (
-                        <p className="mt-1 text-[11px] font-bold text-[#8b8bb3]">
-                          Task {targetTimer.activeTaskIndex + 1} of {targetSequence.length}: <span className="text-[#e8e8f5]">{targetTimer.activeTask.text}</span> <span className="text-[#ffd166]">({taskWeight(targetTimer.activeTask)} pts)</span>
-                          {targetTimer.activeTaskMinutes ? ` (${targetTimer.activeTaskMinutes}m plan)` : ''}
+                <div className="grid gap-3">
+                  <section className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">
+                          Focus period {targetSequence.length ? `(${Math.max(1, targetTimer.activeTaskIndex + 1)} of ${targetSequence.length})` : ''}
                         </p>
-                      ) : null}
+                        <p className="mt-1 truncate text-xs font-bold text-[#e8e8f5]">{targetTimer.activeTask?.text || 'Assign time to a selected task'}</p>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] ${targetTimer.running ? 'bg-[#00d97e18] text-[#00d97e]' : 'bg-[#1a1a30] text-[#8b8bb3]'}`}>
+                        {targetTimer.complete ? 'Complete' : targetTimer.running ? 'Running' : 'Paused'}
+                      </span>
                     </div>
-                    <div className="text-right text-[11px] text-[#8b8bb3]">
-                      <p>{targetTimer.complete ? 'Time is up. Finish or log what happened.' : targetTimer.running ? 'Timer is running.' : 'Timer is paused.'}</p>
-                      <label className="mt-2 flex items-center justify-end gap-2">
-                        <span>Total</span>
-                        <input
-                          type="number"
-                          min="1"
-                          max="1440"
-                          inputMode="numeric"
-                          value={targetDurationDraft}
-                          onFocus={() => setTargetDurationEditing(true)}
-                          onChange={(event) => updateTargetDurationMinutes(event.target.value)}
-                          onBlur={finishTargetDurationEdit}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.currentTarget.blur();
-                            }
-                          }}
-                          className="h-8 w-20 rounded-lg border border-[#1a1a30] bg-[#07070f] px-2 text-right font-mono text-sm font-bold text-[#e8e8f5] outline-none focus:border-[#00d97e]"
-                          aria-label="Target timer total minutes"
-                        />
-                        <span>min</span>
-                      </label>
-                      <p className="mt-1">
-                        {targetPlannedMinutes ? `Tasks planned ${formatMinutes(targetPlannedMinutes)} / timer ${formatMinutes(targetDurationMinutes)}.` : `Timer ${formatMinutes(targetDurationMinutes)}.`}
-                      </p>
+
+                    <div className="mx-auto mt-4 flex h-48 w-48 items-center justify-center rounded-full p-3" style={{ background: `conic-gradient(#4f8ef7 ${focusPeriodProgress * 3.6}deg, #1a1a30 0deg)` }}>
+                      <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-[#24243e] bg-[#0f0f1d] text-center">
+                        <p className={`font-mono text-3xl font-bold ${targetTimer.complete ? 'text-[#f7a04f]' : 'text-[#e8e8f5]'}`}>{targetTimer.complete ? '00:00' : targetTimer.label}</p>
+                        <p className="mt-1 text-[10px] uppercase tracking-[.16em] text-[#8b8bb3]">remaining</p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#1a1a30]">
-                    <div className="h-full rounded-full bg-[#00d97e] transition-all" style={{ width: `${targetTimer.progress}%` }} />
-                  </div>
+
+                    <div className="mt-4 flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={toggleTargetTimer}
+                        title={targetTimer.running ? 'Pause focus timer' : 'Start focus timer'}
+                        aria-label={targetTimer.running ? 'Pause focus timer' : 'Start focus timer'}
+                        className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4f8ef7] text-white"
+                      >
+                        {targetTimer.running ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetTargetTimer}
+                        title="Reset focus timer"
+                        aria-label="Reset focus timer"
+                        className="flex h-10 w-10 items-center justify-center rounded-full border border-[#24243e] text-[#8b8bb3]"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[11px] text-[#8b8bb3]">
+                      <span>Total</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="1440"
+                        inputMode="numeric"
+                        value={targetDurationDraft}
+                        onFocus={() => setTargetDurationEditing(true)}
+                        onChange={(event) => updateTargetDurationMinutes(event.target.value)}
+                        onBlur={finishTargetDurationEdit}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') event.currentTarget.blur();
+                        }}
+                        className="h-8 w-20 rounded-lg border border-[#24243e] bg-[#07070f] px-2 text-right font-mono text-sm font-bold text-[#e8e8f5] outline-none focus:border-[#4f8ef7]"
+                        aria-label="Target timer total minutes"
+                      />
+                      <span>min</span>
+                      <span className="text-[#52527a]">{targetPlannedMinutes ? `${formatMinutes(targetPlannedMinutes)} assigned` : 'No task times assigned'}</span>
+                    </div>
+                  </section>
+
+                  <section className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Daily focus progress</p>
+                        <p className="mt-1 text-xs text-[#8b8bb3]">Invested time recorded from completed tasks</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFocusDailyGoalEditing((current) => !current)}
+                        title="Edit daily focus goal"
+                        aria-label="Edit daily focus goal"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#24243e] text-[#8b8bb3]"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="mt-5 grid grid-cols-[1fr_1.4fr_1fr] items-center gap-2 text-center">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Yesterday</p>
+                        <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{yesterdaySummary.minutes}</p>
+                        <p className="text-[10px] text-[#52527a]">minutes</p>
+                      </div>
+
+                      <div className="mx-auto flex h-36 w-36 items-center justify-center rounded-full p-3" style={{ background: `conic-gradient(#00d97e ${focusProgress * 3.6}deg, #1a1a30 0deg)` }}>
+                        <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-[#24243e] bg-[#0f0f1d]">
+                          <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Daily goal</p>
+                          {focusDailyGoalEditing ? (
+                            <label className="mt-2 flex items-center gap-1">
+                              <input
+                                autoFocus
+                                type="number"
+                                min="1"
+                                max="1440"
+                                inputMode="numeric"
+                                value={focusDailyGoalDraft}
+                                onChange={(event) => updateFocusDailyGoal(event.target.value)}
+                                onBlur={finishFocusDailyGoalEdit}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') event.currentTarget.blur();
+                                }}
+                                className="h-8 w-16 rounded-md border border-[#24243e] bg-[#07070f] px-2 text-right font-mono text-base font-bold text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                                aria-label="Daily focus goal minutes"
+                              />
+                              <span className="text-[10px] text-[#8b8bb3]">min</span>
+                            </label>
+                          ) : (
+                            <p className="mt-1 text-xl font-bold text-[#e8e8f5]">{formatMinutes(focusDailyGoalMinutes)}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Streak</p>
+                        <p className="mt-1 text-2xl font-bold text-[#ffd166]">{focusStreak}</p>
+                        <p className="text-[10px] text-[#52527a]">days</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 text-center">
+                      <p className="text-xs font-bold text-[#e8e8f5]">Completed: {formatMinutes(todayFocus.minutes) || '0m'}</p>
+                      <p className="mt-1 text-[10px] text-[#8b8bb3]">{focusProgress}% of today&apos;s focus goal</p>
+                    </div>
+                  </section>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button onClick={toggleTargetTimer} className="rounded-lg bg-[#00d97e] px-3 py-2 text-xs font-bold text-black">
-                    {targetTimer.running ? 'Stop timer' : targetTimer.complete ? `Start ${formatMinutes(targetDurationMinutes)} again` : 'Start timer'}
-                  </button>
-                  <button onClick={resetTargetTimer} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
-                    Reset {formatMinutes(targetDurationMinutes)}
-                  </button>
                   <button
                     onClick={() => {
                       setTargetTaskIds([]);
