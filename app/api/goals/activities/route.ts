@@ -18,6 +18,7 @@ type GoalActivityInput = {
   note?: string;
   points?: number;
   minutes?: number;
+  focusMinutes?: number;
   startedAt?: string;
   completedAt?: string;
   createdAt?: string;
@@ -55,24 +56,31 @@ function normalizeActivityPoints(value: unknown) {
   return Math.min(100, Math.max(1, Math.round(points)));
 }
 
+function normalizeFocusMinutes(value: unknown) {
+  const minutes = Number(value);
+  if (!Number.isFinite(minutes) || minutes <= 0) return undefined;
+  return Math.min(1440, Math.max(1, Math.round(minutes)));
+}
+
 function splitActivityNote(note: string | null | undefined) {
-  if (!note) return { note: undefined, points: undefined };
+  if (!note) return { note: undefined, points: undefined, focusMinutes: undefined };
   const match = note.match(activityMetaNotePattern);
-  if (!match) return { note, points: undefined };
+  if (!match) return { note, points: undefined, focusMinutes: undefined };
   const visibleNote = note.replace(activityMetaNotePattern, '').trim() || undefined;
   try {
-    const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as Partial<{ points: unknown }>;
-    return { note: visibleNote, points: normalizeActivityPoints(parsed.points) };
+    const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as Partial<{ points: unknown; focusMinutes: unknown }>;
+    return { note: visibleNote, points: normalizeActivityPoints(parsed.points), focusMinutes: normalizeFocusMinutes(parsed.focusMinutes) };
   } catch {
-    return { note: visibleNote, points: undefined };
+    return { note: visibleNote, points: undefined, focusMinutes: undefined };
   }
 }
 
-function composeActivityNote(note: string | undefined, points: number | undefined) {
+function composeActivityNote(note: string | undefined, points: number | undefined, focusMinutes: number | undefined) {
   let storedNote = note?.trim() || '';
   const normalizedPoints = normalizeActivityPoints(points);
-  if (normalizedPoints !== undefined) {
-    const payload = Buffer.from(JSON.stringify({ points: normalizedPoints }), 'utf8').toString('base64');
+  const normalizedFocusMinutes = normalizeFocusMinutes(focusMinutes);
+  if (normalizedPoints !== undefined || normalizedFocusMinutes !== undefined) {
+    const payload = Buffer.from(JSON.stringify({ points: normalizedPoints, focusMinutes: normalizedFocusMinutes }), 'utf8').toString('base64');
     storedNote = `${storedNote}\n[sg-activity-meta:${payload}]`.trim();
   }
   return storedNote || null;
@@ -90,6 +98,7 @@ function toActivity(row: GoalActivityRow): GoalActivityInput {
     note: noteInfo.note,
     points: noteInfo.points,
     minutes: row.minutes ?? undefined,
+    focusMinutes: noteInfo.focusMinutes,
     startedAt: row.startedAt ? row.startedAt.toISOString() : undefined,
     completedAt: row.completedAt ? row.completedAt.toISOString() : undefined,
     createdAt: row.createdAt.toISOString()
@@ -134,7 +143,7 @@ export async function POST(req: NextRequest) {
         taskText: activity.taskText,
         kind: activity.kind,
         reason: activity.reason || null,
-        note: composeActivityNote(activity.note, activity.points),
+        note: composeActivityNote(activity.note, activity.points, activity.focusMinutes),
         minutes: typeof activity.minutes === 'number' ? activity.minutes : null,
         startedAt: activity.startedAt ? new Date(activity.startedAt) : null,
         completedAt: activity.completedAt ? new Date(activity.completedAt) : null

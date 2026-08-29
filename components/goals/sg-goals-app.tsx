@@ -44,6 +44,7 @@ type GoalActivity = {
   note?: string;
   points?: number;
   minutes?: number;
+  focusMinutes?: number;
   startedAt?: string;
   completedAt?: string;
   createdAt: string;
@@ -100,7 +101,7 @@ const FOCUS_DAILY_GOAL_KEY = 'sg-goals-focus-daily-goal-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v63';
+const APP_VERSION = 'cloud-sync-v64';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -675,6 +676,18 @@ function defaultTaskWeightFromText(text: string) {
 
 function activityPoints(activity: Pick<GoalActivity, 'points' | 'taskText'>) {
   return normalizeTaskWeight(activity.points, defaultTaskWeightFromText(activity.taskText));
+}
+
+function completedFocusMinutes(activities: GoalActivity[]) {
+  return Math.max(
+    0,
+    activities.reduce((total, activity) => {
+      const minutes = Math.max(0, Math.round(activity.focusMinutes || 0));
+      if (activity.kind === 'completion') return total + minutes;
+      if (activity.kind === 'undo') return total - minutes;
+      return total;
+    }, 0)
+  );
 }
 
 function allowsSubtasks(task: GoalTask) {
@@ -1708,7 +1721,8 @@ export function SgGoalsApp() {
     const misses = todayActivities.filter((activity) => activity.kind === 'failure');
     const failedPoints = misses.reduce((total, activity) => total + activityPoints(activity), 0);
     const minutes = todayActivities.reduce((total, activity) => (activity.kind === 'completion' ? total + (activity.minutes || 0) : total), 0);
-    return { misses, minutes, failedPoints };
+    const focusMinutes = completedFocusMinutes(todayActivities);
+    return { misses, minutes, focusMinutes, failedPoints };
   }, [activities, todayKey]);
 
   const monthlyPointHistory = useMemo(() => buildPointHistory(activities, monthWindow), [activities, monthWindow]);
@@ -1726,23 +1740,25 @@ export function SgGoalsApp() {
     }, 0);
     const failures = yesterdayActivities.filter((activity) => activity.kind === 'failure').length;
     const minutes = yesterdayActivities.reduce((total, activity) => (activity.kind === 'completion' ? total + (activity.minutes || 0) : total), 0);
-    return { completed, failures, minutes, hadActivity: yesterdayActivities.length > 0 };
+    const focusMinutes = completedFocusMinutes(yesterdayActivities);
+    return { completed, failures, minutes, focusMinutes, hadActivity: yesterdayActivities.length > 0 };
   }, [activities, yesterdayKey]);
 
-  const focusProgress = Math.min(100, Math.max(0, Math.round((todayFocus.minutes / focusDailyGoalMinutes) * 100)));
+  const focusProgress = Math.min(100, Math.max(0, Math.round((todayFocus.focusMinutes / focusDailyGoalMinutes) * 100)));
   const focusStreak = useMemo(() => {
     const minutesByDay = new Map<string, number>();
     activities.forEach((activity) => {
-      if (activity.scope !== 'today' || activity.kind !== 'completion' || isAutoHabitMiss(activity)) return;
+      if (activity.scope !== 'today' || (activity.kind !== 'completion' && activity.kind !== 'undo') || isAutoHabitMiss(activity)) return;
       const dayKey = dateKeyFromValue(activity.createdAt);
-      minutesByDay.set(dayKey, (minutesByDay.get(dayKey) || 0) + (activity.minutes || 0));
+      const direction = activity.kind === 'completion' ? 1 : -1;
+      minutesByDay.set(dayKey, (minutesByDay.get(dayKey) || 0) + direction * (activity.focusMinutes || 0));
     });
     const cursor = new Date(`${todayKey}T00:00:00Z`);
-    if ((minutesByDay.get(todayKey) || 0) < focusDailyGoalMinutes) cursor.setUTCDate(cursor.getUTCDate() - 1);
+    if (Math.max(0, minutesByDay.get(todayKey) || 0) < focusDailyGoalMinutes) cursor.setUTCDate(cursor.getUTCDate() - 1);
     let streak = 0;
     for (let index = 0; index < 365; index += 1) {
       const dayKey = toISODate(cursor);
-      if ((minutesByDay.get(dayKey) || 0) < focusDailyGoalMinutes) break;
+      if (Math.max(0, minutesByDay.get(dayKey) || 0) < focusDailyGoalMinutes) break;
       streak += 1;
       cursor.setUTCDate(cursor.getUTCDate() - 1);
     }
@@ -2294,6 +2310,13 @@ export function SgGoalsApp() {
     const currentTask = store[scope].find((task) => task.id === taskId);
     if (!currentTask) return;
     if (currentTask.done) {
+      const previousCompletion = activities.find(
+        (activity) =>
+          activity.scope === scope &&
+          activity.kind === 'completion' &&
+          activity.taskText === currentTask.text &&
+          dateKeyFromValue(activity.createdAt) === dateKeyFromValue(currentTask.completedAt || new Date().toISOString())
+      );
       persist((current) => ({
         ...current,
         [scope]: current[scope].map((task) =>
@@ -2310,6 +2333,7 @@ export function SgGoalsApp() {
       kind: 'undo',
       note: splitTaskNote(currentTask.note).note,
       points: taskWeight(currentTask),
+      focusMinutes: previousCompletion?.focusMinutes,
       createdAt: new Date().toISOString()
     });
       return;
@@ -2401,6 +2425,10 @@ export function SgGoalsApp() {
       return;
     }
     const investedMinutes = startedAt ? Math.max(1, Math.round((completedAt.getTime() - startedAt.getTime()) / 60000)) : undefined;
+    const focusMinutes =
+      timingScope === 'today' && targetTaskIds.includes(timingTask.id)
+        ? Math.max(0, Math.round(targetTaskMinutes[timingTask.id] || 0)) || undefined
+        : undefined;
     persist((current) => ({
       ...current,
       [timingScope]: current[timingScope].map((task) =>
@@ -2425,6 +2453,7 @@ export function SgGoalsApp() {
       note: splitTaskNote(timingTask.note).note,
       points: taskWeight(timingTask),
       minutes: investedMinutes,
+      focusMinutes,
       startedAt: startedAt ? startedAt.toISOString() : undefined,
       completedAt: completedAt.toISOString(),
       createdAt: completedAt.toISOString()
@@ -3447,7 +3476,7 @@ export function SgGoalsApp() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Daily focus progress</p>
-                        <p className="mt-1 text-xs text-[#8b8bb3]">Invested time recorded from completed tasks</p>
+                        <p className="mt-1 text-xs text-[#8b8bb3]">Assigned time completed from Next Target tasks</p>
                       </div>
                       <button
                         type="button"
@@ -3463,7 +3492,7 @@ export function SgGoalsApp() {
                     <div className="mt-5 grid grid-cols-[1fr_1.4fr_1fr] items-center gap-2 text-center">
                       <div>
                         <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Yesterday</p>
-                        <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{yesterdaySummary.minutes}</p>
+                        <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{yesterdaySummary.focusMinutes}</p>
                         <p className="text-[10px] text-[#52527a]">minutes</p>
                       </div>
 
@@ -3503,7 +3532,7 @@ export function SgGoalsApp() {
                     </div>
 
                     <div className="mt-5 text-center">
-                      <p className="text-xs font-bold text-[#e8e8f5]">Completed: {formatMinutes(todayFocus.minutes) || '0m'}</p>
+                      <p className="text-xs font-bold text-[#e8e8f5]">Completed assigned time: {formatMinutes(todayFocus.focusMinutes) || '0m'}</p>
                       <p className="mt-1 text-[10px] text-[#8b8bb3]">{focusProgress}% of today&apos;s focus goal</p>
                     </div>
                   </section>
