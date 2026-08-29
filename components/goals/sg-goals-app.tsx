@@ -30,7 +30,7 @@ type GoalTask = {
   updatedAt: string;
 };
 
-type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary';
+type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'focus-session';
 type StrikeCode = 'O' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'MEDITATION' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'MEDITATION' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 
@@ -82,6 +82,7 @@ type TargetState = {
   durationMs?: number;
   durationMinutes?: number;
   dailyGoalMinutes?: number;
+  focusLogged?: boolean;
   updatedAt: string;
 };
 
@@ -98,10 +99,11 @@ const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v3';
 const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
 const TARGET_DURATION_MINUTES_KEY = 'sg-goals-target-duration-minutes-v1';
 const FOCUS_DAILY_GOAL_KEY = 'sg-goals-focus-daily-goal-v1';
+const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v64';
+const APP_VERSION = 'cloud-sync-v65';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -525,6 +527,7 @@ function isTargetState(value: unknown): value is TargetState {
     (candidate.durationMs === undefined || typeof candidate.durationMs === 'number') &&
     (candidate.durationMinutes === undefined || typeof candidate.durationMinutes === 'number') &&
     (candidate.dailyGoalMinutes === undefined || typeof candidate.dailyGoalMinutes === 'number') &&
+    (candidate.focusLogged === undefined || typeof candidate.focusLogged === 'boolean') &&
     typeof candidate.updatedAt === 'string'
   );
 }
@@ -679,14 +682,9 @@ function activityPoints(activity: Pick<GoalActivity, 'points' | 'taskText'>) {
 }
 
 function completedFocusMinutes(activities: GoalActivity[]) {
-  return Math.max(
-    0,
-    activities.reduce((total, activity) => {
-      const minutes = Math.max(0, Math.round(activity.focusMinutes || 0));
-      if (activity.kind === 'completion') return total + minutes;
-      if (activity.kind === 'undo') return total - minutes;
-      return total;
-    }, 0)
+  return activities.reduce(
+    (total, activity) => (activity.kind === 'focus-session' ? total + Math.max(0, Math.round(activity.focusMinutes || 0)) : total),
+    0
   );
 }
 
@@ -1222,6 +1220,7 @@ export function SgGoalsApp() {
   const [focusDailyGoalMinutes, setFocusDailyGoalMinutes] = useState(DEFAULT_TARGET_DURATION_MINUTES);
   const [focusDailyGoalDraft, setFocusDailyGoalDraft] = useState(String(DEFAULT_TARGET_DURATION_MINUTES));
   const [focusDailyGoalEditing, setFocusDailyGoalEditing] = useState(false);
+  const [targetFocusLogged, setTargetFocusLogged] = useState(false);
   const [targetRemainingMs, setTargetRemainingMs] = useState(TARGET_DURATION_MS);
   const [targetUpdatedAt, setTargetUpdatedAt] = useState(() => '1970-01-01T00:00:00.000Z');
   const [timerNow, setTimerNow] = useState(0);
@@ -1277,6 +1276,7 @@ export function SgGoalsApp() {
     setTargetRunning(targetState.running);
     setTargetDurationMinutes(nextDurationMinutes);
     setFocusDailyGoalMinutes(normalizeTimerMinutes(targetState.dailyGoalMinutes));
+    setTargetFocusLogged(Boolean(targetState.focusLogged));
     setTargetRemainingMs(Number.isFinite(upgradedRemaining) && upgradedRemaining >= 0 ? Math.min(nextDurationMs, upgradedRemaining) : nextDurationMs);
     setTargetUpdatedAt(needsDurationUpgrade ? new Date().toISOString() : targetState.updatedAt);
   }, []);
@@ -1309,6 +1309,7 @@ export function SgGoalsApp() {
     const savedRemaining = Number(window.localStorage.getItem(TARGET_REMAINING_KEY));
     const savedTargetDurationMinutes = normalizeTimerMinutes(window.localStorage.getItem(TARGET_DURATION_MINUTES_KEY));
     const savedFocusDailyGoalMinutes = normalizeTimerMinutes(window.localStorage.getItem(FOCUS_DAILY_GOAL_KEY));
+    const savedTargetFocusLogged = window.localStorage.getItem(TARGET_FOCUS_LOGGED_KEY) === 'true';
     const savedTargetDurationMs = savedTargetDurationMinutes * 60000;
     const savedTargetUpdatedAt = window.localStorage.getItem(TARGET_UPDATED_KEY) || '1970-01-01T00:00:00.000Z';
     setStore(localStore);
@@ -1321,6 +1322,7 @@ export function SgGoalsApp() {
     setTargetEndAt(savedEndAt);
     setTargetDurationMinutes(savedTargetDurationMinutes);
     setFocusDailyGoalMinutes(savedFocusDailyGoalMinutes);
+    setTargetFocusLogged(savedTargetFocusLogged);
     setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? Math.min(savedTargetDurationMs, savedRemaining) : savedTargetDurationMs);
     setTargetRunning(window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt));
     setTargetUpdatedAt(savedTargetUpdatedAt);
@@ -1367,6 +1369,7 @@ export function SgGoalsApp() {
                 durationMs: savedTargetDurationMs,
                 durationMinutes: savedTargetDurationMinutes,
                 dailyGoalMinutes: savedFocusDailyGoalMinutes,
+                focusLogged: savedTargetFocusLogged,
                 updatedAt: savedTargetUpdatedAt
               },
               weeklyPlan: localWeeklyPlan,
@@ -1489,8 +1492,9 @@ export function SgGoalsApp() {
     window.localStorage.setItem(TARGET_RUNNING_KEY, targetRunning ? 'true' : 'false');
     window.localStorage.setItem(TARGET_DURATION_MINUTES_KEY, String(targetDurationMinutes));
     window.localStorage.setItem(FOCUS_DAILY_GOAL_KEY, String(focusDailyGoalMinutes));
+    window.localStorage.setItem(TARGET_FOCUS_LOGGED_KEY, targetFocusLogged ? 'true' : 'false');
     window.localStorage.setItem(TARGET_UPDATED_KEY, targetUpdatedAt);
-  }, [focusDailyGoalMinutes, ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetUpdatedAt]);
+  }, [focusDailyGoalMinutes, ready, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetUpdatedAt]);
 
   useEffect(() => {
     if (!targetDurationEditing) setTargetDurationDraft(String(targetDurationMinutes));
@@ -1543,6 +1547,7 @@ export function SgGoalsApp() {
     if (!validIds.length) {
       setTargetEndAt('');
       setTargetRunning(false);
+      setTargetFocusLogged(false);
       setTargetRemainingMs(targetDurationMinutes * 60000);
       markTargetChanged();
     }
@@ -1568,6 +1573,7 @@ export function SgGoalsApp() {
               durationMs: targetDurationMinutes * 60000,
               durationMinutes: targetDurationMinutes,
               dailyGoalMinutes: focusDailyGoalMinutes,
+              focusLogged: targetFocusLogged,
               updatedAt: targetUpdatedAt
             },
             weeklyPlan,
@@ -1584,7 +1590,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, focusDailyGoalMinutes, ready, store, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
+  }, [cloudReady, focusDailyGoalMinutes, ready, store, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1630,6 +1636,7 @@ export function SgGoalsApp() {
             cloudMinutes !== localMinutes ||
             cloudDurationMinutes !== targetDurationMinutes ||
             cloudDailyGoalMinutes !== focusDailyGoalMinutes ||
+            Boolean(data.targetState.focusLogged) !== targetFocusLogged ||
             data.targetState.running !== targetRunning ||
             Math.abs(cloudRemaining - localRemaining) > 5
           ) {
@@ -1645,7 +1652,7 @@ export function SgGoalsApp() {
       }
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [applyTargetState, cloudReady, focusDailyGoalMinutes, ready, targetDurationMinutes, targetEndAt, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
+  }, [applyTargetState, cloudReady, focusDailyGoalMinutes, ready, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => buildScopeCompletion(activeTasks), [activeTasks]);
@@ -1748,10 +1755,9 @@ export function SgGoalsApp() {
   const focusStreak = useMemo(() => {
     const minutesByDay = new Map<string, number>();
     activities.forEach((activity) => {
-      if (activity.scope !== 'today' || (activity.kind !== 'completion' && activity.kind !== 'undo') || isAutoHabitMiss(activity)) return;
+      if (activity.scope !== 'today' || activity.kind !== 'focus-session') return;
       const dayKey = dateKeyFromValue(activity.createdAt);
-      const direction = activity.kind === 'completion' ? 1 : -1;
-      minutesByDay.set(dayKey, (minutesByDay.get(dayKey) || 0) + direction * (activity.focusMinutes || 0));
+      minutesByDay.set(dayKey, (minutesByDay.get(dayKey) || 0) + (activity.focusMinutes || 0));
     });
     const cursor = new Date(`${todayKey}T00:00:00Z`);
     if (Math.max(0, minutesByDay.get(todayKey) || 0) < focusDailyGoalMinutes) cursor.setUTCDate(cursor.getUTCDate() - 1);
@@ -1847,6 +1853,7 @@ export function SgGoalsApp() {
     if (targetPlanSignatureRef.current !== targetPlanSignature && !targetRunning) {
       targetPlanSignatureRef.current = targetPlanSignature;
       setTargetRemainingMs(targetPlannedDurationMs);
+      setTargetFocusLogged(false);
       return;
     }
     targetPlanSignatureRef.current = targetPlanSignature;
@@ -2213,6 +2220,7 @@ export function SgGoalsApp() {
     if (!targetRunning) {
       setTargetEndAt('');
       setTargetRemainingMs(nextDurationMs);
+      setTargetFocusLogged(false);
     } else {
       const elapsedMs = Math.max(0, targetPlannedDurationMs - targetTimer.remainingMs);
       const nextRemainingMs = Math.max(0, nextDurationMs - elapsedMs);
@@ -2258,6 +2266,7 @@ export function SgGoalsApp() {
       return;
     }
     const nextRemaining = targetRemainingMs <= 0 || targetRemainingMs > plannedDurationMs ? plannedDurationMs : targetRemainingMs;
+    if (targetRemainingMs <= 0) setTargetFocusLogged(false);
     setTargetRemainingMs(nextRemaining);
     setTargetEndAt(new Date(Date.now() + nextRemaining).toISOString());
     setTargetRunning(true);
@@ -2270,6 +2279,33 @@ export function SgGoalsApp() {
     const plannedDurationMs = targetPlannedDurationMs;
     setTargetRemainingMs(plannedDurationMs);
     setTargetEndAt(targetRunning ? new Date(Date.now() + plannedDurationMs).toISOString() : '');
+    setTargetFocusLogged(false);
+    window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    markTargetChanged();
+  }
+
+  function completeFocusPeriod() {
+    if (!targetTaskIds.length || targetFocusLogged) return;
+    const elapsedMs = Math.max(0, targetPlannedDurationMs - targetTimer.remainingMs);
+    if (elapsedMs < 1000) return;
+    const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60000));
+    const now = new Date().toISOString();
+    appendActivity({
+      id: activityId(),
+      scope: 'today',
+      priority: targetTimer.activeTask?.priority || mainGoal?.priority || 'other',
+      taskText: targetTimer.activeTask?.text || mainGoal?.text || 'Focus period',
+      kind: 'focus-session',
+      note: 'Completed focus period',
+      minutes: elapsedMinutes,
+      focusMinutes: elapsedMinutes,
+      completedAt: now,
+      createdAt: now
+    });
+    setTargetRunning(false);
+    setTargetEndAt('');
+    setTargetRemainingMs(0);
+    setTargetFocusLogged(true);
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
     markTargetChanged();
   }
@@ -2310,13 +2346,6 @@ export function SgGoalsApp() {
     const currentTask = store[scope].find((task) => task.id === taskId);
     if (!currentTask) return;
     if (currentTask.done) {
-      const previousCompletion = activities.find(
-        (activity) =>
-          activity.scope === scope &&
-          activity.kind === 'completion' &&
-          activity.taskText === currentTask.text &&
-          dateKeyFromValue(activity.createdAt) === dateKeyFromValue(currentTask.completedAt || new Date().toISOString())
-      );
       persist((current) => ({
         ...current,
         [scope]: current[scope].map((task) =>
@@ -2333,7 +2362,6 @@ export function SgGoalsApp() {
       kind: 'undo',
       note: splitTaskNote(currentTask.note).note,
       points: taskWeight(currentTask),
-      focusMinutes: previousCompletion?.focusMinutes,
       createdAt: new Date().toISOString()
     });
       return;
@@ -2425,10 +2453,6 @@ export function SgGoalsApp() {
       return;
     }
     const investedMinutes = startedAt ? Math.max(1, Math.round((completedAt.getTime() - startedAt.getTime()) / 60000)) : undefined;
-    const focusMinutes =
-      timingScope === 'today' && targetTaskIds.includes(timingTask.id)
-        ? Math.max(0, Math.round(targetTaskMinutes[timingTask.id] || 0)) || undefined
-        : undefined;
     persist((current) => ({
       ...current,
       [timingScope]: current[timingScope].map((task) =>
@@ -2453,7 +2477,6 @@ export function SgGoalsApp() {
       note: splitTaskNote(timingTask.note).note,
       points: taskWeight(timingTask),
       minutes: investedMinutes,
-      focusMinutes,
       startedAt: startedAt ? startedAt.toISOString() : undefined,
       completedAt: completedAt.toISOString(),
       createdAt: completedAt.toISOString()
@@ -3418,7 +3441,7 @@ export function SgGoalsApp() {
                         <p className="mt-1 truncate text-xs font-bold text-[#e8e8f5]">{targetTimer.activeTask?.text || 'Assign time to a selected task'}</p>
                       </div>
                       <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] ${targetTimer.running ? 'bg-[#00d97e18] text-[#00d97e]' : 'bg-[#1a1a30] text-[#8b8bb3]'}`}>
-                        {targetTimer.complete ? 'Complete' : targetTimer.running ? 'Running' : 'Paused'}
+                        {targetFocusLogged ? 'Recorded' : targetTimer.complete ? 'Time up' : targetTimer.running ? 'Running' : 'Paused'}
                       </span>
                     </div>
 
@@ -3448,6 +3471,21 @@ export function SgGoalsApp() {
                       >
                         <RotateCcw className="h-4 w-4" />
                       </button>
+                      <button
+                        type="button"
+                        onClick={completeFocusPeriod}
+                        disabled={targetFocusLogged || targetPlannedDurationMs - targetTimer.remainingMs < 1000}
+                        title={targetFocusLogged ? 'Focus period recorded' : 'Complete focus period'}
+                        aria-label={targetFocusLogged ? 'Focus period recorded' : 'Complete focus period'}
+                        className={`flex h-10 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold ${
+                          targetFocusLogged || targetPlannedDurationMs - targetTimer.remainingMs < 1000
+                            ? 'cursor-not-allowed border-[#1a1a30] text-[#38385a]'
+                            : 'border-[#00d97e40] bg-[#00d97e18] text-[#00d97e]'
+                        }`}
+                      >
+                        <Check className="h-4 w-4" />
+                        <span>{targetFocusLogged ? 'Recorded' : 'Complete'}</span>
+                      </button>
                     </div>
 
                     <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[11px] text-[#8b8bb3]">
@@ -3476,7 +3514,7 @@ export function SgGoalsApp() {
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Daily focus progress</p>
-                        <p className="mt-1 text-xs text-[#8b8bb3]">Assigned time completed from Next Target tasks</p>
+                        <p className="mt-1 text-xs text-[#8b8bb3]">Elapsed time recorded from completed focus periods</p>
                       </div>
                       <button
                         type="button"
@@ -3532,7 +3570,7 @@ export function SgGoalsApp() {
                     </div>
 
                     <div className="mt-5 text-center">
-                      <p className="text-xs font-bold text-[#e8e8f5]">Completed assigned time: {formatMinutes(todayFocus.focusMinutes) || '0m'}</p>
+                      <p className="text-xs font-bold text-[#e8e8f5]">Completed focus time: {formatMinutes(todayFocus.focusMinutes) || '0m'}</p>
                       <p className="mt-1 text-[10px] text-[#8b8bb3]">{focusProgress}% of today&apos;s focus goal</p>
                     </div>
                   </section>
@@ -3544,6 +3582,7 @@ export function SgGoalsApp() {
                       setTargetTaskMinutes({});
                       setTargetEndAt('');
                       setTargetRunning(false);
+                      setTargetFocusLogged(false);
                       setTargetRemainingMs(targetPlannedDurationMs);
                       markTargetChanged();
                     }}

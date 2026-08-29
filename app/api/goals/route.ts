@@ -46,6 +46,7 @@ type TargetStateInput = {
   durationMs?: number;
   durationMinutes?: number;
   dailyGoalMinutes?: number;
+  focusLogged?: boolean;
   updatedAt: string;
 };
 
@@ -110,6 +111,7 @@ function isTargetState(value: unknown): value is TargetStateInput {
     (candidate.durationMs === undefined || typeof candidate.durationMs === 'number') &&
     (candidate.durationMinutes === undefined || typeof candidate.durationMinutes === 'number') &&
     (candidate.dailyGoalMinutes === undefined || typeof candidate.dailyGoalMinutes === 'number') &&
+    (candidate.focusLogged === undefined || typeof candidate.focusLogged === 'boolean') &&
     typeof candidate.updatedAt === 'string'
   );
 }
