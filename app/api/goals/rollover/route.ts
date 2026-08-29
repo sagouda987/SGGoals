@@ -15,6 +15,8 @@ const habitLabels: Record<string, string> = {
   L2: 'L2',
   L3: 'L3',
   M: 'M',
+  B: 'B',
+  MEDITATION: 'Meditation',
   GYM: 'Gym',
   HEALTHYDRINKMORNING: 'Healthy drink morning',
   HEALTHYDRINKEVENING: 'Healthy drink evening',
@@ -38,6 +40,8 @@ const habitDefaultWeights: Record<string, number> = {
   L2: 2,
   L3: 2,
   M: 1,
+  B: 1,
+  MEDITATION: 1,
   GYM: 4,
   HEALTHYDRINKMORNING: 2,
   HEALTHYDRINKEVENING: 2,
@@ -103,6 +107,8 @@ function normalizeHabitCode(text: string) {
   if (compact === 'O' || /^O[123]$/.test(compact)) return 'O';
   if (/^L[123]$/.test(compact)) return compact;
   if (compact === 'M') return 'M';
+  if (compact === 'B') return 'B';
+  if (compact === 'MEDITATION') return 'MEDITATION';
   if (compact === 'GYM') return 'GYM';
   if (compact === 'HEALTHYDRINKMORNING') return 'HEALTHYDRINKMORNING';
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
