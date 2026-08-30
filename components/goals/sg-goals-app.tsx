@@ -110,7 +110,7 @@ const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v68';
+const APP_VERSION = 'cloud-sync-v69';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -3162,6 +3162,11 @@ export function SgGoalsApp() {
     const chartDays = [...history].reverse();
     const maxPointValue = Math.max(1, ...chartDays.flatMap((day) => [day.completedPoints, day.failedPoints]));
     const maxFocusMinutes = Math.max(1, ...chartDays.map((day) => day.focusMinutes));
+    const lineX = (index: number) => 36 + (index / Math.max(1, chartDays.length - 1)) * 668;
+    const lineY = (value: number, maxValue: number) => 118 - (value / maxValue) * 98;
+    const completedLine = chartDays.map((day, index) => `${lineX(index)},${lineY(day.completedPoints, maxPointValue)}`).join(' ');
+    const failedLine = chartDays.map((day, index) => `${lineX(index)},${lineY(day.failedPoints, maxPointValue)}`).join(' ');
+    const focusLine = chartDays.map((day, index) => `${lineX(index)},${lineY(day.focusMinutes, maxFocusMinutes)}`).join(' ');
 
     return (
       <section className="mx-auto max-w-4xl px-5 pb-4">
@@ -3213,6 +3218,56 @@ export function SgGoalsApp() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 border-t border-[#24243e] pt-4">
+              <div className="min-w-0 overflow-hidden rounded-lg border border-[#1a1a30] bg-[#0f0f1d] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Points line trend</p>
+                  <div className="flex gap-3 text-[10px] font-bold">
+                    <span className="text-[#00d97e]">Completed</span>
+                    <span className="text-[#ff6b6b]">Failed</span>
+                  </div>
+                </div>
+                <div className="mt-2 w-full max-w-full overflow-x-auto">
+                  <svg viewBox="0 0 740 150" className="h-40 w-[620px] max-w-none" role="img" aria-label="Completed and failed points line graph by day">
+                    <title>Completed and failed points by day</title>
+                    {[20, 69, 118].map((y) => (
+                      <line key={`points-grid-${y}`} x1="36" x2="704" y1={y} y2={y} stroke="#24243e" strokeWidth="1" />
+                    ))}
+                    <polyline points={completedLine} fill="none" stroke="#00d97e" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                    <polyline points={failedLine} fill="none" stroke="#ff6b6b" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                    {chartDays.map((day, index) => (
+                      <g key={`${day.dateKey}-point-lines`}>
+                        <circle cx={lineX(index)} cy={lineY(day.completedPoints, maxPointValue)} r="2.5" fill="#00d97e"><title>{`${day.dateKey}: ${day.completedPoints} completed points`}</title></circle>
+                        <circle cx={lineX(index)} cy={lineY(day.failedPoints, maxPointValue)} r="2.5" fill="#ff6b6b"><title>{`${day.dateKey}: ${day.failedPoints} failed points`}</title></circle>
+                        {(index % 3 === 0 || index === chartDays.length - 1) ? <text x={lineX(index)} y="142" textAnchor="middle" fill="#52527a" fontSize="8">{Number(day.dateKey.slice(-2))}</text> : null}
+                      </g>
+                    ))}
+                  </svg>
+                </div>
+              </div>
+
+              <div className="min-w-0 overflow-hidden rounded-lg border border-[#1a1a30] bg-[#0f0f1d] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Focus line trend</p>
+                  <span className="text-[10px] font-bold text-[#4f8ef7]">Completed focus time</span>
+                </div>
+                <div className="mt-2 w-full max-w-full overflow-x-auto">
+                  <svg viewBox="0 0 740 150" className="h-40 w-[620px] max-w-none" role="img" aria-label="Completed focus time line graph by day">
+                    <title>Completed focus time by day</title>
+                    {[20, 69, 118].map((y) => (
+                      <line key={`focus-grid-${y}`} x1="36" x2="704" y1={y} y2={y} stroke="#24243e" strokeWidth="1" />
+                    ))}
+                    <polyline points={focusLine} fill="none" stroke="#4f8ef7" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                    {chartDays.map((day, index) => (
+                      <g key={`${day.dateKey}-focus-line`}>
+                        <circle cx={lineX(index)} cy={lineY(day.focusMinutes, maxFocusMinutes)} r="2.5" fill="#4f8ef7"><title>{`${day.dateKey}: ${formatMinutes(day.focusMinutes) || '0m'} focus`}</title></circle>
+                        {(index % 3 === 0 || index === chartDays.length - 1) ? <text x={lineX(index)} y="142" textAnchor="middle" fill="#52527a" fontSize="8">{Number(day.dateKey.slice(-2))}</text> : null}
+                      </g>
+                    ))}
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
