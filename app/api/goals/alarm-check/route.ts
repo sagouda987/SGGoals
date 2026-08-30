@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 
 type TargetStateInput = {
   taskIds: string[];
+  mode?: 'timer' | 'stopwatch';
   endAt: string;
   running: boolean;
   updatedAt: string;
@@ -23,6 +24,7 @@ function isTargetState(value: unknown): value is TargetStateInput {
   return (
     Array.isArray(candidate.taskIds) &&
     candidate.taskIds.every((taskId) => typeof taskId === 'string') &&
+    (candidate.mode === undefined || candidate.mode === 'timer' || candidate.mode === 'stopwatch') &&
     typeof candidate.endAt === 'string' &&
     typeof candidate.running === 'boolean' &&
     typeof candidate.updatedAt === 'string'
@@ -74,7 +76,7 @@ async function checkAlarm(req: NextRequest) {
   const subscription = parseJson(subscriptionRow?.note);
   if (!isTargetState(targetState)) return NextResponse.json({ ok: true, sent: false, reason: 'No active timer state.' });
   if (!isPushSubscription(subscription)) return NextResponse.json({ ok: true, sent: false, reason: 'No push subscription.' });
-  if (!targetState.running || !targetState.endAt || new Date(targetState.endAt).getTime() > Date.now()) {
+  if (targetState.mode === 'stopwatch' || !targetState.running || !targetState.endAt || new Date(targetState.endAt).getTime() > Date.now()) {
     return NextResponse.json({ ok: true, sent: false, reason: 'Timer is not due.' });
   }
 

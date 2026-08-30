@@ -76,6 +76,9 @@ type YearlyNotes = {
 type TargetState = {
   taskIds: string[];
   taskMinutes?: Record<string, number>;
+  mode?: 'timer' | 'stopwatch';
+  stopwatchStartedAt?: string;
+  stopwatchElapsedMs?: number;
   endAt: string;
   running: boolean;
   remainingMs: number;
@@ -94,6 +97,9 @@ const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
 const TARGET_TASK_MINUTES_KEY = 'sg-goals-target-task-minutes-v1';
+const TARGET_MODE_KEY = 'sg-goals-target-mode-v1';
+const STOPWATCH_STARTED_KEY = 'sg-goals-stopwatch-started-v1';
+const STOPWATCH_ELAPSED_KEY = 'sg-goals-stopwatch-elapsed-v1';
 const TARGET_TIMER_KEY = 'sg-goals-target-timer-v3';
 const TARGET_REMAINING_KEY = 'sg-goals-target-remaining-v3';
 const TARGET_RUNNING_KEY = 'sg-goals-target-running-v3';
@@ -103,7 +109,7 @@ const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v65';
+const APP_VERSION = 'cloud-sync-v66';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -301,6 +307,15 @@ function formatCountdown(ms: number) {
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatElapsed(ms: number) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours) return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 }
 
@@ -521,6 +536,9 @@ function isTargetState(value: unknown): value is TargetState {
       (typeof candidate.taskMinutes === 'object' &&
         candidate.taskMinutes !== null &&
         Object.entries(candidate.taskMinutes).every(([taskId, minutes]) => typeof taskId === 'string' && typeof minutes === 'number'))) &&
+    (candidate.mode === undefined || candidate.mode === 'timer' || candidate.mode === 'stopwatch') &&
+    (candidate.stopwatchStartedAt === undefined || typeof candidate.stopwatchStartedAt === 'string') &&
+    (candidate.stopwatchElapsedMs === undefined || typeof candidate.stopwatchElapsedMs === 'number') &&
     typeof candidate.endAt === 'string' &&
     typeof candidate.running === 'boolean' &&
     typeof candidate.remainingMs === 'number' &&
@@ -1212,6 +1230,9 @@ export function SgGoalsApp() {
   const [mainGoalId, setMainGoalId] = useState('');
   const [targetTaskIds, setTargetTaskIds] = useState<string[]>([]);
   const [targetTaskMinutes, setTargetTaskMinutes] = useState<Record<string, number>>({});
+  const [focusMode, setFocusMode] = useState<'timer' | 'stopwatch'>('timer');
+  const [stopwatchStartedAt, setStopwatchStartedAt] = useState('');
+  const [stopwatchElapsedMs, setStopwatchElapsedMs] = useState(0);
   const [targetEndAt, setTargetEndAt] = useState('');
   const [targetRunning, setTargetRunning] = useState(false);
   const [targetDurationMinutes, setTargetDurationMinutes] = useState(DEFAULT_TARGET_DURATION_MINUTES);
@@ -1272,6 +1293,9 @@ export function SgGoalsApp() {
         : targetState.endAt;
     setTargetTaskIds(targetState.taskIds);
     setTargetTaskMinutes(targetState.taskMinutes || {});
+    setFocusMode(targetState.mode === 'stopwatch' ? 'stopwatch' : 'timer');
+    setStopwatchStartedAt(targetState.stopwatchStartedAt || '');
+    setStopwatchElapsedMs(Math.max(0, targetState.stopwatchElapsedMs || 0));
     setTargetEndAt(upgradedEndAt);
     setTargetRunning(targetState.running);
     setTargetDurationMinutes(nextDurationMinutes);
@@ -1306,6 +1330,9 @@ export function SgGoalsApp() {
       savedTargetMinutes = {};
     }
     const savedEndAt = window.localStorage.getItem(TARGET_TIMER_KEY) || '';
+    const savedFocusMode = window.localStorage.getItem(TARGET_MODE_KEY) === 'stopwatch' ? 'stopwatch' : 'timer';
+    const savedStopwatchStartedAt = window.localStorage.getItem(STOPWATCH_STARTED_KEY) || '';
+    const savedStopwatchElapsed = Number(window.localStorage.getItem(STOPWATCH_ELAPSED_KEY));
     const savedRemaining = Number(window.localStorage.getItem(TARGET_REMAINING_KEY));
     const savedTargetDurationMinutes = normalizeTimerMinutes(window.localStorage.getItem(TARGET_DURATION_MINUTES_KEY));
     const savedFocusDailyGoalMinutes = normalizeTimerMinutes(window.localStorage.getItem(FOCUS_DAILY_GOAL_KEY));
@@ -1319,12 +1346,18 @@ export function SgGoalsApp() {
     setMainGoalId(legacyTargetId);
     setTargetTaskIds(savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : []);
     setTargetTaskMinutes(savedTargetMinutes);
+    setFocusMode(savedFocusMode);
+    setStopwatchStartedAt(savedStopwatchStartedAt);
+    setStopwatchElapsedMs(Number.isFinite(savedStopwatchElapsed) && savedStopwatchElapsed >= 0 ? savedStopwatchElapsed : 0);
     setTargetEndAt(savedEndAt);
     setTargetDurationMinutes(savedTargetDurationMinutes);
     setFocusDailyGoalMinutes(savedFocusDailyGoalMinutes);
     setTargetFocusLogged(savedTargetFocusLogged);
     setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? Math.min(savedTargetDurationMs, savedRemaining) : savedTargetDurationMs);
-    setTargetRunning(window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt));
+    setTargetRunning(
+      window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' &&
+        (savedFocusMode === 'stopwatch' ? Boolean(savedStopwatchStartedAt) : Boolean(savedEndAt))
+    );
     setTargetUpdatedAt(savedTargetUpdatedAt);
 
     async function loadCloudStore() {
@@ -1363,8 +1396,13 @@ export function SgGoalsApp() {
               targetState: {
                 taskIds: savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : [],
                 taskMinutes: savedTargetMinutes,
+                mode: savedFocusMode,
+                stopwatchStartedAt: savedStopwatchStartedAt,
+                stopwatchElapsedMs: Number.isFinite(savedStopwatchElapsed) && savedStopwatchElapsed >= 0 ? savedStopwatchElapsed : 0,
                 endAt: savedEndAt,
-                running: window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' && Boolean(savedEndAt),
+                running:
+                  window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' &&
+                  (savedFocusMode === 'stopwatch' ? Boolean(savedStopwatchStartedAt) : Boolean(savedEndAt)),
                 remainingMs: Number.isFinite(savedRemaining) && savedRemaining >= 0 ? Math.min(savedTargetDurationMs, savedRemaining) : savedTargetDurationMs,
                 durationMs: savedTargetDurationMs,
                 durationMinutes: savedTargetDurationMinutes,
@@ -1428,9 +1466,18 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if ('serviceWorker' in navigator) {
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      let refreshing = false;
+      const handleControllerChange = () => {
+        if (!hadController || refreshing) return;
+        refreshing = true;
+        window.location.reload();
+      };
+      navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
       navigator.serviceWorker
-        .register('/sw.js')
+        .register('/sw.js', { updateViaCache: 'none' })
         .then(async (registration) => {
+          await registration.update();
           if (!('PushManager' in window) || !('Notification' in window)) {
             setPushAlarmStatus('unsupported');
             return;
@@ -1441,9 +1488,11 @@ export function SgGoalsApp() {
         .catch(() => {
           setPushAlarmStatus('unsupported');
         });
+      return () => navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
     } else {
       setPushAlarmStatus('unsupported');
     }
+    return undefined;
   }, []);
 
   useEffect(() => {
@@ -1488,13 +1537,17 @@ export function SgGoalsApp() {
     if (!ready) return;
     if (targetEndAt) window.localStorage.setItem(TARGET_TIMER_KEY, targetEndAt);
     else window.localStorage.removeItem(TARGET_TIMER_KEY);
+    window.localStorage.setItem(TARGET_MODE_KEY, focusMode);
+    if (stopwatchStartedAt) window.localStorage.setItem(STOPWATCH_STARTED_KEY, stopwatchStartedAt);
+    else window.localStorage.removeItem(STOPWATCH_STARTED_KEY);
+    window.localStorage.setItem(STOPWATCH_ELAPSED_KEY, String(Math.max(0, Math.round(stopwatchElapsedMs))));
     window.localStorage.setItem(TARGET_REMAINING_KEY, String(Math.max(0, Math.round(targetRemainingMs))));
     window.localStorage.setItem(TARGET_RUNNING_KEY, targetRunning ? 'true' : 'false');
     window.localStorage.setItem(TARGET_DURATION_MINUTES_KEY, String(targetDurationMinutes));
     window.localStorage.setItem(FOCUS_DAILY_GOAL_KEY, String(focusDailyGoalMinutes));
     window.localStorage.setItem(TARGET_FOCUS_LOGGED_KEY, targetFocusLogged ? 'true' : 'false');
     window.localStorage.setItem(TARGET_UPDATED_KEY, targetUpdatedAt);
-  }, [focusDailyGoalMinutes, ready, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetUpdatedAt]);
+  }, [focusDailyGoalMinutes, focusMode, ready, stopwatchElapsedMs, stopwatchStartedAt, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetUpdatedAt]);
 
   useEffect(() => {
     if (!targetDurationEditing) setTargetDurationDraft(String(targetDurationMinutes));
@@ -1547,6 +1600,8 @@ export function SgGoalsApp() {
     if (!validIds.length) {
       setTargetEndAt('');
       setTargetRunning(false);
+      setStopwatchStartedAt('');
+      setStopwatchElapsedMs(0);
       setTargetFocusLogged(false);
       setTargetRemainingMs(targetDurationMinutes * 60000);
       markTargetChanged();
@@ -1567,6 +1622,9 @@ export function SgGoalsApp() {
             targetState: {
               taskIds: targetTaskIds,
               taskMinutes: targetTaskMinutes,
+              mode: focusMode,
+              stopwatchStartedAt,
+              stopwatchElapsedMs,
               endAt: targetEndAt,
               running: targetRunning,
               remainingMs: targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs,
@@ -1590,7 +1648,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, focusDailyGoalMinutes, ready, store, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
+  }, [cloudReady, focusDailyGoalMinutes, focusMode, ready, stopwatchElapsedMs, stopwatchStartedAt, store, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1628,6 +1686,9 @@ export function SgGoalsApp() {
           const localMinutes = targetMinutesSignature(targetTaskMinutes);
           const cloudDurationMinutes = normalizeTimerMinutes(data.targetState.durationMinutes ?? (data.targetState.durationMs ? data.targetState.durationMs / 60000 : undefined));
           const cloudDailyGoalMinutes = normalizeTimerMinutes(data.targetState.dailyGoalMinutes);
+          const cloudMode = data.targetState.mode === 'stopwatch' ? 'stopwatch' : 'timer';
+          const cloudStopwatchElapsed = Math.round(Math.max(0, data.targetState.stopwatchElapsedMs || 0) / 1000);
+          const localStopwatchElapsed = Math.round(Math.max(0, stopwatchElapsedMs) / 1000);
           const cloudRemaining = Math.round(data.targetState.remainingMs / 1000);
           const localRemainingMs = targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs;
           const localRemaining = Math.round(localRemainingMs / 1000);
@@ -1636,6 +1697,9 @@ export function SgGoalsApp() {
             cloudMinutes !== localMinutes ||
             cloudDurationMinutes !== targetDurationMinutes ||
             cloudDailyGoalMinutes !== focusDailyGoalMinutes ||
+            cloudMode !== focusMode ||
+            cloudStopwatchElapsed !== localStopwatchElapsed ||
+            (data.targetState.stopwatchStartedAt || '') !== stopwatchStartedAt ||
             Boolean(data.targetState.focusLogged) !== targetFocusLogged ||
             data.targetState.running !== targetRunning ||
             Math.abs(cloudRemaining - localRemaining) > 5
@@ -1652,7 +1716,7 @@ export function SgGoalsApp() {
       }
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [applyTargetState, cloudReady, focusDailyGoalMinutes, ready, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
+  }, [applyTargetState, cloudReady, focusDailyGoalMinutes, focusMode, ready, stopwatchElapsedMs, stopwatchStartedAt, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => buildScopeCompletion(activeTasks), [activeTasks]);
@@ -1840,9 +1904,33 @@ export function SgGoalsApp() {
     };
   }, [targetEndAt, targetPlannedDurationMs, targetRemainingMs, targetRunning, targetSequence, targetTasks.length, timerNow]);
 
-  const focusPeriodProgress = targetTimer.activeTaskMinutes
-    ? Math.min(100, Math.max(0, Math.round(((targetTimer.activeTaskMinutes * 60000 - targetTimer.activeTaskRemainingMs) / (targetTimer.activeTaskMinutes * 60000)) * 100)))
-    : targetTimer.progress;
+  const effectiveStopwatchElapsedMs = Math.max(
+    0,
+    stopwatchElapsedMs +
+      (focusMode === 'stopwatch' && targetRunning && stopwatchStartedAt ? Math.max(0, timerNow - new Date(stopwatchStartedAt).getTime()) : 0)
+  );
+  const stopwatchSegmentIndex = targetSequence.findIndex((segment) => effectiveStopwatchElapsedMs < segment.endMs);
+  const stopwatchSegment =
+    stopwatchSegmentIndex >= 0 ? targetSequence[stopwatchSegmentIndex] : targetSequence[targetSequence.length - 1] || null;
+  const focusActiveTask = focusMode === 'stopwatch' ? stopwatchSegment?.task || targetTasks[0] || null : targetTimer.activeTask;
+  const focusActiveTaskIndex =
+    focusMode === 'stopwatch'
+      ? stopwatchSegmentIndex >= 0
+        ? stopwatchSegmentIndex
+        : stopwatchSegment
+          ? targetSequence.length - 1
+          : -1
+      : targetTimer.activeTaskIndex;
+  const focusElapsedMs = focusMode === 'stopwatch' ? effectiveStopwatchElapsedMs : Math.max(0, targetPlannedDurationMs - targetTimer.remainingMs);
+  const focusRunning = focusMode === 'stopwatch' ? Boolean(targetTasks.length && targetRunning && stopwatchStartedAt) : targetTimer.running;
+  const focusComplete = focusMode === 'timer' && targetTimer.complete;
+  const focusPeriodProgress =
+    focusMode === 'stopwatch'
+      ? Math.min(100, Math.max(0, Math.round((effectiveStopwatchElapsedMs / targetPlannedDurationMs) * 100)))
+      : targetTimer.activeTaskMinutes
+        ? Math.min(100, Math.max(0, Math.round(((targetTimer.activeTaskMinutes * 60000 - targetTimer.activeTaskRemainingMs) / (targetTimer.activeTaskMinutes * 60000)) * 100)))
+        : targetTimer.progress;
+  const focusPeriodLabel = focusMode === 'stopwatch' ? formatElapsed(effectiveStopwatchElapsedMs) : focusComplete ? '00:00' : targetTimer.label;
 
   useEffect(() => {
     if (!ready) return;
@@ -1879,7 +1967,7 @@ export function SgGoalsApp() {
   }, [ready, showGoalNotification, targetTasks]);
 
   useEffect(() => {
-    if (!ready || !targetTasks.length || !targetTimer.complete) return;
+    if (!ready || focusMode !== 'timer' || !targetTasks.length || !targetTimer.complete) return;
     const key = `${targetTaskIds.join(',')}-${targetEndAt || 'paused'}-${toISODate(new Date())}`;
     if (window.localStorage.getItem(TARGET_NOTIFICATION_KEY) === key) return;
     window.localStorage.setItem(TARGET_NOTIFICATION_KEY, key);
@@ -1889,7 +1977,7 @@ export function SgGoalsApp() {
     markTargetChanged();
     if ('vibrate' in navigator) navigator.vibrate([500, 200, 500, 200, 500]);
     showGoalNotification('Target queue complete', `Time is up for: ${targetTasks.map((task) => task.text).join(', ')}`, 'sg-goals-target-complete');
-  }, [markTargetChanged, ready, showGoalNotification, targetEndAt, targetTaskIds, targetTasks, targetTimer.complete]);
+  }, [focusMode, markTargetChanged, ready, showGoalNotification, targetEndAt, targetTaskIds, targetTasks, targetTimer.complete]);
 
   const dailyStatus = useMemo(() => {
     const status: Record<string, { completed: number; failures: number; total: number; state: 'green' | 'red' | 'none' }> = {};
@@ -2254,8 +2342,46 @@ export function SgGoalsApp() {
     if (nextMinutes !== focusDailyGoalMinutes) updateFocusDailyGoal(String(nextMinutes));
   }
 
+  function changeFocusMode(nextMode: 'timer' | 'stopwatch') {
+    if (nextMode === focusMode) return;
+    if (targetRunning) {
+      if (focusMode === 'stopwatch' && stopwatchStartedAt) {
+        setStopwatchElapsedMs((current) => current + Math.max(0, Date.now() - new Date(stopwatchStartedAt).getTime()));
+        setStopwatchStartedAt('');
+      } else if (focusMode === 'timer') {
+        const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
+        setTargetRemainingMs(endTime ? Math.max(0, endTime - Date.now()) : targetRemainingMs);
+        setTargetEndAt('');
+      }
+      setTargetRunning(false);
+    }
+    setFocusMode(nextMode);
+    setTargetFocusLogged(false);
+    window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    markTargetChanged();
+  }
+
   function toggleTargetTimer() {
     if (!targetTaskIds.length) return;
+    if (focusMode === 'stopwatch') {
+      if (targetRunning) {
+        const startedAt = stopwatchStartedAt ? new Date(stopwatchStartedAt).getTime() : Date.now();
+        setStopwatchElapsedMs((current) => current + Math.max(0, Date.now() - startedAt));
+        setStopwatchStartedAt('');
+        setTargetRunning(false);
+        markTargetChanged();
+        return;
+      }
+      if (targetFocusLogged) {
+        setStopwatchElapsedMs(0);
+        setTargetFocusLogged(false);
+      }
+      setStopwatchStartedAt(new Date().toISOString());
+      setTargetEndAt('');
+      setTargetRunning(true);
+      markTargetChanged();
+      return;
+    }
     const plannedDurationMs = targetPlannedDurationMs;
     if (targetRunning) {
       const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
@@ -2276,6 +2402,13 @@ export function SgGoalsApp() {
   }
 
   function resetTargetTimer() {
+    if (focusMode === 'stopwatch') {
+      setStopwatchElapsedMs(0);
+      setStopwatchStartedAt(targetRunning ? new Date().toISOString() : '');
+      setTargetFocusLogged(false);
+      markTargetChanged();
+      return;
+    }
     const plannedDurationMs = targetPlannedDurationMs;
     setTargetRemainingMs(plannedDurationMs);
     setTargetEndAt(targetRunning ? new Date(Date.now() + plannedDurationMs).toISOString() : '');
@@ -2286,17 +2419,17 @@ export function SgGoalsApp() {
 
   function completeFocusPeriod() {
     if (!targetTaskIds.length || targetFocusLogged) return;
-    const elapsedMs = Math.max(0, targetPlannedDurationMs - targetTimer.remainingMs);
+    const elapsedMs = focusElapsedMs;
     if (elapsedMs < 1000) return;
     const elapsedMinutes = Math.max(1, Math.round(elapsedMs / 60000));
     const now = new Date().toISOString();
     appendActivity({
       id: activityId(),
       scope: 'today',
-      priority: targetTimer.activeTask?.priority || mainGoal?.priority || 'other',
-      taskText: targetTimer.activeTask?.text || mainGoal?.text || 'Focus period',
+      priority: focusActiveTask?.priority || mainGoal?.priority || 'other',
+      taskText: focusActiveTask?.text || mainGoal?.text || 'Focus period',
       kind: 'focus-session',
-      note: 'Completed focus period',
+      note: focusMode === 'stopwatch' ? 'Completed stopwatch focus period' : 'Completed timer focus period',
       minutes: elapsedMinutes,
       focusMinutes: elapsedMinutes,
       completedAt: now,
@@ -2304,7 +2437,9 @@ export function SgGoalsApp() {
     });
     setTargetRunning(false);
     setTargetEndAt('');
-    setTargetRemainingMs(0);
+    setStopwatchStartedAt('');
+    if (focusMode === 'stopwatch') setStopwatchElapsedMs(0);
+    else setTargetRemainingMs(0);
     setTargetFocusLogged(true);
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
     markTargetChanged();
@@ -3436,19 +3571,32 @@ export function SgGoalsApp() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">
-                          Focus period {targetSequence.length ? `(${Math.max(1, targetTimer.activeTaskIndex + 1)} of ${targetSequence.length})` : ''}
+                          Focus period {targetSequence.length ? `(${Math.max(1, focusActiveTaskIndex + 1)} of ${targetSequence.length})` : ''}
                         </p>
-                        <p className="mt-1 truncate text-xs font-bold text-[#e8e8f5]">{targetTimer.activeTask?.text || 'Assign time to a selected task'}</p>
+                        <p className="mt-1 truncate text-xs font-bold text-[#e8e8f5]">{focusActiveTask?.text || 'Assign time to a selected task'}</p>
                       </div>
-                      <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] ${targetTimer.running ? 'bg-[#00d97e18] text-[#00d97e]' : 'bg-[#1a1a30] text-[#8b8bb3]'}`}>
-                        {targetFocusLogged ? 'Recorded' : targetTimer.complete ? 'Time up' : targetTimer.running ? 'Running' : 'Paused'}
+                      <span className={`rounded-full px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] ${focusRunning ? 'bg-[#00d97e18] text-[#00d97e]' : 'bg-[#1a1a30] text-[#8b8bb3]'}`}>
+                        {targetFocusLogged ? 'Recorded' : focusComplete ? 'Time up' : focusRunning ? 'Running' : 'Paused'}
                       </span>
+                    </div>
+
+                    <div className="mx-auto mt-4 grid w-full max-w-[220px] grid-cols-2 rounded-lg border border-[#24243e] bg-[#0f0f1d] p-1">
+                      {(['timer', 'stopwatch'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => changeFocusMode(mode)}
+                          className={`h-8 rounded-md text-[11px] font-bold capitalize ${focusMode === mode ? 'bg-[#4f8ef7] text-white' : 'text-[#8b8bb3]'}`}
+                        >
+                          {mode}
+                        </button>
+                      ))}
                     </div>
 
                     <div className="mx-auto mt-4 flex h-48 w-48 items-center justify-center rounded-full p-3" style={{ background: `conic-gradient(#4f8ef7 ${focusPeriodProgress * 3.6}deg, #1a1a30 0deg)` }}>
                       <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-[#24243e] bg-[#0f0f1d] text-center">
-                        <p className={`font-mono text-3xl font-bold ${targetTimer.complete ? 'text-[#f7a04f]' : 'text-[#e8e8f5]'}`}>{targetTimer.complete ? '00:00' : targetTimer.label}</p>
-                        <p className="mt-1 text-[10px] uppercase tracking-[.16em] text-[#8b8bb3]">remaining</p>
+                        <p className={`font-mono text-3xl font-bold ${focusComplete ? 'text-[#f7a04f]' : 'text-[#e8e8f5]'}`}>{focusPeriodLabel}</p>
+                        <p className="mt-1 text-[10px] uppercase tracking-[.16em] text-[#8b8bb3]">{focusMode === 'stopwatch' ? 'elapsed' : 'remaining'}</p>
                       </div>
                     </div>
 
@@ -3456,11 +3604,11 @@ export function SgGoalsApp() {
                       <button
                         type="button"
                         onClick={toggleTargetTimer}
-                        title={targetTimer.running ? 'Pause focus timer' : 'Start focus timer'}
-                        aria-label={targetTimer.running ? 'Pause focus timer' : 'Start focus timer'}
+                        title={focusRunning ? `Pause focus ${focusMode}` : `Start focus ${focusMode}`}
+                        aria-label={focusRunning ? `Pause focus ${focusMode}` : `Start focus ${focusMode}`}
                         className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4f8ef7] text-white"
                       >
-                        {targetTimer.running ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
+                        {focusRunning ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
                       </button>
                       <button
                         type="button"
@@ -3474,11 +3622,11 @@ export function SgGoalsApp() {
                       <button
                         type="button"
                         onClick={completeFocusPeriod}
-                        disabled={targetFocusLogged || targetPlannedDurationMs - targetTimer.remainingMs < 1000}
+                        disabled={targetFocusLogged || focusElapsedMs < 1000}
                         title={targetFocusLogged ? 'Focus period recorded' : 'Complete focus period'}
                         aria-label={targetFocusLogged ? 'Focus period recorded' : 'Complete focus period'}
                         className={`flex h-10 items-center justify-center gap-1.5 rounded-lg border px-3 text-xs font-bold ${
-                          targetFocusLogged || targetPlannedDurationMs - targetTimer.remainingMs < 1000
+                          targetFocusLogged || focusElapsedMs < 1000
                             ? 'cursor-not-allowed border-[#1a1a30] text-[#38385a]'
                             : 'border-[#00d97e40] bg-[#00d97e18] text-[#00d97e]'
                         }`}
@@ -3506,7 +3654,9 @@ export function SgGoalsApp() {
                         aria-label="Target timer total minutes"
                       />
                       <span>min</span>
-                      <span className="text-[#52527a]">{targetPlannedMinutes ? `${formatMinutes(targetPlannedMinutes)} assigned` : 'No task times assigned'}</span>
+                      <span className="text-[#52527a]">
+                        {focusMode === 'stopwatch' ? 'Stopwatch keeps running after the app closes' : targetPlannedMinutes ? `${formatMinutes(targetPlannedMinutes)} assigned` : 'No task times assigned'}
+                      </span>
                     </div>
                   </section>
 
@@ -3582,6 +3732,8 @@ export function SgGoalsApp() {
                       setTargetTaskMinutes({});
                       setTargetEndAt('');
                       setTargetRunning(false);
+                      setStopwatchStartedAt('');
+                      setStopwatchElapsedMs(0);
                       setTargetFocusLogged(false);
                       setTargetRemainingMs(targetPlannedDurationMs);
                       markTargetChanged();

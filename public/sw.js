@@ -1,4 +1,5 @@
-const CACHE_NAME = 'sg-goals-shell-v1';
+const CACHE_PREFIX = 'sg-goals-shell-';
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 const SHELL_URLS = ['/', '/goals', '/manifest.webmanifest', '/sg-goals-icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -11,7 +12,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -21,14 +22,34 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/')) return;
   if (event.request.method !== 'GET') return;
 
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put('/goals', copy)));
+          }
+          return response;
+        })
+        .catch(() => caches.match('/goals'))
+    );
+    return;
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        if (response.ok) {
+          const copy = response.clone();
+          event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy)));
+        }
         return response;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('/')))
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        return cached || Response.error();
+      })
   );
 });
 

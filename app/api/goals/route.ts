@@ -40,6 +40,9 @@ type YearlyNotesInput = {
 type TargetStateInput = {
   taskIds: string[];
   taskMinutes?: Record<string, number>;
+  mode?: 'timer' | 'stopwatch';
+  stopwatchStartedAt?: string;
+  stopwatchElapsedMs?: number;
   endAt: string;
   running: boolean;
   remainingMs: number;
@@ -105,6 +108,9 @@ function isTargetState(value: unknown): value is TargetStateInput {
       (typeof candidate.taskMinutes === 'object' &&
         candidate.taskMinutes !== null &&
         Object.entries(candidate.taskMinutes).every(([taskId, minutes]) => typeof taskId === 'string' && typeof minutes === 'number'))) &&
+    (candidate.mode === undefined || candidate.mode === 'timer' || candidate.mode === 'stopwatch') &&
+    (candidate.stopwatchStartedAt === undefined || typeof candidate.stopwatchStartedAt === 'string') &&
+    (candidate.stopwatchElapsedMs === undefined || typeof candidate.stopwatchElapsedMs === 'number') &&
     typeof candidate.endAt === 'string' &&
     typeof candidate.running === 'boolean' &&
     typeof candidate.remainingMs === 'number' &&
