@@ -53,7 +53,8 @@ type MonthlySummary = {
   monthKey: string;
   completedPoints: number;
   failedPoints: number;
-  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number }>;
+  focusMinutes: number;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>;
   emailedAt?: string;
   createdAt: string;
 };
@@ -109,7 +110,7 @@ const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v66';
+const APP_VERSION = 'cloud-sync-v67';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -347,11 +348,18 @@ function buildScopeCompletion(tasks: GoalTask[]) {
 function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
   const byDate = new Map<
     string,
-    { dateKey: string; completedPoints: number; failedPoints: number; completedTasks: Array<{ text: string; points: number }>; failedTasks: Array<{ text: string; points: number }> }
+    {
+      dateKey: string;
+      completedPoints: number;
+      failedPoints: number;
+      focusMinutes: number;
+      completedTasks: Array<{ text: string; points: number }>;
+      failedTasks: Array<{ text: string; points: number }>;
+    }
   >();
   dates.forEach((date) => {
     const dateKey = toISODate(date);
-    byDate.set(dateKey, { dateKey, completedPoints: 0, failedPoints: 0, completedTasks: [], failedTasks: [] });
+    byDate.set(dateKey, { dateKey, completedPoints: 0, failedPoints: 0, focusMinutes: 0, completedTasks: [], failedTasks: [] });
   });
   const completedHabitKeys = new Set<string>();
   activities.forEach((activity) => {
@@ -363,6 +371,10 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
     const dateKey = dateKeyFromValue(activity.createdAt);
     const day = byDate.get(dateKey);
     if (!day) return;
+    if (activity.kind === 'focus-session') {
+      day.focusMinutes += Math.max(0, Math.round(activity.focusMinutes || 0));
+      return;
+    }
     const points = activityPoints(activity);
     if (activity.kind === 'completion') {
       day.completedPoints += points;
@@ -397,14 +409,21 @@ function parseMonthlySummary(activity: GoalActivity): MonthlySummary | null {
       monthKey: parsed.monthKey,
       completedPoints: parsed.completedPoints,
       failedPoints: parsed.failedPoints,
+      focusMinutes:
+        typeof parsed.focusMinutes === 'number'
+          ? parsed.focusMinutes
+          : parsed.days.reduce(
+              (total, day) => total + (typeof (day as { focusMinutes?: unknown }).focusMinutes === 'number' ? Number((day as { focusMinutes: number }).focusMinutes) : 0),
+              0
+            ),
       days: parsed.days.filter(
-        (day): day is { dateKey: string; completedPoints: number; failedPoints: number } =>
+        (day): day is { dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number } =>
           Boolean(day) &&
           typeof day === 'object' &&
           typeof (day as { dateKey?: unknown }).dateKey === 'string' &&
           typeof (day as { completedPoints?: unknown }).completedPoints === 'number' &&
           typeof (day as { failedPoints?: unknown }).failedPoints === 'number'
-      ),
+      ).map((day) => ({ ...day, focusMinutes: typeof day.focusMinutes === 'number' ? day.focusMinutes : 0 })),
       emailedAt: typeof parsed.emailedAt === 'string' ? parsed.emailedAt : undefined,
       createdAt: activity.createdAt
     };
@@ -3160,9 +3179,10 @@ export function SgGoalsApp() {
                 <div key={day.dateKey} className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm font-bold text-[#e8e8f5]">{formatStartedDate(day.dateKey)}</p>
-                    <div className="flex items-center gap-2 text-xs font-bold">
+                    <div className="flex flex-wrap items-center justify-end gap-2 text-xs font-bold">
                       <span className="text-[#00d97e]">Done {day.completedPoints} pts</span>
                       <span className="text-[#ff6b6b]">Failed {day.failedPoints} pts</span>
+                      <span className="text-[#4f8ef7]">Focus {formatMinutes(day.focusMinutes) || '0m'}</span>
                     </div>
                   </div>
                   <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-[#1a1a30]">
@@ -3941,7 +3961,7 @@ export function SgGoalsApp() {
       {scope === 'monthly' ? (
         <>
           {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
-          {renderPointHistorySection('Date-wise points history', 'Completed and failed points for the current month.', monthlyPointHistory)}
+          {renderPointHistorySection('Date-wise progress history', 'Completed points, failed points, and focus time for the current month.', monthlyPointHistory)}
         </>
       ) : null}
 
@@ -4019,8 +4039,10 @@ export function SgGoalsApp() {
                       Done <span className="font-bold text-[#00d97e]">{summary.completedPoints} pts</span>
                       {' · '}
                       Failed <span className="font-bold text-[#ff6b6b]">{summary.failedPoints} pts</span>
+                      {' · '}
+                      Focus <span className="font-bold text-[#4f8ef7]">{formatMinutes(summary.focusMinutes) || '0m'}</span>
                     </p>
-                    <p className="mt-1 text-[11px] text-[#52527a]">{summary.days.filter((day) => day.completedPoints || day.failedPoints).length} active day(s)</p>
+                    <p className="mt-1 text-[11px] text-[#52527a]">{summary.days.filter((day) => day.completedPoints || day.failedPoints || day.focusMinutes).length} active day(s)</p>
                   </div>
                 ))
               ) : (

@@ -167,6 +167,19 @@ function activityPointsFromNote(note: string | null, taskText: string) {
   return code ? habitDefaultWeights[code] || 1 : 1;
 }
 
+function activityFocusMinutesFromNote(note: string | null) {
+  if (!note) return 0;
+  const match = note.match(activityMetaNotePattern);
+  if (!match) return 0;
+  try {
+    const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as Partial<{ focusMinutes: unknown }>;
+    const minutes = Number(parsed.focusMinutes);
+    return Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function escapePdfText(value: string) {
   return value.replace(/[^\x20-\x7E]/g, '?').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
@@ -175,17 +188,19 @@ function buildMonthlySummaryPdf(summary: {
   monthKey: string;
   completedPoints: number;
   failedPoints: number;
-  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number }>;
+  focusMinutes: number;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>;
 }) {
   const lines = [
     `SG Goals - Monthly Summary ${summary.monthKey}`,
     `Completed points: ${summary.completedPoints}`,
     `Failed points: ${summary.failedPoints}`,
+    `Completed focus time: ${summary.focusMinutes} minutes`,
     '',
-    'Date-wise points:'
+    'Date-wise progress:'
   ];
-  summary.days.filter((day) => day.completedPoints || day.failedPoints).forEach((day) => {
-    lines.push(`${day.dateKey} - Done ${day.completedPoints} pts, Failed ${day.failedPoints} pts`);
+  summary.days.filter((day) => day.completedPoints || day.failedPoints || day.focusMinutes).forEach((day) => {
+    lines.push(`${day.dateKey} - Done ${day.completedPoints} pts, Failed ${day.failedPoints} pts, Focus ${day.focusMinutes} min`);
   });
   const content = `BT\n/F1 12 Tf\n50 760 Td\n${lines.map((line, index) => `${index ? '0 -16 Td\n' : ''}(${escapePdfText(line)}) Tj`).join('\n')}\nET`;
   const objects = [
@@ -214,7 +229,8 @@ async function emailMonthlySummary(summary: {
   monthKey: string;
   completedPoints: number;
   failedPoints: number;
-  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number }>;
+  focusMinutes: number;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL;
@@ -227,7 +243,7 @@ async function emailMonthlySummary(summary: {
       from,
       to: [MONTHLY_SUMMARY_RECIPIENT],
       subject: `SG Goals monthly summary - ${summary.monthKey}`,
-      text: `Your SG Goals summary for ${summary.monthKey}: ${summary.completedPoints} completed points and ${summary.failedPoints} failed points.`,
+      text: `Your SG Goals summary for ${summary.monthKey}: ${summary.completedPoints} completed points, ${summary.failedPoints} failed points, and ${summary.focusMinutes} completed focus minutes.`,
       attachments: [{ filename: `sg-goals-${summary.monthKey}.pdf`, content: pdf.toString('base64') }]
     })
   });
@@ -247,14 +263,20 @@ async function archiveMonthlySummary() {
         monthKey: string;
         completedPoints: number;
         failedPoints: number;
-        days: Array<{ dateKey: string; completedPoints: number; failedPoints: number }>;
+        focusMinutes?: number;
+        days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes?: number }>;
         emailedAt?: string;
       };
-      const emailedAt = await emailMonthlySummary(summary);
+      const normalizedSummary = {
+        ...summary,
+        focusMinutes: summary.focusMinutes || 0,
+        days: summary.days.map((day) => ({ ...day, focusMinutes: day.focusMinutes || 0 }))
+      };
+      const emailedAt = await emailMonthlySummary(normalizedSummary);
       if (emailedAt) {
         await prisma.goalActivity.update({
           where: { id: summaryId },
-          data: { note: `${MONTHLY_SUMMARY_NOTE_PREFIX}${JSON.stringify({ ...summary, emailedAt })}` }
+          data: { note: `${MONTHLY_SUMMARY_NOTE_PREFIX}${JSON.stringify({ ...normalizedSummary, emailedAt })}` }
         });
       }
       return { archived: true, monthKey, emailed: Boolean(emailedAt) };
@@ -277,16 +299,20 @@ async function archiveMonthlySummary() {
       })
       .filter((key): key is string => Boolean(key))
   );
-  const days = new Map<string, { dateKey: string; completedPoints: number; failedPoints: number }>();
+  const days = new Map<string, { dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>();
   const cursor = new Date(start.getTime());
   while (cursor < end) {
     const key = istDateKey(cursor);
-    days.set(key, { dateKey: key, completedPoints: 0, failedPoints: 0 });
+    days.set(key, { dateKey: key, completedPoints: 0, failedPoints: 0, focusMinutes: 0 });
     cursor.setTime(cursor.getTime() + 24 * 60 * 60 * 1000);
   }
   activities.forEach((activity) => {
     const day = days.get(istDateKey(activity.createdAt));
     if (!day) return;
+    if (activity.kind === 'focus-session') {
+      day.focusMinutes += activityFocusMinutesFromNote(activity.note);
+      return;
+    }
     const points = activityPointsFromNote(activity.note, activity.taskText);
     if (activity.kind === 'completion') day.completedPoints += points;
     if (activity.kind === 'undo') day.completedPoints = Math.max(0, day.completedPoints - points);
@@ -300,6 +326,7 @@ async function archiveMonthlySummary() {
     monthKey,
     completedPoints: Array.from(days.values()).reduce((total, day) => total + day.completedPoints, 0),
     failedPoints: Array.from(days.values()).reduce((total, day) => total + day.failedPoints, 0),
+    focusMinutes: Array.from(days.values()).reduce((total, day) => total + day.focusMinutes, 0),
     days: Array.from(days.values()),
     createdAt: new Date().toISOString()
   };
