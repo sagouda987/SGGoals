@@ -110,7 +110,7 @@ const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v67';
+const APP_VERSION = 'cloud-sync-v68';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -3159,6 +3159,10 @@ export function SgGoalsApp() {
   }
 
   function renderPointHistorySection(title: string, subtitle: string, history: ReturnType<typeof buildPointHistory>) {
+    const chartDays = [...history].reverse();
+    const maxPointValue = Math.max(1, ...chartDays.flatMap((day) => [day.completedPoints, day.failedPoints]));
+    const maxFocusMinutes = Math.max(1, ...chartDays.map((day) => day.focusMinutes));
+
     return (
       <section className="mx-auto max-w-4xl px-5 pb-4">
         <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
@@ -3169,6 +3173,47 @@ export function SgGoalsApp() {
             </div>
             <div className="rounded-lg bg-[#4f8ef715] p-2 text-[#4f8ef7]">
               <BarChart3 className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-4 rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8b8bb3]">Monthly progress graph</p>
+                <div className="mt-2 flex flex-wrap gap-3 text-[10px] font-bold">
+                  <span className="flex items-center gap-1.5 text-[#00d97e]"><span className="h-2 w-2 rounded-sm bg-[#00d97e]" />Completed</span>
+                  <span className="flex items-center gap-1.5 text-[#ff6b6b]"><span className="h-2 w-2 rounded-sm bg-[#ff6b6b]" />Failed</span>
+                  <span className="flex items-center gap-1.5 text-[#4f8ef7]"><span className="h-2 w-2 rounded-sm bg-[#4f8ef7]" />Focus</span>
+                </div>
+              </div>
+              <div className="text-right text-[10px] leading-5 text-[#52527a]">
+                <p>Points max {maxPointValue}</p>
+                <p>Focus max {formatMinutes(maxFocusMinutes)}</p>
+              </div>
+            </div>
+            <div className="mt-4 overflow-x-auto pb-1">
+              <div className="flex h-36 min-w-max items-end gap-2 border-b border-[#24243e] px-1">
+                {chartDays.map((day) => {
+                  const completedHeight = day.completedPoints ? Math.max(3, Math.round((day.completedPoints / maxPointValue) * 104)) : 0;
+                  const failedHeight = day.failedPoints ? Math.max(3, Math.round((day.failedPoints / maxPointValue) * 104)) : 0;
+                  const focusHeight = day.focusMinutes ? Math.max(3, Math.round((day.focusMinutes / maxFocusMinutes) * 104)) : 0;
+                  const dayNumber = Number(day.dateKey.slice(-2));
+                  return (
+                    <div
+                      key={`${day.dateKey}-chart`}
+                      className="flex w-9 shrink-0 flex-col items-center justify-end"
+                      title={`${formatStartedDate(day.dateKey)}: ${day.completedPoints} completed points, ${day.failedPoints} failed points, ${formatMinutes(day.focusMinutes) || '0m'} focus`}
+                      aria-label={`${formatStartedDate(day.dateKey)}: ${day.completedPoints} completed points, ${day.failedPoints} failed points, ${formatMinutes(day.focusMinutes) || '0m'} focus`}
+                    >
+                      <div className="flex h-[108px] items-end gap-0.5">
+                        <span className="w-2 rounded-t-sm bg-[#00d97e]" style={{ height: `${completedHeight}px` }} />
+                        <span className="w-2 rounded-t-sm bg-[#ff6b6b]" style={{ height: `${failedHeight}px` }} />
+                        <span className="w-2 rounded-t-sm bg-[#4f8ef7]" style={{ height: `${focusHeight}px` }} />
+                      </div>
+                      <span className="mt-1 h-4 text-[9px] text-[#52527a]">{dayNumber}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
           <div className="mt-4 space-y-2">
