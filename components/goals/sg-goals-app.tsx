@@ -110,7 +110,7 @@ const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v69';
+const APP_VERSION = 'cloud-sync-v70';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -215,6 +215,12 @@ const habitDefaultWeights: Partial<Record<StrikeCode, number>> = {
   SLEEP: 2
 };
 const DAILY_PRIORITY_STRIKE_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
+const DAILY_PRIORITY_FOCUS_COLORS: Record<(typeof DAILY_PRIORITY_STRIKE_KEYS)[number], string> = {
+  OFFICEWORK2: '#22c55e',
+  STUDY2: '#ff6b6b',
+  BOOK: '#ffd166',
+  GYM: '#00d97e'
+};
 
 const starterStore: GoalsStore = {
   today: [
@@ -1950,6 +1956,29 @@ export function SgGoalsApp() {
         ? Math.min(100, Math.max(0, Math.round(((targetTimer.activeTaskMinutes * 60000 - targetTimer.activeTaskRemainingMs) / (targetTimer.activeTaskMinutes * 60000)) * 100)))
         : targetTimer.progress;
   const focusPeriodLabel = focusMode === 'stopwatch' ? formatElapsed(effectiveStopwatchElapsedMs) : focusComplete ? '00:00' : targetTimer.label;
+  const dailyPriorityFocus = DAILY_PRIORITY_STRIKE_KEYS.map((code) => {
+    const task = store.today.find((item) => normalizeStrikeCode(item.text) === code) || null;
+    const minutes = activities.reduce((total, activity) => {
+      if (
+        activity.scope === 'today' &&
+        activity.kind === 'focus-session' &&
+        dateKeyFromValue(activity.createdAt) === todayKey &&
+        normalizeStrikeCode(activity.taskText) === code
+      ) {
+        return total + Math.max(0, Math.round(activity.focusMinutes || 0));
+      }
+      return total;
+    }, 0);
+    const isActive = Boolean(task && focusMode === 'stopwatch' && focusActiveTask?.id === task.id && focusRunning);
+    return {
+      code,
+      task,
+      label: habitLabels[code] || code,
+      color: DAILY_PRIORITY_FOCUS_COLORS[code],
+      minutes,
+      isActive
+    };
+  });
 
   useEffect(() => {
     if (!ready) return;
@@ -2375,6 +2404,19 @@ export function SgGoalsApp() {
       setTargetRunning(false);
     }
     setFocusMode(nextMode);
+    setTargetFocusLogged(false);
+    window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+    markTargetChanged();
+  }
+
+  function startMustTaskStopwatch(task: GoalTask) {
+    if (targetRunning || task.done) return;
+    setTargetTaskIds((current) => [task.id, ...current.filter((taskId) => taskId !== task.id)]);
+    setFocusMode('stopwatch');
+    setStopwatchElapsedMs(0);
+    setStopwatchStartedAt(new Date().toISOString());
+    setTargetEndAt('');
+    setTargetRunning(true);
     setTargetFocusLogged(false);
     window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
     markTargetChanged();
@@ -3158,6 +3200,59 @@ export function SgGoalsApp() {
     );
   }
 
+  function renderMustTaskFocusTracker() {
+    return (
+      <section className="mt-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Must-task focus time</p>
+            <p className="mt-1 text-xs text-[#8b8bb3]">Track stopwatch time separately for today&apos;s four must tasks.</p>
+          </div>
+          <Clock className="h-4 w-4 text-[#4f8ef7]" />
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {dailyPriorityFocus.map((item) => {
+            const sharePct = todayFocus.focusMinutes ? Math.min(100, Math.round((item.minutes / todayFocus.focusMinutes) * 100)) : 0;
+            const unavailable = !item.task || item.task.done;
+            const blocked = targetRunning && !item.isActive;
+            return (
+              <div key={item.code} className="rounded-lg border border-[#24243e] bg-[#13132a] p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-bold text-[#e8e8f5]">{item.label}</p>
+                    <p className="mt-1 text-lg font-bold" style={{ color: item.color }}>{formatMinutes(item.minutes) || '0m'}</p>
+                    {item.isActive ? <p className="mt-0.5 font-mono text-[10px] text-[#00d97e]">+ {formatElapsed(effectiveStopwatchElapsedMs)} live</p> : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (item.isActive) completeFocusPeriod();
+                      else if (item.task) startMustTaskStopwatch(item.task);
+                    }}
+                    disabled={item.isActive ? focusElapsedMs < 1000 : unavailable || blocked}
+                    className={`shrink-0 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${
+                      item.isActive
+                        ? 'border-[#00d97e40] bg-[#00d97e18] text-[#00d97e] disabled:opacity-40'
+                        : unavailable || blocked
+                          ? 'cursor-not-allowed border-[#1a1a30] text-[#38385a]'
+                          : 'border-[#4f8ef740] bg-[#4f8ef715] text-[#4f8ef7]'
+                    }`}
+                  >
+                    {item.isActive ? 'Finish focus' : item.task?.done ? 'Task done' : blocked ? 'In use' : item.task ? 'Start' : 'Unavailable'}
+                  </button>
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]">
+                  <div className="h-full rounded-full" style={{ width: `${sharePct}%`, background: item.color }} />
+                </div>
+                <p className="mt-1 text-[9px] text-[#52527a]">{sharePct}% of today&apos;s completed focus</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
+
   function renderPointHistorySection(title: string, subtitle: string, history: ReturnType<typeof buildPointHistory>) {
     const chartDays = [...history].reverse();
     const maxPointValue = Math.max(1, ...chartDays.flatMap((day) => [day.completedPoints, day.failedPoints]));
@@ -3843,6 +3938,7 @@ export function SgGoalsApp() {
                       <p className="text-xs font-bold text-[#e8e8f5]">Completed focus time: {formatMinutes(todayFocus.focusMinutes) || '0m'}</p>
                       <p className="mt-1 text-[10px] text-[#8b8bb3]">{focusProgress}% of today&apos;s focus goal</p>
                     </div>
+
                   </section>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -3907,6 +4003,7 @@ export function SgGoalsApp() {
             </button>
           </div>
         </div>
+        {renderMustTaskFocusTracker()}
       </section>
       ) : null}
 
