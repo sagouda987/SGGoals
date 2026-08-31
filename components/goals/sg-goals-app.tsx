@@ -49,12 +49,18 @@ type GoalActivity = {
   completedAt?: string;
   createdAt: string;
 };
+type MustTaskFocusMinutes = {
+  OFFICEWORK2: number;
+  STUDY2: number;
+  BOOK: number;
+  GYM: number;
+};
 type MonthlySummary = {
   monthKey: string;
   completedPoints: number;
   failedPoints: number;
   focusMinutes: number;
-  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number; mustTaskFocusMinutes?: MustTaskFocusMinutes }>;
   emailedAt?: string;
   createdAt: string;
 };
@@ -110,7 +116,7 @@ const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v70';
+const APP_VERSION = 'cloud-sync-v71';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -221,6 +227,14 @@ const DAILY_PRIORITY_FOCUS_COLORS: Record<(typeof DAILY_PRIORITY_STRIKE_KEYS)[nu
   BOOK: '#ffd166',
   GYM: '#00d97e'
 };
+
+function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
+  return { OFFICEWORK2: 0, STUDY2: 0, BOOK: 0, GYM: 0 };
+}
+
+function isDailyPriorityStrikeCode(code: StrikeCode | null): code is (typeof DAILY_PRIORITY_STRIKE_KEYS)[number] {
+  return Boolean(code && (DAILY_PRIORITY_STRIKE_KEYS as readonly StrikeCode[]).includes(code));
+}
 
 const starterStore: GoalsStore = {
   today: [
@@ -359,13 +373,14 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
       completedPoints: number;
       failedPoints: number;
       focusMinutes: number;
+      mustTaskFocusMinutes: MustTaskFocusMinutes;
       completedTasks: Array<{ text: string; points: number }>;
       failedTasks: Array<{ text: string; points: number }>;
     }
   >();
   dates.forEach((date) => {
     const dateKey = toISODate(date);
-    byDate.set(dateKey, { dateKey, completedPoints: 0, failedPoints: 0, focusMinutes: 0, completedTasks: [], failedTasks: [] });
+    byDate.set(dateKey, { dateKey, completedPoints: 0, failedPoints: 0, focusMinutes: 0, mustTaskFocusMinutes: emptyMustTaskFocusMinutes(), completedTasks: [], failedTasks: [] });
   });
   const completedHabitKeys = new Set<string>();
   activities.forEach((activity) => {
@@ -378,7 +393,10 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
     const day = byDate.get(dateKey);
     if (!day) return;
     if (activity.kind === 'focus-session') {
-      day.focusMinutes += Math.max(0, Math.round(activity.focusMinutes || 0));
+      const focusMinutes = Math.max(0, Math.round(activity.focusMinutes || 0));
+      day.focusMinutes += focusMinutes;
+      const code = normalizeStrikeCode(activity.taskText);
+      if (isDailyPriorityStrikeCode(code)) day.mustTaskFocusMinutes[code] += focusMinutes;
       return;
     }
     const points = activityPoints(activity);
@@ -429,7 +447,16 @@ function parseMonthlySummary(activity: GoalActivity): MonthlySummary | null {
           typeof (day as { dateKey?: unknown }).dateKey === 'string' &&
           typeof (day as { completedPoints?: unknown }).completedPoints === 'number' &&
           typeof (day as { failedPoints?: unknown }).failedPoints === 'number'
-      ).map((day) => ({ ...day, focusMinutes: typeof day.focusMinutes === 'number' ? day.focusMinutes : 0 })),
+      ).map((day) => {
+        const mustTaskFocusMinutes = (day as { mustTaskFocusMinutes?: Partial<MustTaskFocusMinutes> }).mustTaskFocusMinutes;
+        return {
+          ...day,
+          focusMinutes: typeof day.focusMinutes === 'number' ? day.focusMinutes : 0,
+          mustTaskFocusMinutes: mustTaskFocusMinutes && typeof mustTaskFocusMinutes === 'object'
+            ? { ...emptyMustTaskFocusMinutes(), ...mustTaskFocusMinutes }
+            : emptyMustTaskFocusMinutes()
+        };
+      }),
       emailedAt: typeof parsed.emailedAt === 'string' ? parsed.emailedAt : undefined,
       createdAt: activity.createdAt
     };
@@ -3262,6 +3289,16 @@ export function SgGoalsApp() {
     const completedLine = chartDays.map((day, index) => `${lineX(index)},${lineY(day.completedPoints, maxPointValue)}`).join(' ');
     const failedLine = chartDays.map((day, index) => `${lineX(index)},${lineY(day.failedPoints, maxPointValue)}`).join(' ');
     const focusLine = chartDays.map((day, index) => `${lineX(index)},${lineY(day.focusMinutes, maxFocusMinutes)}`).join(' ');
+    const maxMustTaskFocusMinutes = Math.max(
+      1,
+      ...chartDays.flatMap((day) => DAILY_PRIORITY_STRIKE_KEYS.map((code) => day.mustTaskFocusMinutes[code]))
+    );
+    const mustTaskFocusLines = DAILY_PRIORITY_STRIKE_KEYS.map((code) => ({
+      code,
+      label: habitLabels[code] || code,
+      color: DAILY_PRIORITY_FOCUS_COLORS[code],
+      points: chartDays.map((day, index) => `${lineX(index)},${lineY(day.mustTaskFocusMinutes[code], maxMustTaskFocusMinutes)}`).join(' ')
+    }));
 
     return (
       <section className="mx-auto max-w-4xl px-5 pb-4">
@@ -3364,6 +3401,41 @@ export function SgGoalsApp() {
                   </svg>
                 </div>
               </div>
+
+              <div className="min-w-0 overflow-hidden rounded-lg border border-[#1a1a30] bg-[#0f0f1d] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Must-task focus trend</p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-bold">
+                    {mustTaskFocusLines.map((series) => (
+                      <span key={`${series.code}-legend`} className="flex items-center gap-1.5" style={{ color: series.color }}>
+                        <span className="h-2 w-2 rounded-full" style={{ background: series.color }} />
+                        {series.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-2 w-full max-w-full overflow-x-auto">
+                  <svg viewBox="0 0 740 150" className="h-40 w-[620px] max-w-none" role="img" aria-label="Must-task completed focus time line graph by day">
+                    <title>Office work, study, book and communication, and gym focus time by day</title>
+                    {[20, 69, 118].map((y) => (
+                      <line key={`must-focus-grid-${y}`} x1="36" x2="704" y1={y} y2={y} stroke="#24243e" strokeWidth="1" />
+                    ))}
+                    {mustTaskFocusLines.map((series) => (
+                      <polyline key={`${series.code}-line`} points={series.points} fill="none" stroke={series.color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                    ))}
+                    {chartDays.map((day, index) => (
+                      <g key={`${day.dateKey}-must-focus-lines`}>
+                        {mustTaskFocusLines.map((series) => (
+                          <circle key={`${day.dateKey}-${series.code}`} cx={lineX(index)} cy={lineY(day.mustTaskFocusMinutes[series.code], maxMustTaskFocusMinutes)} r="2.5" fill={series.color}>
+                            <title>{`${day.dateKey}: ${series.label} ${formatMinutes(day.mustTaskFocusMinutes[series.code]) || '0m'}`}</title>
+                          </circle>
+                        ))}
+                        {(index % 3 === 0 || index === chartDays.length - 1) ? <text x={lineX(index)} y="142" textAnchor="middle" fill="#52527a" fontSize="8">{Number(day.dateKey.slice(-2))}</text> : null}
+                      </g>
+                    ))}
+                  </svg>
+                </div>
+              </div>
             </div>
           </div>
           <div className="mt-4 space-y-2">
@@ -3383,6 +3455,13 @@ export function SgGoalsApp() {
                   <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-[#1a1a30]">
                     <div className="bg-[#00d97e]" style={{ width: `${completedPct}%` }} />
                     <div className="bg-[#ff6b6b]" style={{ width: `${total ? 100 - completedPct : 0}%` }} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-2.5 py-2 text-[10px] font-bold">
+                    {DAILY_PRIORITY_STRIKE_KEYS.map((code) => (
+                      <span key={`${day.dateKey}-${code}-focus`} style={{ color: DAILY_PRIORITY_FOCUS_COLORS[code] }}>
+                        {habitLabels[code]} {formatMinutes(day.mustTaskFocusMinutes[code]) || '0m'}
+                      </span>
+                    ))}
                   </div>
                   <div className="mt-2 grid gap-2 md:grid-cols-2">
                     <div className="space-y-1">
@@ -4158,7 +4237,7 @@ export function SgGoalsApp() {
       {scope === 'monthly' ? (
         <>
           {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
-          {renderPointHistorySection('Date-wise progress history', 'Completed points, failed points, and focus time for the current month.', monthlyPointHistory)}
+          {renderPointHistorySection('Date-wise progress history', 'Completed points, failed points, total focus time, and four must-task timings for the current month.', monthlyPointHistory)}
         </>
       ) : null}
 

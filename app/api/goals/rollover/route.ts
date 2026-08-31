@@ -8,6 +8,12 @@ const activityMetaNotePattern = /\n?\[sg-activity-meta:([A-Za-z0-9+/=]+)\]$/;
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 5;
+const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
+type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
+
+function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
+  return { OFFICEWORK2: 0, STUDY2: 0, BOOK: 0, GYM: 0 };
+}
 
 const habitLabels: Record<string, string> = {
   O: 'O',
@@ -189,7 +195,7 @@ function buildMonthlySummaryPdf(summary: {
   completedPoints: number;
   failedPoints: number;
   focusMinutes: number;
-  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number; mustTaskFocusMinutes: MustTaskFocusMinutes }>;
 }) {
   const lines = [
     `SG Goals - Monthly Summary ${summary.monthKey}`,
@@ -201,6 +207,7 @@ function buildMonthlySummaryPdf(summary: {
   ];
   summary.days.filter((day) => day.completedPoints || day.failedPoints || day.focusMinutes).forEach((day) => {
     lines.push(`${day.dateKey} - Done ${day.completedPoints} pts, Failed ${day.failedPoints} pts, Focus ${day.focusMinutes} min`);
+    lines.push(`  Office ${day.mustTaskFocusMinutes.OFFICEWORK2}m, Study ${day.mustTaskFocusMinutes.STUDY2}m, Book + Comm ${day.mustTaskFocusMinutes.BOOK}m, Gym ${day.mustTaskFocusMinutes.GYM}m`);
   });
   const content = `BT\n/F1 12 Tf\n50 760 Td\n${lines.map((line, index) => `${index ? '0 -16 Td\n' : ''}(${escapePdfText(line)}) Tj`).join('\n')}\nET`;
   const objects = [
@@ -230,7 +237,7 @@ async function emailMonthlySummary(summary: {
   completedPoints: number;
   failedPoints: number;
   focusMinutes: number;
-  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number; mustTaskFocusMinutes: MustTaskFocusMinutes }>;
 }) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.RESEND_FROM_EMAIL;
@@ -264,13 +271,17 @@ async function archiveMonthlySummary() {
         completedPoints: number;
         failedPoints: number;
         focusMinutes?: number;
-        days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes?: number }>;
+        days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes?: number; mustTaskFocusMinutes?: MustTaskFocusMinutes }>;
         emailedAt?: string;
       };
       const normalizedSummary = {
         ...summary,
         focusMinutes: summary.focusMinutes || 0,
-        days: summary.days.map((day) => ({ ...day, focusMinutes: day.focusMinutes || 0 }))
+        days: summary.days.map((day) => ({
+          ...day,
+          focusMinutes: day.focusMinutes || 0,
+          mustTaskFocusMinutes: { ...emptyMustTaskFocusMinutes(), ...(day.mustTaskFocusMinutes || {}) }
+        }))
       };
       const emailedAt = await emailMonthlySummary(normalizedSummary);
       if (emailedAt) {
@@ -299,18 +310,23 @@ async function archiveMonthlySummary() {
       })
       .filter((key): key is string => Boolean(key))
   );
-  const days = new Map<string, { dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>();
+  const days = new Map<string, { dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number; mustTaskFocusMinutes: MustTaskFocusMinutes }>();
   const cursor = new Date(start.getTime());
   while (cursor < end) {
     const key = istDateKey(cursor);
-    days.set(key, { dateKey: key, completedPoints: 0, failedPoints: 0, focusMinutes: 0 });
+    days.set(key, { dateKey: key, completedPoints: 0, failedPoints: 0, focusMinutes: 0, mustTaskFocusMinutes: emptyMustTaskFocusMinutes() });
     cursor.setTime(cursor.getTime() + 24 * 60 * 60 * 1000);
   }
   activities.forEach((activity) => {
     const day = days.get(istDateKey(activity.createdAt));
     if (!day) return;
     if (activity.kind === 'focus-session') {
-      day.focusMinutes += activityFocusMinutesFromNote(activity.note);
+      const focusMinutes = activityFocusMinutesFromNote(activity.note);
+      day.focusMinutes += focusMinutes;
+      const code = normalizeHabitCode(activity.taskText);
+      if (code && (DAILY_PRIORITY_FOCUS_KEYS as readonly string[]).includes(code)) {
+        day.mustTaskFocusMinutes[code as keyof MustTaskFocusMinutes] += focusMinutes;
+      }
       return;
     }
     const points = activityPointsFromNote(activity.note, activity.taskText);
