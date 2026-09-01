@@ -7,7 +7,7 @@ const taskMetaNotePattern = /\n?\[sg-task-meta:([A-Za-z0-9+/=]+)\]$/;
 const activityMetaNotePattern = /\n?\[sg-activity-meta:([A-Za-z0-9+/=]+)\]$/;
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
-const MONTHLY_RESET_DAY = 5;
+const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
@@ -206,10 +206,9 @@ function buildMonthlySummaryPdf(summary: {
     'Date-wise progress:'
   ];
   summary.days.filter((day) => day.completedPoints || day.failedPoints || day.focusMinutes).forEach((day) => {
-    lines.push(`${day.dateKey} - Done ${day.completedPoints} pts, Failed ${day.failedPoints} pts, Focus ${day.focusMinutes} min`);
-    lines.push(`  Office ${day.mustTaskFocusMinutes.OFFICEWORK2}m, Study ${day.mustTaskFocusMinutes.STUDY2}m, Book + Comm ${day.mustTaskFocusMinutes.BOOK}m, Gym ${day.mustTaskFocusMinutes.GYM}m`);
+    lines.push(`${day.dateKey} | Done ${day.completedPoints} | Failed ${day.failedPoints} | Focus ${day.focusMinutes}m | Office ${day.mustTaskFocusMinutes.OFFICEWORK2}m | Study ${day.mustTaskFocusMinutes.STUDY2}m | Book ${day.mustTaskFocusMinutes.BOOK}m | Gym ${day.mustTaskFocusMinutes.GYM}m`);
   });
-  const content = `BT\n/F1 12 Tf\n50 760 Td\n${lines.map((line, index) => `${index ? '0 -16 Td\n' : ''}(${escapePdfText(line)}) Tj`).join('\n')}\nET`;
+  const content = `BT\n/F1 8 Tf\n40 760 Td\n${lines.map((line, index) => `${index ? '0 -13 Td\n' : ''}(${escapePdfText(line)}) Tj`).join('\n')}\nET`;
   const objects = [
     '<< /Type /Catalog /Pages 2 0 R >>',
     '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',

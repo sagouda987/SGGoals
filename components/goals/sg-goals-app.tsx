@@ -116,14 +116,14 @@ const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v71';
+const APP_VERSION = 'cloud-sync-v72';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
 const PREVIOUS_TARGET_DURATION_MS = 90 * 60 * 1000;
 const DAY_COUNTER_START_DATE = '2026-08-07';
 const COUNTER_FORCE_RESET_AT = '2026-08-07T11:32:03+05:30';
-const COUNTER_RESET_DAY = 5;
+const COUNTER_RESET_DAY = 1;
 const HABIT_TARGET_COUNT = 21;
 const DUE_NOTE_PATTERN = /^\[due:(\d{2}:\d{2})\]\n?/;
 const FAILURE_REASONS = ['Tired', 'Busy', 'Distracted', 'Forgot', 'No energy', 'Other'] as const;
@@ -222,7 +222,7 @@ const habitDefaultWeights: Partial<Record<StrikeCode, number>> = {
 };
 const DAILY_PRIORITY_STRIKE_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
 const DAILY_PRIORITY_FOCUS_COLORS: Record<(typeof DAILY_PRIORITY_STRIKE_KEYS)[number], string> = {
-  OFFICEWORK2: '#22c55e',
+  OFFICEWORK2: '#4f8ef7',
   STUDY2: '#ff6b6b',
   BOOK: '#ffd166',
   GYM: '#00d97e'
