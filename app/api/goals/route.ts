@@ -50,6 +50,12 @@ type TargetStateInput = {
   durationMinutes?: number;
   dailyGoalMinutes?: number;
   focusLogged?: boolean;
+  mustTaskStopwatches?: Partial<Record<'OFFICEWORK2' | 'STUDY2' | 'BOOK' | 'GYM', {
+    running: boolean;
+    startedAt: string;
+    elapsedMs: number;
+    updatedAt: string;
+  }>>;
   updatedAt: string;
 };
 
@@ -118,6 +124,18 @@ function isTargetState(value: unknown): value is TargetStateInput {
     (candidate.durationMinutes === undefined || typeof candidate.durationMinutes === 'number') &&
     (candidate.dailyGoalMinutes === undefined || typeof candidate.dailyGoalMinutes === 'number') &&
     (candidate.focusLogged === undefined || typeof candidate.focusLogged === 'boolean') &&
+    (candidate.mustTaskStopwatches === undefined ||
+      (typeof candidate.mustTaskStopwatches === 'object' &&
+        candidate.mustTaskStopwatches !== null &&
+        Object.entries(candidate.mustTaskStopwatches).every(
+          ([code, stopwatch]) =>
+            ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'].includes(code) &&
+            Boolean(stopwatch) &&
+            typeof stopwatch.running === 'boolean' &&
+            typeof stopwatch.startedAt === 'string' &&
+            typeof stopwatch.elapsedMs === 'number' &&
+            typeof stopwatch.updatedAt === 'string'
+        ))) &&
     typeof candidate.updatedAt === 'string'
   );
 }

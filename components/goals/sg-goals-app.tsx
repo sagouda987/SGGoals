@@ -55,6 +55,13 @@ type MustTaskFocusMinutes = {
   BOOK: number;
   GYM: number;
 };
+type MustTaskStopwatch = {
+  running: boolean;
+  startedAt: string;
+  elapsedMs: number;
+  updatedAt: string;
+};
+type MustTaskStopwatchState = Partial<Record<keyof MustTaskFocusMinutes, MustTaskStopwatch>>;
 type MonthlySummary = {
   monthKey: string;
   completedPoints: number;
@@ -93,6 +100,7 @@ type TargetState = {
   durationMinutes?: number;
   dailyGoalMinutes?: number;
   focusLogged?: boolean;
+  mustTaskStopwatches?: MustTaskStopwatchState;
   updatedAt: string;
 };
 
@@ -115,8 +123,9 @@ const FOCUS_DAILY_GOAL_KEY = 'sg-goals-focus-daily-goal-v1';
 const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
+const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v73';
+const APP_VERSION = 'cloud-sync-v74';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -234,6 +243,30 @@ function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
 
 function isDailyPriorityStrikeCode(code: StrikeCode | null): code is (typeof DAILY_PRIORITY_STRIKE_KEYS)[number] {
   return Boolean(code && (DAILY_PRIORITY_STRIKE_KEYS as readonly StrikeCode[]).includes(code));
+}
+
+function normalizeMustTaskStopwatches(value: unknown): MustTaskStopwatchState {
+  if (!value || typeof value !== 'object') return {};
+  const candidate = value as Record<string, unknown>;
+  return Object.fromEntries(
+    DAILY_PRIORITY_STRIKE_KEYS.flatMap((code) => {
+      const stopwatch = candidate[code] as Partial<MustTaskStopwatch> | undefined;
+      if (
+        !stopwatch ||
+        typeof stopwatch !== 'object' ||
+        typeof stopwatch.running !== 'boolean' ||
+        typeof stopwatch.startedAt !== 'string' ||
+        typeof stopwatch.elapsedMs !== 'number' ||
+        typeof stopwatch.updatedAt !== 'string'
+      ) return [];
+      return [[code, {
+        running: stopwatch.running,
+        startedAt: stopwatch.startedAt,
+        elapsedMs: Math.max(0, stopwatch.elapsedMs),
+        updatedAt: stopwatch.updatedAt
+      }]];
+    })
+  ) as MustTaskStopwatchState;
 }
 
 const starterStore: GoalsStore = {
@@ -394,7 +427,6 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
     if (!day) return;
     if (activity.kind === 'focus-session') {
       const focusMinutes = Math.max(0, Math.round(activity.focusMinutes || 0));
-      day.focusMinutes += focusMinutes;
       const code = normalizeStrikeCode(activity.taskText);
       if (isDailyPriorityStrikeCode(code)) day.mustTaskFocusMinutes[code] += focusMinutes;
       return;
@@ -413,6 +445,9 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
       day.failedPoints += points;
       day.failedTasks.push({ text: activity.taskText, points });
     }
+  });
+  byDate.forEach((day) => {
+    day.focusMinutes = completedFocusMinutes(activities.filter((activity) => dateKeyFromValue(activity.createdAt) === day.dateKey));
   });
   return Array.from(byDate.values()).reverse();
 }
@@ -598,6 +633,8 @@ function isTargetState(value: unknown): value is TargetState {
     (candidate.durationMinutes === undefined || typeof candidate.durationMinutes === 'number') &&
     (candidate.dailyGoalMinutes === undefined || typeof candidate.dailyGoalMinutes === 'number') &&
     (candidate.focusLogged === undefined || typeof candidate.focusLogged === 'boolean') &&
+    (candidate.mustTaskStopwatches === undefined ||
+      Object.keys(normalizeMustTaskStopwatches(candidate.mustTaskStopwatches)).length === Object.keys(candidate.mustTaskStopwatches || {}).length) &&
     typeof candidate.updatedAt === 'string'
   );
 }
@@ -608,6 +645,10 @@ function targetMinutesSignature(minutes: Record<string, number> | undefined) {
       .filter(([, value]) => typeof value === 'number' && value > 0)
       .sort(([a], [b]) => a.localeCompare(b))
   );
+}
+
+function mustTaskStopwatchesSignature(stopwatches: MustTaskStopwatchState | undefined) {
+  return JSON.stringify(normalizeMustTaskStopwatches(stopwatches));
 }
 
 function toISODate(date: Date) {
@@ -752,10 +793,24 @@ function activityPoints(activity: Pick<GoalActivity, 'points' | 'taskText'>) {
 }
 
 function completedFocusMinutes(activities: GoalActivity[]) {
-  return activities.reduce(
-    (total, activity) => (activity.kind === 'focus-session' ? total + Math.max(0, Math.round(activity.focusMinutes || 0)) : total),
-    0
-  );
+  const intervals: Array<{ start: number; end: number }> = [];
+  let fallbackMinutes = 0;
+  activities.forEach((activity) => {
+    if (activity.kind !== 'focus-session') return;
+    const start = activity.startedAt ? new Date(activity.startedAt).getTime() : Number.NaN;
+    const end = activity.completedAt ? new Date(activity.completedAt).getTime() : Number.NaN;
+    if (Number.isFinite(start) && Number.isFinite(end) && end > start) intervals.push({ start, end });
+    else fallbackMinutes += Math.max(0, Math.round(activity.focusMinutes || 0));
+  });
+  intervals.sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  intervals.forEach((interval) => {
+    const previous = merged[merged.length - 1];
+    if (previous && interval.start <= previous.end) previous.end = Math.max(previous.end, interval.end);
+    else merged.push({ ...interval });
+  });
+  const intervalMinutes = merged.reduce((total, interval) => total + Math.max(1, Math.round((interval.end - interval.start) / 60000)), 0);
+  return fallbackMinutes + intervalMinutes;
 }
 
 function allowsSubtasks(task: GoalTask) {
@@ -1285,6 +1340,7 @@ export function SgGoalsApp() {
   const [focusMode, setFocusMode] = useState<'timer' | 'stopwatch'>('timer');
   const [stopwatchStartedAt, setStopwatchStartedAt] = useState('');
   const [stopwatchElapsedMs, setStopwatchElapsedMs] = useState(0);
+  const [mustTaskStopwatches, setMustTaskStopwatches] = useState<MustTaskStopwatchState>({});
   const [targetEndAt, setTargetEndAt] = useState('');
   const [targetRunning, setTargetRunning] = useState(false);
   const [targetDurationMinutes, setTargetDurationMinutes] = useState(DEFAULT_TARGET_DURATION_MINUTES);
@@ -1348,6 +1404,7 @@ export function SgGoalsApp() {
     setFocusMode(targetState.mode === 'stopwatch' ? 'stopwatch' : 'timer');
     setStopwatchStartedAt(targetState.stopwatchStartedAt || '');
     setStopwatchElapsedMs(Math.max(0, targetState.stopwatchElapsedMs || 0));
+    setMustTaskStopwatches(normalizeMustTaskStopwatches(targetState.mustTaskStopwatches));
     setTargetEndAt(upgradedEndAt);
     setTargetRunning(targetState.running);
     setTargetDurationMinutes(nextDurationMinutes);
@@ -1389,6 +1446,12 @@ export function SgGoalsApp() {
     const savedTargetDurationMinutes = normalizeTimerMinutes(window.localStorage.getItem(TARGET_DURATION_MINUTES_KEY));
     const savedFocusDailyGoalMinutes = normalizeTimerMinutes(window.localStorage.getItem(FOCUS_DAILY_GOAL_KEY));
     const savedTargetFocusLogged = window.localStorage.getItem(TARGET_FOCUS_LOGGED_KEY) === 'true';
+    let savedMustTaskStopwatches: MustTaskStopwatchState = {};
+    try {
+      savedMustTaskStopwatches = normalizeMustTaskStopwatches(JSON.parse(window.localStorage.getItem(MUST_TASK_STOPWATCHES_KEY) || '{}'));
+    } catch {
+      savedMustTaskStopwatches = {};
+    }
     const savedTargetDurationMs = savedTargetDurationMinutes * 60000;
     const savedTargetUpdatedAt = window.localStorage.getItem(TARGET_UPDATED_KEY) || '1970-01-01T00:00:00.000Z';
     setStore(localStore);
@@ -1405,6 +1468,7 @@ export function SgGoalsApp() {
     setTargetDurationMinutes(savedTargetDurationMinutes);
     setFocusDailyGoalMinutes(savedFocusDailyGoalMinutes);
     setTargetFocusLogged(savedTargetFocusLogged);
+    setMustTaskStopwatches(savedMustTaskStopwatches);
     setTargetRemainingMs(Number.isFinite(savedRemaining) && savedRemaining >= 0 ? Math.min(savedTargetDurationMs, savedRemaining) : savedTargetDurationMs);
     setTargetRunning(
       window.localStorage.getItem(TARGET_RUNNING_KEY) === 'true' &&
@@ -1460,6 +1524,7 @@ export function SgGoalsApp() {
                 durationMinutes: savedTargetDurationMinutes,
                 dailyGoalMinutes: savedFocusDailyGoalMinutes,
                 focusLogged: savedTargetFocusLogged,
+                mustTaskStopwatches: savedMustTaskStopwatches,
                 updatedAt: savedTargetUpdatedAt
               },
               weeklyPlan: localWeeklyPlan,
@@ -1602,6 +1667,10 @@ export function SgGoalsApp() {
   }, [focusDailyGoalMinutes, focusMode, ready, stopwatchElapsedMs, stopwatchStartedAt, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetUpdatedAt]);
 
   useEffect(() => {
+    if (ready) window.localStorage.setItem(MUST_TASK_STOPWATCHES_KEY, JSON.stringify(mustTaskStopwatches));
+  }, [mustTaskStopwatches, ready]);
+
+  useEffect(() => {
     if (!targetDurationEditing) setTargetDurationDraft(String(targetDurationMinutes));
   }, [targetDurationEditing, targetDurationMinutes]);
 
@@ -1684,6 +1753,7 @@ export function SgGoalsApp() {
               durationMinutes: targetDurationMinutes,
               dailyGoalMinutes: focusDailyGoalMinutes,
               focusLogged: targetFocusLogged,
+              mustTaskStopwatches,
               updatedAt: targetUpdatedAt
             },
             weeklyPlan,
@@ -1700,7 +1770,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, focusDailyGoalMinutes, focusMode, ready, stopwatchElapsedMs, stopwatchStartedAt, store, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
+  }, [cloudReady, focusDailyGoalMinutes, focusMode, mustTaskStopwatches, ready, stopwatchElapsedMs, stopwatchStartedAt, store, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1741,6 +1811,8 @@ export function SgGoalsApp() {
           const cloudMode = data.targetState.mode === 'stopwatch' ? 'stopwatch' : 'timer';
           const cloudStopwatchElapsed = Math.round(Math.max(0, data.targetState.stopwatchElapsedMs || 0) / 1000);
           const localStopwatchElapsed = Math.round(Math.max(0, stopwatchElapsedMs) / 1000);
+          const cloudMustTaskStopwatches = mustTaskStopwatchesSignature(data.targetState.mustTaskStopwatches);
+          const localMustTaskStopwatches = mustTaskStopwatchesSignature(mustTaskStopwatches);
           const cloudRemaining = Math.round(data.targetState.remainingMs / 1000);
           const localRemainingMs = targetRunning && targetEndAt ? Math.max(0, new Date(targetEndAt).getTime() - Date.now()) : targetRemainingMs;
           const localRemaining = Math.round(localRemainingMs / 1000);
@@ -1751,6 +1823,7 @@ export function SgGoalsApp() {
             cloudDailyGoalMinutes !== focusDailyGoalMinutes ||
             cloudMode !== focusMode ||
             cloudStopwatchElapsed !== localStopwatchElapsed ||
+            cloudMustTaskStopwatches !== localMustTaskStopwatches ||
             (data.targetState.stopwatchStartedAt || '') !== stopwatchStartedAt ||
             Boolean(data.targetState.focusLogged) !== targetFocusLogged ||
             data.targetState.running !== targetRunning ||
@@ -1768,7 +1841,7 @@ export function SgGoalsApp() {
       }
     }, 10000);
     return () => window.clearInterval(interval);
-  }, [applyTargetState, cloudReady, focusDailyGoalMinutes, focusMode, ready, stopwatchElapsedMs, stopwatchStartedAt, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
+  }, [applyTargetState, cloudReady, focusDailyGoalMinutes, focusMode, mustTaskStopwatches, ready, stopwatchElapsedMs, stopwatchStartedAt, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => buildScopeCompletion(activeTasks), [activeTasks]);
@@ -1996,16 +2069,27 @@ export function SgGoalsApp() {
       }
       return total;
     }, 0);
-    const isActive = Boolean(task && focusMode === 'stopwatch' && focusActiveTask?.id === task.id && focusRunning);
+    const stopwatch = mustTaskStopwatches[code];
+    const isActive = Boolean(stopwatch?.running && stopwatch.startedAt);
+    const liveElapsedMs = Math.max(
+      0,
+      (stopwatch?.elapsedMs || 0) + (isActive ? Math.max(0, timerNow - new Date(stopwatch?.startedAt || '').getTime()) : 0)
+    );
     return {
       code,
       task,
       label: habitLabels[code] || code,
       color: DAILY_PRIORITY_FOCUS_COLORS[code],
       minutes,
-      isActive
+      isActive,
+      liveElapsedMs
     };
   });
+  const activeMustTaskFocus = dailyPriorityFocus.filter((item) => item.isActive);
+  const mustTaskCombinedLiveMs = activeMustTaskFocus.reduce((total, item) => total + item.liveElapsedMs, 0);
+  const mustTaskRealLiveMs = activeMustTaskFocus.length
+    ? Math.max(0, timerNow - Math.min(...activeMustTaskFocus.map((item) => new Date(mustTaskStopwatches[item.code]?.startedAt || '').getTime())))
+    : 0;
 
   useEffect(() => {
     if (!ready) return;
@@ -2436,16 +2520,42 @@ export function SgGoalsApp() {
     markTargetChanged();
   }
 
-  function startMustTaskStopwatch(task: GoalTask) {
-    if (targetRunning || task.done) return;
-    setTargetTaskIds((current) => [task.id, ...current.filter((taskId) => taskId !== task.id)]);
-    setFocusMode('stopwatch');
-    setStopwatchElapsedMs(0);
-    setStopwatchStartedAt(new Date().toISOString());
-    setTargetEndAt('');
-    setTargetRunning(true);
-    setTargetFocusLogged(false);
-    window.localStorage.removeItem(TARGET_NOTIFICATION_KEY);
+  function startMustTaskStopwatch(code: keyof MustTaskFocusMinutes, task: GoalTask) {
+    if (task.done || mustTaskStopwatches[code]?.running) return;
+    const now = new Date().toISOString();
+    setMustTaskStopwatches((current) => ({
+      ...current,
+      [code]: { running: true, startedAt: now, elapsedMs: 0, updatedAt: now }
+    }));
+    markTargetChanged();
+  }
+
+  function finishMustTaskStopwatch(code: keyof MustTaskFocusMinutes, task: GoalTask) {
+    const stopwatch = mustTaskStopwatches[code];
+    if (!stopwatch?.running || !stopwatch.startedAt) return;
+    const completedAt = new Date();
+    const startedAt = new Date(stopwatch.startedAt);
+    const elapsedMs = Math.max(0, stopwatch.elapsedMs + completedAt.getTime() - startedAt.getTime());
+    if (elapsedMs < 1000) return;
+    const focusMinutes = Math.max(1, Math.round(elapsedMs / 60000));
+    const completedAtIso = completedAt.toISOString();
+    appendActivity({
+      id: activityId(),
+      scope: 'today',
+      priority: task.priority,
+      taskText: habitLabels[code] || task.text,
+      kind: 'focus-session',
+      note: 'Completed must-task stopwatch session',
+      minutes: focusMinutes,
+      focusMinutes,
+      startedAt: stopwatch.startedAt,
+      completedAt: completedAtIso,
+      createdAt: completedAtIso
+    });
+    setMustTaskStopwatches((current) => ({
+      ...current,
+      [code]: { running: false, startedAt: '', elapsedMs: 0, updatedAt: completedAtIso }
+    }));
     markTargetChanged();
   }
 
@@ -3233,45 +3343,57 @@ export function SgGoalsApp() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Must-task focus time</p>
-            <p className="mt-1 text-xs text-[#8b8bb3]">Track stopwatch time separately for today&apos;s four must tasks.</p>
+            <p className="mt-1 text-xs text-[#8b8bb3]">Run one or several stopwatches together. Overlapping time counts once in Real focus.</p>
           </div>
           <Clock className="h-4 w-4 text-[#4f8ef7]" />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-[10px] font-bold">
+          <span className="rounded-full border border-[#4f8ef740] bg-[#4f8ef712] px-2 py-1 text-[#4f8ef7]">
+            Real focus {formatMinutes(todayFocus.focusMinutes) || '0m'}
+          </span>
+          <span className="rounded-full border border-[#ffd16640] bg-[#ffd16612] px-2 py-1 text-[#ffd166]">
+            Combined tasks {formatMinutes(dailyPriorityFocus.reduce((total, item) => total + item.minutes, 0)) || '0m'}
+          </span>
+          {activeMustTaskFocus.length ? (
+            <span className="rounded-full border border-[#00d97e40] bg-[#00d97e12] px-2 py-1 text-[#00d97e]">
+              {activeMustTaskFocus.length} active · real {formatElapsed(mustTaskRealLiveMs)} · combined {formatElapsed(mustTaskCombinedLiveMs)}
+            </span>
+          ) : null}
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {dailyPriorityFocus.map((item) => {
             const sharePct = todayFocus.focusMinutes ? Math.min(100, Math.round((item.minutes / todayFocus.focusMinutes) * 100)) : 0;
             const unavailable = !item.task || item.task.done;
-            const blocked = targetRunning && !item.isActive;
             return (
               <div key={item.code} className="rounded-lg border border-[#24243e] bg-[#13132a] p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-xs font-bold text-[#e8e8f5]">{item.label}</p>
                     <p className="mt-1 text-lg font-bold" style={{ color: item.color }}>{formatMinutes(item.minutes) || '0m'}</p>
-                    {item.isActive ? <p className="mt-0.5 font-mono text-[10px] text-[#00d97e]">+ {formatElapsed(effectiveStopwatchElapsedMs)} live</p> : null}
+                    {item.isActive ? <p className="mt-0.5 font-mono text-[10px] text-[#00d97e]">+ {formatElapsed(item.liveElapsedMs)} live</p> : null}
                   </div>
                   <button
                     type="button"
                     onClick={() => {
-                      if (item.isActive) completeFocusPeriod();
-                      else if (item.task) startMustTaskStopwatch(item.task);
+                      if (item.isActive && item.task) finishMustTaskStopwatch(item.code, item.task);
+                      else if (item.task) startMustTaskStopwatch(item.code, item.task);
                     }}
-                    disabled={item.isActive ? focusElapsedMs < 1000 : unavailable || blocked}
+                    disabled={item.isActive ? item.liveElapsedMs < 1000 : unavailable}
                     className={`shrink-0 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${
                       item.isActive
                         ? 'border-[#00d97e40] bg-[#00d97e18] text-[#00d97e] disabled:opacity-40'
-                        : unavailable || blocked
+                        : unavailable
                           ? 'cursor-not-allowed border-[#1a1a30] text-[#38385a]'
                           : 'border-[#4f8ef740] bg-[#4f8ef715] text-[#4f8ef7]'
                     }`}
                   >
-                    {item.isActive ? 'Finish focus' : item.task?.done ? 'Task done' : blocked ? 'In use' : item.task ? 'Start' : 'Unavailable'}
+                    {item.isActive ? 'Finish focus' : item.task?.done ? 'Task done' : item.task ? 'Start' : 'Unavailable'}
                   </button>
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]">
                   <div className="h-full rounded-full" style={{ width: `${sharePct}%`, background: item.color }} />
                 </div>
-                <p className="mt-1 text-[9px] text-[#52527a]">{sharePct}% of today&apos;s completed focus</p>
+                <p className="mt-1 text-[9px] text-[#52527a]">{sharePct}% of real completed focus · task time may overlap</p>
               </div>
             );
           })}

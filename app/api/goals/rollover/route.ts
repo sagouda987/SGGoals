@@ -186,6 +186,17 @@ function activityFocusMinutesFromNote(note: string | null) {
   }
 }
 
+function mergedFocusMinutes(intervals: Array<{ start: number; end: number }>, fallbackMinutes: number) {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  sorted.forEach((interval) => {
+    const previous = merged[merged.length - 1];
+    if (previous && interval.start <= previous.end) previous.end = Math.max(previous.end, interval.end);
+    else merged.push({ ...interval });
+  });
+  return fallbackMinutes + merged.reduce((total, interval) => total + Math.max(1, Math.round((interval.end - interval.start) / 60000)), 0);
+}
+
 function escapePdfText(value: string) {
   return value.replace(/[^\x20-\x7E]/g, '?').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
@@ -298,7 +309,7 @@ async function archiveMonthlySummary() {
   const activities = await prisma.goalActivity.findMany({
     where: { ownerKey, createdAt: { gte: start, lt: end } },
     orderBy: { createdAt: 'asc' },
-    select: { taskText: true, kind: true, note: true, createdAt: true }
+    select: { taskText: true, kind: true, note: true, startedAt: true, completedAt: true, createdAt: true }
   });
   const completedHabitKeys = new Set(
     activities
@@ -309,11 +320,27 @@ async function archiveMonthlySummary() {
       })
       .filter((key): key is string => Boolean(key))
   );
-  const days = new Map<string, { dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number; mustTaskFocusMinutes: MustTaskFocusMinutes }>();
+  const days = new Map<string, {
+    dateKey: string;
+    completedPoints: number;
+    failedPoints: number;
+    focusMinutes: number;
+    mustTaskFocusMinutes: MustTaskFocusMinutes;
+    focusIntervals: Array<{ start: number; end: number }>;
+    fallbackFocusMinutes: number;
+  }>();
   const cursor = new Date(start.getTime());
   while (cursor < end) {
     const key = istDateKey(cursor);
-    days.set(key, { dateKey: key, completedPoints: 0, failedPoints: 0, focusMinutes: 0, mustTaskFocusMinutes: emptyMustTaskFocusMinutes() });
+    days.set(key, {
+      dateKey: key,
+      completedPoints: 0,
+      failedPoints: 0,
+      focusMinutes: 0,
+      mustTaskFocusMinutes: emptyMustTaskFocusMinutes(),
+      focusIntervals: [],
+      fallbackFocusMinutes: 0
+    });
     cursor.setTime(cursor.getTime() + 24 * 60 * 60 * 1000);
   }
   activities.forEach((activity) => {
@@ -321,7 +348,10 @@ async function archiveMonthlySummary() {
     if (!day) return;
     if (activity.kind === 'focus-session') {
       const focusMinutes = activityFocusMinutesFromNote(activity.note);
-      day.focusMinutes += focusMinutes;
+      const start = activity.startedAt?.getTime() ?? Number.NaN;
+      const end = activity.completedAt?.getTime() ?? Number.NaN;
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) day.focusIntervals.push({ start, end });
+      else day.fallbackFocusMinutes += focusMinutes;
       const code = normalizeHabitCode(activity.taskText);
       if (code && (DAILY_PRIORITY_FOCUS_KEYS as readonly string[]).includes(code)) {
         day.mustTaskFocusMinutes[code as keyof MustTaskFocusMinutes] += focusMinutes;
@@ -337,12 +367,16 @@ async function archiveMonthlySummary() {
       day.failedPoints += points;
     }
   });
+  const summaryDays = Array.from(days.values()).map(({ focusIntervals, fallbackFocusMinutes, ...day }) => ({
+    ...day,
+    focusMinutes: mergedFocusMinutes(focusIntervals, fallbackFocusMinutes)
+  }));
   const summary = {
     monthKey,
-    completedPoints: Array.from(days.values()).reduce((total, day) => total + day.completedPoints, 0),
-    failedPoints: Array.from(days.values()).reduce((total, day) => total + day.failedPoints, 0),
-    focusMinutes: Array.from(days.values()).reduce((total, day) => total + day.focusMinutes, 0),
-    days: Array.from(days.values()),
+    completedPoints: summaryDays.reduce((total, day) => total + day.completedPoints, 0),
+    failedPoints: summaryDays.reduce((total, day) => total + day.failedPoints, 0),
+    focusMinutes: summaryDays.reduce((total, day) => total + day.focusMinutes, 0),
+    days: summaryDays,
     createdAt: new Date().toISOString()
   };
   const emailedAt = await emailMonthlySummary(summary);
