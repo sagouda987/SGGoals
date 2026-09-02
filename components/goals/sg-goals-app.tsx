@@ -125,7 +125,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v74';
+const APP_VERSION = 'cloud-sync-v75';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -175,9 +175,21 @@ const blocks: Record<Block, { label: string; time: string }> = {
   evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
-const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'B', 'Meditation', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'Salt water gargle', 'Book read and communication practice', 'Study 2 hour', 'Office work', 'Wake up before 8', 'No junk food', 'No Social Media', 'No E', 'Manifestation'];
-const REMOVED_HABIT_TASKS = ['Chess improvement', 'Office course'];
-const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'L1', 'L2', 'L3', 'M', 'B', 'MEDITATION', 'GYM', 'SKINCAREMORNING', 'SKINCAREEVENING', 'EYECARE', 'SALTGARGLE', 'NOJUNK', 'NOSOCIAL', 'NOE', 'MANIFEST'];
+const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Gym', 'Book read and communication practice', 'Study 2 hour', 'Office work', 'Wake up before 8', 'No Social Media', 'Manifestation'];
+const REMOVED_HABIT_TASKS = [
+  'Chess improvement',
+  'Office course',
+  'B',
+  'Healthy drink morning',
+  'Healthy drink evening',
+  'Morning skin care',
+  'Evening skin care',
+  'Eye care',
+  'Salt water gargle',
+  'No E',
+  'No junk food'
+];
+const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'GYM', 'NOSOCIAL', 'MANIFEST'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
 const HABIT_MISS_ROLLOVER_KEY = 'sg-goals-habit-miss-rollover-v1';
 
@@ -3022,7 +3034,7 @@ export function SgGoalsApp() {
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
       `Weekly plan: Main=${weeklyPlan.mainGoal || 'Not set'}; Study=${weeklyPlan.studyPlan || 'Not set'}; Work=${weeklyPlan.workPlan || 'Not set'}; Health=${weeklyPlan.healthPlan || 'Not set'}; Notes=${weeklyPlan.notes || 'None'}`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, B=${strikeCounts.b}, Meditation=${strikeCounts.meditation}, Gym=${strikeCounts.gym}, Healthy drink morning=${strikeCounts.healthyDrinkMorning}, Healthy drink evening=${strikeCounts.healthyDrinkEvening}, Morning skin care=${strikeCounts.skinCareMorning}, Evening skin care=${strikeCounts.skinCareEvening}, Eye care=${strikeCounts.eyeCare}, Book read and communication practice=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No junk food=${strikeCounts.noJunk}, No Social Media=${strikeCounts.noSocial}, No E=${strikeCounts.noE}, Manifestation=${strikeCounts.manifest}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Gym=${strikeCounts.gym}, Book read and communication practice=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
       `Next target (${formatMinutes(targetDurationMinutes)} timer): ${
         targetTasks.length
           ? targetTasks.map((task) => `${task.text}${targetTaskMinutes[task.id] ? ` (${targetTaskMinutes[task.id]}m)` : ''}`).join(', ')
@@ -3704,19 +3716,10 @@ export function SgGoalsApp() {
               { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
               { key: 'L' as const, label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },
               { key: 'M' as const, label: 'M count', rule: 'M complete', color: '#f7a04f', todayDone: strikeCounts.today.m, value: strikeCounts.m },
-              { key: 'B' as const, label: 'B count', rule: 'B complete', color: '#60a5fa', todayDone: strikeCounts.today.b, value: strikeCounts.b },
               { key: 'MEDITATION' as const, label: 'Meditation count', rule: 'Meditation complete', color: '#34d399', todayDone: strikeCounts.today.meditation, value: strikeCounts.meditation },
-              { key: 'HEALTHYDRINKMORNING' as const, label: 'Drink AM count', rule: 'Healthy drink morning complete', color: '#14b8a6', todayDone: strikeCounts.today.healthyDrinkMorning, value: strikeCounts.healthyDrinkMorning },
-              { key: 'HEALTHYDRINKEVENING' as const, label: 'Drink PM count', rule: 'Healthy drink evening complete', color: '#f97316', todayDone: strikeCounts.today.healthyDrinkEvening, value: strikeCounts.healthyDrinkEvening },
-              { key: 'SKINCAREMORNING' as const, label: 'Skin AM count', rule: 'Morning skin care complete', color: '#c084fc', todayDone: strikeCounts.today.skinCareMorning, value: strikeCounts.skinCareMorning },
-              { key: 'SKINCAREEVENING' as const, label: 'Skin PM count', rule: 'Evening skin care complete', color: '#e879f9', todayDone: strikeCounts.today.skinCareEvening, value: strikeCounts.skinCareEvening },
               { key: 'SLEEP' as const, label: 'Wake count', rule: 'Wake up before 8 complete', color: '#a78bfa', todayDone: strikeCounts.today.sleep, value: strikeCounts.sleep },
-              { key: 'NOJUNK' as const, label: 'No junk count', rule: 'No junk food complete', color: '#00bcd4', todayDone: strikeCounts.today.noJunk, value: strikeCounts.noJunk },
               { key: 'NOSOCIAL' as const, label: 'No social count', rule: 'No Social Media complete', color: '#38bdf8', todayDone: strikeCounts.today.noSocial, value: strikeCounts.noSocial },
-              { key: 'NOE' as const, label: 'No E count', rule: 'No E complete', color: '#8b8bb3', todayDone: strikeCounts.today.noE, value: strikeCounts.noE },
-              { key: 'MANIFEST' as const, label: 'Manifest count', rule: 'Manifestation complete', color: '#fb7185', todayDone: strikeCounts.today.manifest, value: strikeCounts.manifest },
-              { key: 'EYECARE' as const, label: 'Eye care count', rule: 'Eye care complete', color: '#2dd4bf', todayDone: strikeCounts.today.eyeCare, value: strikeCounts.eyeCare },
-              { key: 'SALTGARGLE' as const, label: 'Gargle count', rule: 'Salt water gargle complete', color: '#93c5fd', todayDone: strikeCounts.today.saltGargle, value: strikeCounts.saltGargle }
+              { key: 'MANIFEST' as const, label: 'Manifest count', rule: 'Manifestation complete', color: '#fb7185', todayDone: strikeCounts.today.manifest, value: strikeCounts.manifest }
             ].map((item) => {
               const reachedTarget = item.value >= HABIT_TARGET_COUNT;
               const isDailyPriority = DAILY_PRIORITY_STRIKE_KEYS.includes(item.key as (typeof DAILY_PRIORITY_STRIKE_KEYS)[number]);

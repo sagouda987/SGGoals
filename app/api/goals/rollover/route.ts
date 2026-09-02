@@ -9,6 +9,7 @@ const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
+const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'GYM', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'SLEEP', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -451,7 +452,7 @@ async function recordHabitMisses() {
     .filter((task) => !task.done)
     .flatMap((task) => {
       const code = normalizeHabitCode(task.text);
-      if (!code || plannedCodes.has(code) || handledHabitCodes.has(code)) return [];
+      if (!code || !ACTIVE_HABIT_CODES.has(code) || plannedCodes.has(code) || handledHabitCodes.has(code)) return [];
       const id = `habit-miss-${missedDateKey}-${code}`;
       const taskText = habitLabels[code] || task.text;
       const points = taskWeightFromNote(task.note, habitDefaultWeights[code] || 1);
