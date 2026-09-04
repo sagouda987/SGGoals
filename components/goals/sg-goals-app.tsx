@@ -126,7 +126,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v76';
+const APP_VERSION = 'cloud-sync-v77';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -176,7 +176,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
   evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
-const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Gym', 'Book read and communication practice', 'Study 2 hour', 'Office work', 'Wake up before 8', 'No Social Media', 'Manifestation'];
+const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Gym', 'Book read and communication practice', 'Study', 'Office work', 'Wake up before 8', 'No Social Media', 'Manifestation'];
 const REMOVED_HABIT_TASKS = [
   'Chess improvement',
   'Office course',
@@ -208,7 +208,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   SKINCAREMORNING: 'Morning skin care',
   SKINCAREEVENING: 'Evening skin care',
   BOOK: 'Book read and communication practice',
-  STUDY2: 'Study 2 hour',
+  STUDY2: 'Study',
   OFFICEWORK2: 'Office work',
   SLEEP: 'Wake up before 8',
   NOJUNK: 'No junk food',
@@ -776,7 +776,7 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'MORNINGSKINCARE' || compact === 'SKINCAREMORNING') return 'SKINCAREMORNING';
   if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
-  if (compact === 'STUDY2HOUR') return 'STUDY2';
+  if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
   if (compact === 'SLEEP11TO6' || compact === 'WAKEUPBEFORE8') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
@@ -3044,7 +3044,7 @@ export function SgGoalsApp() {
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
       `Weekly plan: Main=${weeklyPlan.mainGoal || 'Not set'}; Study=${weeklyPlan.studyPlan || 'Not set'}; Work=${weeklyPlan.workPlan || 'Not set'}; Health=${weeklyPlan.healthPlan || 'Not set'}; Notes=${weeklyPlan.notes || 'None'}`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Gym=${strikeCounts.gym}, Book read and communication practice=${strikeCounts.book}, Study 2 hour=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Gym=${strikeCounts.gym}, Book read and communication practice=${strikeCounts.book}, Study=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
       `Next target (${formatMinutes(targetDurationMinutes)} timer): ${
         targetTasks.length
           ? targetTasks.map((task) => `${task.text}${targetTaskMinutes[task.id] ? ` (${targetTaskMinutes[task.id]}m)` : ''}`).join(', ')
@@ -3769,7 +3769,7 @@ export function SgGoalsApp() {
             <div className="grid grid-cols-3 gap-2">
             {[
               { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Daily priority - Office work complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
-              { key: 'STUDY2' as const, label: 'Study count', rule: 'Daily priority - Study 2 hour complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
+              { key: 'STUDY2' as const, label: 'Study count', rule: 'Daily priority - Study complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
               { key: 'BOOK' as const, label: 'Book + comm count', rule: 'Daily priority - Book read and communication practice complete', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
               { key: 'GYM' as const, label: 'Gym count', rule: 'Daily priority - Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
               { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },

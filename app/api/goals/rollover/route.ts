@@ -30,7 +30,7 @@ const habitLabels: Record<string, string> = {
   SKINCAREMORNING: 'Morning skin care',
   SKINCAREEVENING: 'Evening skin care',
   BOOK: 'Book read and communication practice',
-  STUDY2: 'Study 2 hour',
+  STUDY2: 'Study',
   OFFICEWORK2: 'Office work',
   SLEEP: 'Sleep 11 to 6',
   NOJUNK: 'No junk food',
@@ -122,7 +122,7 @@ function normalizeHabitCode(text: string) {
   if (compact === 'MORNINGSKINCARE' || compact === 'SKINCAREMORNING') return 'SKINCAREMORNING';
   if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
   if (compact === 'BOOKREAD') return 'BOOK';
-  if (compact === 'STUDY2HOUR') return 'STUDY2';
+  if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
   if (compact === 'SLEEP11TO6') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
