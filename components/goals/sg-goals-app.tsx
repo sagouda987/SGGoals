@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
+import { buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
 type Scope = 'today' | 'weekly' | 'weekend' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
@@ -125,7 +126,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v75';
+const APP_VERSION = 'cloud-sync-v76';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -2068,13 +2069,22 @@ export function SgGoalsApp() {
         ? Math.min(100, Math.max(0, Math.round(((targetTimer.activeTaskMinutes * 60000 - targetTimer.activeTaskRemainingMs) / (targetTimer.activeTaskMinutes * 60000)) * 100)))
         : targetTimer.progress;
   const focusPeriodLabel = focusMode === 'stopwatch' ? formatElapsed(effectiveStopwatchElapsedMs) : focusComplete ? '00:00' : targetTimer.label;
+  const focusTargetDateKey = timerNow ? istFocusDateKey(timerNow) : todayKey;
+  const mustFocusProgress = useMemo(() => buildMustFocusTargetProgress(
+    activities.filter((activity) => activity.scope === 'today' && activity.kind === 'focus-session').map((activity) => ({
+      code: normalizeStrikeCode(activity.taskText) || '',
+      createdAt: activity.createdAt,
+      minutes: activity.focusMinutes || 0
+    })),
+    focusTargetDateKey
+  ), [activities, focusTargetDateKey]);
   const dailyPriorityFocus = DAILY_PRIORITY_STRIKE_KEYS.map((code) => {
     const task = store.today.find((item) => normalizeStrikeCode(item.text) === code) || null;
     const minutes = activities.reduce((total, activity) => {
       if (
         activity.scope === 'today' &&
         activity.kind === 'focus-session' &&
-        dateKeyFromValue(activity.createdAt) === todayKey &&
+        istFocusDateKey(activity.createdAt) === focusTargetDateKey &&
         normalizeStrikeCode(activity.taskText) === code
       ) {
         return total + Math.max(0, Math.round(activity.focusMinutes || 0));
@@ -3350,6 +3360,7 @@ export function SgGoalsApp() {
   }
 
   function renderMustTaskFocusTracker() {
+    const targetDay = mustFocusProgress.today;
     return (
       <section className="mt-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
         <div className="flex items-center justify-between gap-3">
@@ -3372,16 +3383,59 @@ export function SgGoalsApp() {
             </span>
           ) : null}
         </div>
+        <div className="mt-4 border-y border-[#24243e] py-4" aria-label="Daily must-task target streak">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4" style={{ borderColor: targetDay.complete ? '#00d97e' : '#f7a04f', color: targetDay.complete ? '#00d97e' : '#f7a04f' }}>
+                <Flame className="h-7 w-7" aria-hidden="true" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-[#e8e8f5]">Main target streak</h3>
+                <p className="text-2xl font-bold text-[#e8e8f5]">{mustFocusProgress.current} <span className="text-xs font-normal text-[#8b8bb3]">{mustFocusProgress.current === 1 ? 'day' : 'days'}</span></p>
+                <p className="text-[10px] text-[#8b8bb3]">Best: {mustFocusProgress.best} {mustFocusProgress.best === 1 ? 'day' : 'days'}</p>
+              </div>
+            </div>
+            <div className="text-left sm:text-right">
+              <p className="text-xs font-bold" style={{ color: targetDay.complete ? '#00d97e' : '#f7a04f' }}>{targetDay.met}/3 time targets met</p>
+              <p className="mt-1 text-[10px] text-[#8b8bb3]">{targetDay.weekend ? 'Weekend' : 'Weekday'} · IST</p>
+              <p className="mt-1 text-[10px] text-[#8b8bb3]">{targetDay.complete ? 'Day achieved' : mustFocusProgress.current ? 'Streak pending today' : 'In progress'}</p>
+            </div>
+          </div>
+          <p className="mt-3 text-[10px] text-[#8b8bb3]">Book + communication / Gym / Study · saved focus</p>
+          <div className="mt-3 grid grid-cols-[repeat(14,minmax(0,1fr))] gap-1" role="img" aria-label="Last 14 days of daily time-target progress">
+            {mustFocusProgress.history.map((day) => {
+              const summary = `${day.dateKey}: ${day.tracked ? `${day.met}/3 targets met, ${day.percent}% progress. ${MUST_FOCUS_TARGET_CODES.map((code) => `${habitLabels[code]} ${day.minutes[code]}/${day.targets[code]} minutes`).join('; ')}` : 'Before target tracking began'}`;
+              return (
+                <div key={day.dateKey} title={summary} aria-label={summary} className="min-w-0">
+                  <div className={`relative h-20 overflow-hidden rounded-sm border ${day.dateKey === focusTargetDateKey ? 'border-[#8b8bb3]' : 'border-[#24243e]'} ${day.tracked ? 'bg-[#1a1a30]' : 'bg-transparent'}`}>
+                    <div className="absolute inset-x-0 bottom-0 transition-[height]" style={{ height: `${day.percent}%`, background: day.complete ? '#00d97e' : '#4f8ef7' }} />
+                    {day.complete ? <Check className="absolute inset-x-0 top-1 mx-auto h-3 w-3 text-[#07070f]" aria-hidden="true" /> : null}
+                  </div>
+                  <p className="mt-1 text-center text-[9px] text-[#8b8bb3]">{Number(day.dateKey.slice(-2))}</p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#8b8bb3]">
+            <span className="flex items-center gap-1"><span className="h-2 w-2 bg-[#00d97e]" />All targets met</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 bg-[#4f8ef7]" />Partial</span>
+            <span>Since Sep 4, 2026</span>
+          </div>
+        </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {dailyPriorityFocus.map((item) => {
             const sharePct = todayFocus.focusMinutes ? Math.min(100, Math.round((item.minutes / todayFocus.focusMinutes) * 100)) : 0;
+            const targetCode = (MUST_FOCUS_TARGET_CODES as readonly string[]).includes(item.code) ? item.code as MustFocusTargetCode : null;
+            const targetMinutes = targetCode ? targetDay.targets[targetCode] : null;
+            const targetMet = targetMinutes !== null && item.minutes >= targetMinutes;
+            const progressPct = targetMinutes ? Math.min(100, Math.floor(item.minutes / targetMinutes * 100)) : sharePct;
             const unavailable = !item.task || item.task.done;
             return (
               <div key={item.code} className="rounded-lg border border-[#24243e] bg-[#13132a] p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-bold text-[#e8e8f5]">{item.label}</p>
-                    <p className="mt-1 text-lg font-bold" style={{ color: item.color }}>{formatMinutes(item.minutes) || '0m'}</p>
+                    <p className="break-words text-xs font-bold text-[#e8e8f5]">{item.label}</p>
+                    <p className="mt-1 text-lg font-bold" style={{ color: item.color }}>{formatMinutes(item.minutes) || '0m'}{targetMinutes ? <span className="text-xs font-normal text-[#8b8bb3]"> / {formatMinutes(targetMinutes)}</span> : null}</p>
                     {item.isActive ? <p className="mt-0.5 font-mono text-[10px] text-[#00d97e]">+ {formatElapsed(item.liveElapsedMs)} live</p> : null}
                   </div>
                   <button
@@ -3403,9 +3457,14 @@ export function SgGoalsApp() {
                   </button>
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]">
-                  <div className="h-full rounded-full" style={{ width: `${sharePct}%`, background: item.color }} />
+                  <div className="h-full rounded-full transition-[width]" style={{ width: `${progressPct}%`, background: targetMet ? '#00d97e' : item.color }} />
                 </div>
-                <p className="mt-1 text-[9px] text-[#52527a]">{sharePct}% of real completed focus · task time may overlap</p>
+                {targetMinutes && targetCode ? (
+                  <>
+                    <p className="mt-1 text-[10px] font-bold" style={{ color: targetMet ? '#00d97e' : '#8b8bb3' }}>{targetMet ? 'Target met' : `${formatMinutes(Math.max(0, targetMinutes - item.minutes))} remaining`} · {progressPct}%</p>
+                    <p className="mt-1 text-[9px] text-[#8b8bb3]">Weekdays {formatMinutes(MUST_FOCUS_WEEKDAY_MINUTES[targetCode])} · Weekends {formatMinutes(MUST_FOCUS_WEEKEND_MINUTES[targetCode])}</p>
+                  </>
+                ) : <p className="mt-1 text-[9px] text-[#8b8bb3]">{sharePct}% of real completed focus · no daily time target</p>}
               </div>
             );
           })}
