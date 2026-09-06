@@ -126,7 +126,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v77';
+const APP_VERSION = 'cloud-sync-v78';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -3401,10 +3401,21 @@ export function SgGoalsApp() {
               <p className="mt-1 text-[10px] text-[#8b8bb3]">{targetDay.complete ? 'Day achieved' : mustFocusProgress.current ? 'Streak pending today' : 'In progress'}</p>
             </div>
           </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="border-l-2 border-[#c084fc] pl-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b8bb3]">Days achieved</p>
+              <p className="mt-1 text-lg font-bold text-[#c084fc]">{mustFocusProgress.achievedDays}/{mustFocusProgress.trackedDays} · {mustFocusProgress.achievedDaysPercent}%</p>
+            </div>
+            <div className="border-l-2 border-[#4f8ef7] pl-3">
+              <p className="text-[10px] font-bold uppercase tracking-[.12em] text-[#8b8bb3]">Today&apos;s time</p>
+              <p className="mt-1 text-lg font-bold text-[#4f8ef7]">{formatMinutes(targetDay.completedMinutes) || '0m'} / {formatMinutes(targetDay.targetMinutes)}</p>
+              <p className="text-[10px] font-bold text-[#8b8bb3]">{targetDay.percent}% complete</p>
+            </div>
+          </div>
           <p className="mt-3 text-[10px] text-[#8b8bb3]">Book + communication / Gym / Study · saved focus</p>
           <div className="mt-3 grid grid-cols-[repeat(14,minmax(0,1fr))] gap-1" role="img" aria-label="Last 14 days of daily time-target progress">
             {mustFocusProgress.history.map((day) => {
-              const summary = `${day.dateKey}: ${day.tracked ? `${day.met}/3 targets met, ${day.percent}% progress. ${MUST_FOCUS_TARGET_CODES.map((code) => `${habitLabels[code]} ${day.minutes[code]}/${day.targets[code]} minutes`).join('; ')}` : 'Before target tracking began'}`;
+              const summary = `${day.dateKey}: ${day.tracked ? `${day.met}/3 targets met, ${day.percent}% time complete, ${day.completedMinutes}/${day.targetMinutes} minutes recorded. ${MUST_FOCUS_TARGET_CODES.map((code) => `${habitLabels[code]} ${day.minutes[code]}/${day.targets[code]} minutes`).join('; ')}` : 'Before target tracking began'}`;
               return (
                 <div key={day.dateKey} title={summary} aria-label={summary} className="min-w-0">
                   <div className={`relative h-20 overflow-hidden rounded-sm border ${day.dateKey === focusTargetDateKey ? 'border-[#8b8bb3]' : 'border-[#24243e]'} ${day.tracked ? 'bg-[#1a1a30]' : 'bg-transparent'}`}>

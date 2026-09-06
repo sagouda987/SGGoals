@@ -12,6 +12,7 @@ const friday = fullDay('2026-09-04');
 let result = buildMustFocusTargetProgress(friday, '2026-09-04');
 assert.equal(result.current, 1);
 assert.equal(result.today.percent, 100);
+assert.equal(result.achievedDaysPercent, 100);
 result = buildMustFocusTargetProgress(friday, '2026-09-05');
 assert.equal(result.current, 1);
 assert.equal(result.today.complete, false);
@@ -24,7 +25,10 @@ assert.equal(result.best, 2);
 const partial = [{ code: 'BOOK', minutes: 1000, createdAt: '2026-09-04T12:00:00+05:30' }];
 result = buildMustFocusTargetProgress(partial, '2026-09-04');
 assert.equal(result.today.met, 1);
-assert.equal(result.today.percent, 33);
+assert.equal(result.today.percent, 7);
+assert.equal(result.today.completedMinutes, 1000);
+assert.equal(result.today.creditedMinutes, 30);
+assert.equal(result.today.targetMinutes, 420);
 assert.equal(result.current, 0);
 result = buildMustFocusTargetProgress([
   ...friday.filter((session) => session.code !== 'BOOK'),

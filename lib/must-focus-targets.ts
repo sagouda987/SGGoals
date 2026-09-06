@@ -41,16 +41,23 @@ export function buildMustFocusTargetProgress(sessions: FocusSession[], todayKey:
     const minutes = totals.get(dateKey) || { BOOK: 0, GYM: 0, STUDY2: 0 };
     const tracked = dateKey >= MUST_FOCUS_TARGET_START;
     const met = tracked ? MUST_FOCUS_TARGET_CODES.filter((code) => minutes[code] >= targets[code]).length : 0;
-    const percent = tracked ? Math.floor(MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + Math.min(1, minutes[code] / targets[code]), 0) / 3 * 100) : 0;
-    return { dateKey, weekend, targets, minutes, tracked, met, percent, complete: met === 3 };
+    const completedMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + minutes[code], 0);
+    const creditedMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + Math.min(minutes[code], targets[code]), 0);
+    const targetMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + targets[code], 0);
+    const percent = tracked ? Math.floor(creditedMinutes / targetMinutes * 100) : 0;
+    return { dateKey, weekend, targets, minutes, completedMinutes, creditedMinutes, targetMinutes, tracked, met, percent, complete: met === 3 };
   };
 
   let streak = 0;
   let best = 0;
   let current = 0;
+  let trackedDays = 0;
+  let achievedDays = 0;
   const yesterday = shiftDay(todayKey, -1);
   for (let key = MUST_FOCUS_TARGET_START; key <= todayKey; key = shiftDay(key, 1)) {
     const day = buildDay(key);
+    trackedDays += 1;
+    if (day.complete) achievedDays += 1;
     streak = day.complete ? streak + 1 : 0;
     best = Math.max(best, streak);
     // An unfinished today does not break yesterday's earned streak.
@@ -59,6 +66,9 @@ export function buildMustFocusTargetProgress(sessions: FocusSession[], todayKey:
   return {
     current,
     best,
+    trackedDays,
+    achievedDays,
+    achievedDaysPercent: trackedDays ? Math.floor(achievedDays / trackedDays * 100) : 0,
     today: buildDay(todayKey),
     history: Array.from({ length: 14 }, (_, index) => buildDay(shiftDay(todayKey, index - 13)))
   };

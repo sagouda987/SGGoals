@@ -156,3 +156,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Could not save activity.' }, { status: 503 });
   }
 }
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = (await req.json()) as { id?: unknown; focusMinutes?: unknown };
+    const focusMinutes = normalizeFocusMinutes(body.focusMinutes);
+    if (typeof body.id !== 'string' || !body.id || focusMinutes === undefined) {
+      return NextResponse.json({ error: 'A valid activity ID and focus duration are required.' }, { status: 400 });
+    }
+    const existing = await prisma.goalActivity.findFirst({ where: { id: body.id, ownerKey } });
+    if (!existing || existing.kind !== 'focus-session') {
+      return NextResponse.json({ error: 'Focus session not found.' }, { status: 404 });
+    }
+    const noteInfo = splitActivityNote(existing.note);
+    const completedAt = existing.completedAt || existing.createdAt;
+    const startedAt = new Date(completedAt.getTime() - focusMinutes * 60000);
+    const updated = await prisma.goalActivity.update({
+      where: { id: existing.id },
+      data: {
+        note: composeActivityNote(noteInfo.note, noteInfo.points, focusMinutes),
+        minutes: focusMinutes,
+        startedAt,
+        completedAt
+      }
+    });
+    return NextResponse.json({ ok: true, activity: toActivity(updated) });
+  } catch (error) {
+    console.error('Failed to update goal activity', error);
+    return NextResponse.json({ error: 'Could not update focus session.' }, { status: 503 });
+  }
+}
