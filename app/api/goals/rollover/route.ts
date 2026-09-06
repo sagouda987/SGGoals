@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { buildMustFocusDayProgress } from '@/lib/must-focus-targets';
 
 const ownerKey = 'default';
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -218,7 +219,8 @@ function buildMonthlySummaryPdf(summary: {
     'Date-wise progress:'
   ];
   summary.days.filter((day) => day.completedPoints || day.failedPoints || day.focusMinutes).forEach((day) => {
-    lines.push(`${day.dateKey} | Done ${day.completedPoints} | Failed ${day.failedPoints} | Focus ${day.focusMinutes}m | Office ${day.mustTaskFocusMinutes.OFFICEWORK2}m | Study ${day.mustTaskFocusMinutes.STUDY2}m | Book ${day.mustTaskFocusMinutes.BOOK}m | Gym ${day.mustTaskFocusMinutes.GYM}m`);
+    const target = buildMustFocusDayProgress(day.dateKey, day.mustTaskFocusMinutes);
+    lines.push(`${day.dateKey} | Done ${day.completedPoints} | Failed ${day.failedPoints} | Focus ${day.focusMinutes}m | Target ${target.percent}% (${target.completedMinutes}/${target.targetMinutes}m, ${target.met}/3) | Office ${day.mustTaskFocusMinutes.OFFICEWORK2}m | Study ${day.mustTaskFocusMinutes.STUDY2}m | Book ${day.mustTaskFocusMinutes.BOOK}m | Gym ${day.mustTaskFocusMinutes.GYM}m`);
   });
   const content = `BT\n/F1 8 Tf\n40 760 Td\n${lines.map((line, index) => `${index ? '0 -13 Td\n' : ''}(${escapePdfText(line)}) Tj`).join('\n')}\nET`;
   const objects = [

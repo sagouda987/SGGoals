@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
-import { buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
+import { buildMustFocusDayProgress, buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
 type Scope = 'today' | 'weekly' | 'weekend' | 'monthly' | 'yearly' | 'tomorrow';
 type Priority = 'health' | 'career' | 'communication' | 'looks' | 'other';
@@ -126,7 +126,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v79';
+const APP_VERSION = 'cloud-sync-v80';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -432,10 +432,10 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
   activities.forEach((activity) => {
     if (activity.kind !== 'completion') return;
     const code = normalizeStrikeCode(activity.taskText);
-    if (code) completedHabitKeys.add(`${dateKeyFromValue(activity.createdAt)}:${code}`);
+    if (code) completedHabitKeys.add(`${istFocusDateKey(activity.createdAt)}:${code}`);
   });
   activities.forEach((activity) => {
-    const dateKey = dateKeyFromValue(activity.createdAt);
+    const dateKey = istFocusDateKey(activity.createdAt);
     const day = byDate.get(dateKey);
     if (!day) return;
     if (activity.kind === 'focus-session') {
@@ -460,9 +460,9 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
     }
   });
   byDate.forEach((day) => {
-    day.focusMinutes = completedFocusMinutes(activities.filter((activity) => dateKeyFromValue(activity.createdAt) === day.dateKey));
+    day.focusMinutes = completedFocusMinutes(activities.filter((activity) => istFocusDateKey(activity.createdAt) === day.dateKey));
   });
-  return Array.from(byDate.values()).reverse();
+  return Array.from(byDate.values()).map((day) => ({ ...day, targetProgress: buildMustFocusDayProgress(day.dateKey, day.mustTaskFocusMinutes) })).reverse();
 }
 
 function parseMonthlySummary(activity: GoalActivity): MonthlySummary | null {
@@ -3524,6 +3524,7 @@ export function SgGoalsApp() {
                   <span className="flex items-center gap-1.5 text-[#00d97e]"><span className="h-2 w-2 rounded-sm bg-[#00d97e]" />Completed</span>
                   <span className="flex items-center gap-1.5 text-[#ff6b6b]"><span className="h-2 w-2 rounded-sm bg-[#ff6b6b]" />Failed</span>
                   <span className="flex items-center gap-1.5 text-[#4f8ef7]"><span className="h-2 w-2 rounded-sm bg-[#4f8ef7]" />Focus</span>
+                  <span className="flex items-center gap-1.5 text-[#c084fc]"><span className="h-2 w-2 rounded-sm bg-[#c084fc]" />Target %</span>
                 </div>
               </div>
               <div className="text-right text-[10px] leading-5 text-[#52527a]">
@@ -3537,18 +3538,20 @@ export function SgGoalsApp() {
                   const completedHeight = day.completedPoints ? Math.max(3, Math.round((day.completedPoints / maxPointValue) * 104)) : 0;
                   const failedHeight = day.failedPoints ? Math.max(3, Math.round((day.failedPoints / maxPointValue) * 104)) : 0;
                   const focusHeight = day.focusMinutes ? Math.max(3, Math.round((day.focusMinutes / maxFocusMinutes) * 104)) : 0;
+                  const targetHeight = day.targetProgress.tracked && day.targetProgress.percent ? Math.max(3, Math.round((day.targetProgress.percent / 100) * 104)) : 0;
                   const dayNumber = Number(day.dateKey.slice(-2));
                   return (
                     <div
                       key={`${day.dateKey}-chart`}
                       className="flex w-9 shrink-0 flex-col items-center justify-end"
-                      title={`${formatStartedDate(day.dateKey)}: ${day.completedPoints} completed points, ${day.failedPoints} failed points, ${formatMinutes(day.focusMinutes) || '0m'} focus`}
-                      aria-label={`${formatStartedDate(day.dateKey)}: ${day.completedPoints} completed points, ${day.failedPoints} failed points, ${formatMinutes(day.focusMinutes) || '0m'} focus`}
+                      title={`${formatStartedDate(day.dateKey)}: ${day.completedPoints} completed points, ${day.failedPoints} failed points, ${formatMinutes(day.focusMinutes) || '0m'} focus${day.targetProgress.tracked ? `, ${day.targetProgress.percent}% must-target time` : ''}`}
+                      aria-label={`${formatStartedDate(day.dateKey)}: ${day.completedPoints} completed points, ${day.failedPoints} failed points, ${formatMinutes(day.focusMinutes) || '0m'} focus${day.targetProgress.tracked ? `, ${day.targetProgress.percent}% must-target time` : ''}`}
                     >
                       <div className="flex h-[108px] items-end gap-0.5">
                         <span className="w-2 rounded-t-sm bg-[#00d97e]" style={{ height: `${completedHeight}px` }} />
                         <span className="w-2 rounded-t-sm bg-[#ff6b6b]" style={{ height: `${failedHeight}px` }} />
                         <span className="w-2 rounded-t-sm bg-[#4f8ef7]" style={{ height: `${focusHeight}px` }} />
+                        <span className="w-2 rounded-t-sm bg-[#c084fc]" style={{ height: `${targetHeight}px` }} />
                       </div>
                       <span className="mt-1 h-4 text-[9px] text-[#52527a]">{dayNumber}</span>
                     </div>
@@ -3660,10 +3663,21 @@ export function SgGoalsApp() {
                     <div className="bg-[#00d97e]" style={{ width: `${completedPct}%` }} />
                     <div className="bg-[#ff6b6b]" style={{ width: `${total ? 100 - completedPct : 0}%` }} />
                   </div>
+                  {day.targetProgress.tracked ? (
+                    <div className="mt-2 border-l-2 border-[#c084fc] pl-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] font-bold">
+                        <span className="text-[#c084fc]">Must-target progress {day.targetProgress.percent}%</span>
+                        <span className="text-[#8b8bb3]">{formatMinutes(day.targetProgress.completedMinutes) || '0m'} / {formatMinutes(day.targetProgress.targetMinutes)} · {day.targetProgress.met}/3 met</span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]">
+                        <div className="h-full rounded-full bg-[#c084fc]" style={{ width: `${day.targetProgress.percent}%` }} />
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-2.5 py-2 text-[10px] font-bold">
                     {DAILY_PRIORITY_STRIKE_KEYS.map((code) => (
                       <span key={`${day.dateKey}-${code}-focus`} style={{ color: DAILY_PRIORITY_FOCUS_COLORS[code] }}>
-                        {habitLabels[code]} {formatMinutes(day.mustTaskFocusMinutes[code]) || '0m'}
+                        {habitLabels[code]} {formatMinutes(day.mustTaskFocusMinutes[code]) || '0m'}{(MUST_FOCUS_TARGET_CODES as readonly string[]).includes(code) && day.targetProgress.tracked ? ` / ${formatMinutes(day.targetProgress.targets[code as MustFocusTargetCode])}` : ''}
                       </span>
                     ))}
                   </div>
@@ -4432,7 +4446,7 @@ export function SgGoalsApp() {
       {scope === 'monthly' ? (
         <>
           {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
-          {renderPointHistorySection('Date-wise progress history', 'Completed points, failed points, total focus time, and four must-task timings for the current month.', monthlyPointHistory)}
+          {renderPointHistorySection('Date-wise progress history', 'Completed points, failed points, focus time, and daily must-target progress for the current month.', monthlyPointHistory)}
         </>
       ) : null}
 

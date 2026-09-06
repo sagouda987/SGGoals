@@ -24,6 +24,18 @@ export function mustFocusTargets(dateKey: string) {
   return { weekend, minutes: weekend ? MUST_FOCUS_WEEKEND_MINUTES : MUST_FOCUS_WEEKDAY_MINUTES };
 }
 
+export function buildMustFocusDayProgress(dateKey: string, input: Partial<Record<MustFocusTargetCode, number>>) {
+  const { weekend, minutes: targets } = mustFocusTargets(dateKey);
+  const minutes = Object.fromEntries(MUST_FOCUS_TARGET_CODES.map((code) => [code, Math.max(0, Math.round(Number(input[code]) || 0))])) as Record<MustFocusTargetCode, number>;
+  const tracked = dateKey >= MUST_FOCUS_TARGET_START;
+  const met = tracked ? MUST_FOCUS_TARGET_CODES.filter((code) => minutes[code] >= targets[code]).length : 0;
+  const completedMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + minutes[code], 0);
+  const creditedMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + Math.min(minutes[code], targets[code]), 0);
+  const targetMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + targets[code], 0);
+  const percent = tracked ? Math.floor(creditedMinutes / targetMinutes * 100) : 0;
+  return { dateKey, weekend, targets, minutes, completedMinutes, creditedMinutes, targetMinutes, tracked, met, percent, complete: met === 3 };
+}
+
 export function buildMustFocusTargetProgress(sessions: FocusSession[], todayKey: string) {
   const totals = new Map<string, Record<MustFocusTargetCode, number>>();
   sessions.forEach((session) => {
@@ -36,17 +48,7 @@ export function buildMustFocusTargetProgress(sessions: FocusSession[], todayKey:
     totals.set(key, day);
   });
 
-  const buildDay = (dateKey: string) => {
-    const { weekend, minutes: targets } = mustFocusTargets(dateKey);
-    const minutes = totals.get(dateKey) || { BOOK: 0, GYM: 0, STUDY2: 0 };
-    const tracked = dateKey >= MUST_FOCUS_TARGET_START;
-    const met = tracked ? MUST_FOCUS_TARGET_CODES.filter((code) => minutes[code] >= targets[code]).length : 0;
-    const completedMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + minutes[code], 0);
-    const creditedMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + Math.min(minutes[code], targets[code]), 0);
-    const targetMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + targets[code], 0);
-    const percent = tracked ? Math.floor(creditedMinutes / targetMinutes * 100) : 0;
-    return { dateKey, weekend, targets, minutes, completedMinutes, creditedMinutes, targetMinutes, tracked, met, percent, complete: met === 3 };
-  };
+  const buildDay = (dateKey: string) => buildMustFocusDayProgress(dateKey, totals.get(dateKey) || {});
 
   let streak = 0;
   let best = 0;
