@@ -126,7 +126,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v78';
+const APP_VERSION = 'cloud-sync-v79';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -3420,7 +3420,7 @@ export function SgGoalsApp() {
                 <div key={day.dateKey} title={summary} aria-label={summary} className="min-w-0">
                   <div className={`relative h-20 overflow-hidden rounded-sm border ${day.dateKey === focusTargetDateKey ? 'border-[#8b8bb3]' : 'border-[#24243e]'} ${day.tracked ? 'bg-[#1a1a30]' : 'bg-transparent'}`}>
                     <div className="absolute inset-x-0 bottom-0 transition-[height]" style={{ height: `${day.percent}%`, background: day.complete ? '#00d97e' : '#4f8ef7' }} />
-                    {day.complete ? <Check className="absolute inset-x-0 top-1 mx-auto h-3 w-3 text-[#07070f]" aria-hidden="true" /> : null}
+                    {day.tracked ? <span className={`absolute inset-x-0 top-2 z-10 text-center text-[7px] font-bold sm:text-[9px] ${day.complete ? 'text-[#07070f]' : 'text-[#e8e8f5]'}`}>{day.percent}%</span> : null}
                   </div>
                   <p className="mt-1 text-center text-[9px] text-[#8b8bb3]">{Number(day.dateKey.slice(-2))}</p>
                 </div>
