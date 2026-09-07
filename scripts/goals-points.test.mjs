@@ -172,3 +172,30 @@ test('stored monthly summaries display corrected points without changing the sto
   assert.equal(summary.note, before);
   assert.equal(history.parseMonthlySummary(summary, []).completedPoints, 37);
 });
+
+test('extra focus adds time without task points, and retrying a save cannot duplicate it', async () => {
+  const rows = new Map();
+  const api = loadFunctions('app/api/goals/activities/route.ts', [
+    'ownerKey', 'scopes', 'priorities', 'activityMetaNotePattern', 'isActivity',
+    'normalizeActivityPoints', 'normalizeFocusMinutes', 'composeActivityNote', 'POST'
+  ], {
+    NextResponse: { json: (body, options) => ({ body, status: options?.status ?? 200 }) },
+    prisma: { goalActivity: {
+      create: async ({ data }) => {
+        if (rows.has(data.id)) throw { code: 'P2002' };
+        rows.set(data.id, data);
+      },
+      findUnique: async ({ where }) => rows.get(where.id)
+    } }
+  });
+  const activity = { ...event('focus-session', '17', 0), taskText: 'Study', minutes: 45, focusMinutes: 45 };
+  const request = { json: async () => ({ activity }) };
+  assert.equal((await api.POST(request)).status, 200);
+  assert.equal((await api.POST(request)).status, 200);
+  assert.equal(rows.size, 1);
+  assert.equal((await api.POST({ json: async () => ({ activity: { ...activity, minutes: 60 } }) })).status, 409);
+  assert.equal(rows.values().next().value.minutes, 45);
+  // No tracked stopwatch intervals are needed for a manual minutes entry.
+  assert.equal(history.completedFocusMinutes([activity]), 45);
+  assert.equal(history.activityPoints(activity), 0);
+});

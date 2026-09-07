@@ -134,7 +134,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid priority.' }, { status: 400 });
     }
 
-    await prisma.goalActivity.create({
+    try {
+      await prisma.goalActivity.create({
       data: {
         id: activity.id,
         ownerKey,
@@ -148,7 +149,18 @@ export async function POST(req: NextRequest) {
         startedAt: activity.startedAt ? new Date(activity.startedAt) : null,
         completedAt: activity.completedAt ? new Date(activity.completedAt) : null
       }
-    });
+      });
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')) throw error;
+      const existing = await prisma.goalActivity.findUnique({ where: { id: activity.id } });
+      // Retrying the same manual session must not create another time award.
+      if (!existing || activity.kind !== 'focus-session' || existing.ownerKey !== ownerKey ||
+        existing.kind !== activity.kind || existing.scope !== activity.scope ||
+        existing.taskText !== activity.taskText || existing.minutes !== activity.minutes ||
+        existing.note !== composeActivityNote(activity.note, activity.points, activity.focusMinutes)) {
+        return NextResponse.json({ error: 'Activity ID already exists with different data.' }, { status: 409 });
+      }
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildPeriodTimeTargets } from '@/lib/must-focus-targets';
 import { dailyHabitPointEvents } from '@/lib/goal-points';
+import { extraFocusMinutes } from '@/lib/extra-focus';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 import { buildMustFocusDayProgress, buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
@@ -1393,6 +1394,12 @@ export function SgGoalsApp() {
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
   const [habitCheckState, setHabitCheckState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
+  const [extraFocusCode, setExtraFocusCode] = useState<keyof MustTaskFocusMinutes | null>(null);
+  const [extraMinutesDraft, setExtraMinutesDraft] = useState('');
+  const [extraFocusSaving, setExtraFocusSaving] = useState(false);
+  const [extraFocusMessage, setExtraFocusMessage] = useState('');
+  const extraFocusPendingRef = useRef<GoalActivity | null>(null);
+  const extraFocusSavingRef = useRef(false);
   const targetPlanSignatureRef = useRef('');
 
   const showGoalNotification = useCallback((title: string, body: string, tag: string) => {
@@ -2611,8 +2618,8 @@ export function SgGoalsApp() {
     markTargetChanged();
   }
 
-  function startMustTaskStopwatch(code: keyof MustTaskFocusMinutes, task: GoalTask) {
-    if (task.done || mustTaskStopwatches[code]?.running) return;
+  function startMustTaskStopwatch(code: keyof MustTaskFocusMinutes) {
+    if (mustTaskStopwatches[code]?.running) return;
     const now = new Date().toISOString();
     setMustTaskStopwatches((current) => ({
       ...current,
@@ -2648,6 +2655,47 @@ export function SgGoalsApp() {
       [code]: { running: false, startedAt: '', elapsedMs: 0, updatedAt: completedAtIso }
     }));
     markTargetChanged();
+  }
+
+  async function saveExtraFocus() {
+    if (!extraFocusCode || extraFocusSavingRef.current) return;
+    const minutes = extraFocusMinutes(extraMinutesDraft);
+    if (minutes === null) {
+      setExtraFocusMessage('Enter whole minutes from 1 to 1440.');
+      return;
+    }
+    if (!cloudReady) {
+      setExtraFocusMessage('Wait for your saved data to load before adding time.');
+      return;
+    }
+    const activity = extraFocusPendingRef.current ?? {
+      id: activityId(), scope: 'today', priority: 'other',
+      taskText: habitLabels[extraFocusCode] || extraFocusCode,
+      kind: 'focus-session', note: 'Additional focus time entered manually',
+      points: 0, minutes, focusMinutes: minutes, createdAt: new Date().toISOString()
+    } as GoalActivity;
+    extraFocusPendingRef.current = activity;
+    extraFocusSavingRef.current = true;
+    setExtraFocusSaving(true);
+    setExtraFocusMessage('');
+    try {
+      // Retain the ID on retry so an uncertain response cannot double-count time.
+      const response = await fetch('/api/goals/activities', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activity })
+      });
+      if (!response.ok) throw new Error('Could not save');
+      appendActivity(activity, false);
+      extraFocusPendingRef.current = null;
+      setExtraMinutesDraft('');
+      setExtraFocusCode(null);
+      setExtraFocusMessage(`${minutes} minutes saved for ${activity.taskText}.`);
+    } catch {
+      setExtraFocusMessage('Save could not be confirmed. Retry to save this same session safely.');
+    } finally {
+      extraFocusSavingRef.current = false;
+      setExtraFocusSaving(false);
+    }
   }
 
   function toggleTargetTimer() {
@@ -3509,7 +3557,7 @@ export function SgGoalsApp() {
             const targetMinutes = targetCode ? targetDay.targets[targetCode] : null;
             const targetMet = targetMinutes !== null && item.minutes >= targetMinutes;
             const progressPct = targetMinutes ? Math.min(100, Math.floor(item.minutes / targetMinutes * 100)) : sharePct;
-            const unavailable = !item.task || item.task.done;
+            const unavailable = !item.task;
             return (
               <div key={item.code} className="rounded-lg border border-[#24243e] bg-[#13132a] p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -3522,7 +3570,7 @@ export function SgGoalsApp() {
                     type="button"
                     onClick={() => {
                       if (item.isActive && item.task) finishMustTaskStopwatch(item.code, item.task);
-                      else if (item.task) startMustTaskStopwatch(item.code, item.task);
+                      else if (item.task) startMustTaskStopwatch(item.code);
                     }}
                     disabled={item.isActive ? item.liveElapsedMs < 1000 : unavailable}
                     className={`shrink-0 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${
@@ -3533,7 +3581,7 @@ export function SgGoalsApp() {
                           : 'border-[#4f8ef740] bg-[#4f8ef715] text-[#4f8ef7]'
                     }`}
                   >
-                    {item.isActive ? 'Finish focus' : item.task?.done ? 'Task done' : item.task ? 'Start' : 'Unavailable'}
+                    {item.isActive ? 'Finish focus' : item.task?.done ? 'Start extra focus' : item.task ? 'Start' : 'Unavailable'}
                   </button>
                 </div>
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]">
@@ -3545,10 +3593,31 @@ export function SgGoalsApp() {
                     <p className="mt-1 text-[9px] text-[#8b8bb3]">Weekdays {formatMinutes(MUST_FOCUS_WEEKDAY_MINUTES[targetCode])} · Weekends {formatMinutes(MUST_FOCUS_WEEKEND_MINUTES[targetCode])}</p>
                   </>
                 ) : <p className="mt-1 text-[9px] text-[#8b8bb3]">{sharePct}% of real completed focus · no daily time target</p>}
+                <button type="button" disabled={extraFocusSaving || Boolean(extraFocusPendingRef.current)} onClick={() => {
+                  setExtraFocusCode(item.code); setExtraMinutesDraft(''); setExtraFocusMessage('');
+                }} className="mt-3 rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7] disabled:opacity-40">
+                  Add time to {item.label}
+                </button>
+                {extraFocusCode === item.code ? (
+                  <form className="mt-3 space-y-2" onSubmit={(event) => { event.preventDefault(); void saveExtraFocus(); }}>
+                    <label className="block text-xs text-[#e8e8f5]">
+                      Extra minutes worked
+                      <input type="number" min="1" max="1440" step="1" required value={extraMinutesDraft}
+                        disabled={extraFocusSaving || Boolean(extraFocusPendingRef.current)}
+                        onChange={(event) => setExtraMinutesDraft(event.target.value)}
+                        className="mt-1 block w-full rounded-lg border border-[#24243e] bg-[#0f0f1d] px-3 py-2 text-sm" />
+                    </label>
+                    <p className="text-[11px] text-[#8b8bb3]">Added to today ({focusTargetDateKey}). Enter only time you have not already recorded. Task points stay unchanged.</p>
+                    <button type="submit" disabled={extraFocusSaving} className="rounded-lg bg-[#4f8ef7] px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
+                      {extraFocusSaving ? 'Saving…' : extraFocusPendingRef.current ? 'Retry save' : 'Save time'}
+                    </button>
+                  </form>
+                ) : null}
               </div>
             );
           })}
         </div>
+        {extraFocusMessage ? <p role="status" className="mt-3 text-xs text-[#8b8bb3]">{extraFocusMessage}</p> : null}
       </section>
     );
   }
