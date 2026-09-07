@@ -126,7 +126,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v82';
+const APP_VERSION = 'cloud-sync-v83';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -2127,9 +2127,9 @@ export function SgGoalsApp() {
     return itemStartedAt > latestStartedAt ? item : latest;
   }, null);
   const browserTabTitle = currentMustTaskFocus
-    ? `${currentMustTaskFocus.label} ${formatElapsed(currentMustTaskFocus.liveElapsedMs)} | SG Goals`
+    ? `${formatElapsed(currentMustTaskFocus.liveElapsedMs)} - ${currentMustTaskFocus.label}`
     : focusRunning && focusActiveTask
-      ? `${focusActiveTask.text} ${focusPeriodLabel} | SG Goals`
+      ? `${focusPeriodLabel} - ${focusActiveTask.text}`
       : 'SG Goals';
 
   useEffect(() => {
