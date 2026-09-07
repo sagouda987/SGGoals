@@ -9,7 +9,8 @@ type FocusSession = { code: string; createdAt: string; minutes: number };
 export function istFocusDateKey(timestamp: number | string) {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return '';
-  return new Date(date.getTime() + 330 * 60000).toISOString().slice(0, 10);
+  // Shift IST back three hours so each reporting day begins at 03:00 IST.
+  return new Date(date.getTime() + 150 * 60000).toISOString().slice(0, 10);
 }
 
 function shiftDay(dateKey: string, offset: number) {

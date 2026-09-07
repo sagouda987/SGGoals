@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { buildMustFocusDayProgress } from '@/lib/must-focus-targets';
+import { buildMustFocusDayProgress, istFocusDateKey } from '@/lib/must-focus-targets';
 
 const ownerKey = 'default';
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -76,7 +76,7 @@ function toISODate(date: Date) {
 }
 
 function previousIstDateKey(date = new Date()) {
-  const ist = new Date(date.getTime() + 330 * 60000);
+  const ist = new Date(`${istFocusDateKey(date.getTime())}T00:00:00Z`);
   ist.setUTCDate(ist.getUTCDate() - 1);
   return toISODate(ist);
 }
@@ -94,17 +94,17 @@ function previousIstMonthKey(date = new Date()) {
 
 function monthRange(monthKey: string) {
   const [year, month] = monthKey.split('-').map(Number);
-  const start = istDateKeyToUtcDate(`${monthKey}-${String(MONTHLY_RESET_DAY).padStart(2, '0')}`, 0, 0);
+  const start = istDateKeyToUtcDate(`${monthKey}-${String(MONTHLY_RESET_DAY).padStart(2, '0')}`, 3, 0);
   const end = istDateKeyToUtcDate(
     `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}-${String(MONTHLY_RESET_DAY).padStart(2, '0')}`,
-    0,
+    3,
     0
   );
   return { start, end };
 }
 
 function istDateKey(date: Date) {
-  return toISODate(currentIstDate(date));
+  return istFocusDateKey(date.getTime());
 }
 
 function istDateKeyToUtcDate(dateKey: string, hours: number, minutes: number) {
@@ -406,7 +406,7 @@ async function recordHabitMisses() {
   const missedDateKey = previousIstDateKey();
   const createdAt = istDateKeyToUtcDate(missedDateKey, 23, 59);
   const autoMissNote = `${AUTO_HABIT_MISS_NOTE}:${missedDateKey}`;
-  const missedDateStart = istDateKeyToUtcDate(missedDateKey, 0, 0);
+  const missedDateStart = istDateKeyToUtcDate(missedDateKey, 3, 0);
   const nextDateStart = new Date(missedDateStart.getTime() + 24 * 60 * 60 * 1000);
   const habitTasks = await prisma.goalTask.findMany({
     where: {

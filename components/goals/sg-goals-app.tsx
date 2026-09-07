@@ -126,7 +126,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v83';
+const APP_VERSION = 'cloud-sync-v84';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -671,7 +671,7 @@ function toISODate(date: Date) {
 }
 
 function toIstDateKey(date = new Date()) {
-  return toISODate(new Date(date.getTime() + 330 * 60000));
+  return istFocusDateKey(date.getTime());
 }
 
 function istHour(date = new Date()) {
@@ -690,12 +690,9 @@ function buildIstDateWindow(start: Date, end: Date) {
 }
 
 function buildWeeklyHabitMissWindow(now = new Date()) {
-  const istNow = new Date(now.getTime() + 330 * 60000);
+  const istNow = new Date(`${toIstDateKey(now)}T00:00:00Z`);
   const start = new Date(Date.UTC(istNow.getUTCFullYear(), istNow.getUTCMonth(), istNow.getUTCDate()));
   start.setUTCDate(start.getUTCDate() - start.getUTCDay());
-  if (istNow.getUTCDay() === 0 && istNow.getUTCHours() < 3) {
-    start.setUTCDate(start.getUTCDate() - 7);
-  }
   return buildIstDateWindow(start, istNow);
 }
 
@@ -714,7 +711,7 @@ function parseTodayTime(timeValue: string) {
 }
 
 function dateKeyFromValue(dateValue: string) {
-  return toISODate(new Date(dateValue));
+  return istFocusDateKey(dateValue);
 }
 
 function shouldKeepTodayTask(task: GoalTask, todayKey: string) {
@@ -862,7 +859,7 @@ function buildCounterResetRemaining(todayKey: string) {
 }
 
 function isAfterCounterReset(dateValue: string) {
-  return dateKeyFromValue(dateValue) >= buildCounterCycleStart(toISODate(new Date()));
+  return dateKeyFromValue(dateValue) >= buildCounterCycleStart(toIstDateKey());
 }
 
 function buildHabitMissCounts(activities: GoalActivity[], days: Date[]) {
@@ -1005,7 +1002,7 @@ function isRemovedHabitTask(text: string) {
   return REMOVED_HABIT_TASKS.some((task) => task.replace(/[^a-z0-9]/gi, '').toUpperCase() === normalized);
 }
 
-function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = [], todayKey = toISODate(new Date())): GoalsStore {
+function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = [], todayKey = toIstDateKey()): GoalsStore {
   const canonicalHabitText = new Map(HABIT_TASKS.map((text) => [normalizeStrikeCode(text), text]));
   const failedHabitCodesToday = new Set(
     activities
@@ -1084,7 +1081,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     return byDay.get(day) as Set<string>;
   };
   const counterCycleStart = buildCounterCycleStart(todayKey);
-  const counterResetAt = Math.max(new Date(`${counterCycleStart}T00:00:00`).getTime(), new Date(COUNTER_FORCE_RESET_AT).getTime());
+  const counterResetAt = Math.max(new Date(`${counterCycleStart}T03:00:00+05:30`).getTime(), new Date(COUNTER_FORCE_RESET_AT).getTime());
   const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, B: counterResetAt, MEDITATION: counterResetAt, LANGUAGE: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, SKINCAREMORNING: counterResetAt, SKINCAREEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, NOE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
@@ -1379,7 +1376,7 @@ export function SgGoalsApp() {
   const [scoreOpen, setScoreOpen] = useState(false);
   const [pushAlarmStatus, setPushAlarmStatus] = useState<'unknown' | 'unsupported' | 'off' | 'saving' | 'on' | 'error'>('unknown');
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
-  const [currentDateKey, setCurrentDateKey] = useState(() => toISODate(new Date()));
+  const [currentDateKey, setCurrentDateKey] = useState(() => toIstDateKey());
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: false, weight: '1' });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
@@ -1438,7 +1435,7 @@ export function SgGoalsApp() {
   useEffect(() => {
     let cancelled = false;
     const localActivities = loadActivities();
-    const localStore = ensureHabitTemplates(loadStore(), localActivities, toISODate(new Date()));
+    const localStore = ensureHabitTemplates(loadStore(), localActivities, toIstDateKey());
     const localWeeklyPlan = loadWeeklyPlan();
     const localYearlyNotes = loadYearlyNotes();
     const legacyTargetId = window.localStorage.getItem(MAIN_GOAL_KEY) || '';
@@ -1504,7 +1501,7 @@ export function SgGoalsApp() {
         const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown; hasCloudData?: boolean };
         if (cancelled) return;
         if (data.hasCloudData && data.store) {
-          setStore(ensureHabitTemplates(data.store, localActivities, toISODate(new Date())));
+          setStore(ensureHabitTemplates(data.store, localActivities, toIstDateKey()));
           if (isWeeklyPlan(data.weeklyPlan)) {
             setWeeklyPlan(data.weeklyPlan);
             window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(data.weeklyPlan));
@@ -1635,8 +1632,8 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     const interval = window.setInterval(() => {
-      setCurrentDateKey(toISODate(new Date()));
-    }, 60000);
+      setCurrentDateKey(toIstDateKey());
+    }, 1000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -1812,7 +1809,7 @@ export function SgGoalsApp() {
       .catch(() => {
         window.localStorage.removeItem(HABIT_MISS_ROLLOVER_KEY);
       });
-  }, [cloudReady, ready]);
+  }, [cloudReady, ready, currentDateKey]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1894,17 +1891,16 @@ export function SgGoalsApp() {
   const trendWindow = useMemo(() => {
     const days: Date[] = [];
     for (let i = 6; i >= 0; i -= 1) {
-      const d = new Date();
+      const d = new Date(`${currentDateKey}T00:00:00Z`);
       d.setDate(d.getDate() - i);
-      d.setHours(0, 0, 0, 0);
       days.push(d);
     }
     return days;
-  }, []);
+  }, [currentDateKey]);
 
   const monthWindow = useMemo(() => {
-    const today = new Date(`${currentDateKey}T00:00:00`);
-    const cycleStart = new Date(`${buildCounterCycleStart(currentDateKey)}T00:00:00`);
+    const today = new Date(`${currentDateKey}T00:00:00Z`);
+    const cycleStart = new Date(`${buildCounterCycleStart(currentDateKey)}T00:00:00Z`);
     const days: Date[] = [];
     const cursor = new Date(cycleStart);
     while (cursor <= today) {
@@ -1928,7 +1924,7 @@ export function SgGoalsApp() {
   const todayKey = currentDateKey;
   const threeDayHabitMissWarnings = useMemo(() => buildThreeDayHabitMissWarnings(activities, todayKey), [activities, todayKey]);
   const yesterdayKey = useMemo(() => {
-    const date = new Date(`${currentDateKey}T00:00:00`);
+    const date = new Date(`${currentDateKey}T00:00:00Z`);
     date.setDate(date.getDate() - 1);
     return toISODate(date);
   }, [currentDateKey]);
@@ -2752,7 +2748,7 @@ export function SgGoalsApp() {
     setTimingScope(scope);
     const now = new Date();
     const nowValue = formatClock(now);
-    const todayKeyForTiming = toISODate(now);
+    const todayKeyForTiming = toIstDateKey(now);
     const previousCompletion = store[scope]
       .filter(
         (task) =>

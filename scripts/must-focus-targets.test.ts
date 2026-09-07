@@ -5,7 +5,11 @@ assert.deepEqual(mustFocusTargets('2026-09-04').minutes, { BOOK: 30, GYM: 90, ST
 assert.deepEqual(mustFocusTargets('2026-09-05').minutes, { BOOK: 45, GYM: 120, STUDY2: 420 });
 assert.equal(mustFocusTargets('2026-09-06').weekend, true);
 assert.equal(mustFocusTargets('2026-09-07').weekend, false);
-assert.equal(istFocusDateKey('2026-09-04T18:30:00Z'), '2026-09-05');
+assert.equal(istFocusDateKey('2026-09-04T18:30:00Z'), '2026-09-04');
+assert.equal(istFocusDateKey('2026-09-04T21:29:59Z'), '2026-09-04');
+assert.equal(istFocusDateKey('2026-09-04T21:30:00Z'), '2026-09-05');
+assert.equal(istFocusDateKey('2026-10-01T02:59:59+05:30'), '2026-09-30');
+assert.equal(istFocusDateKey('2026-10-01T03:00:00+05:30'), '2026-10-01');
 assert.deepEqual(buildMustFocusDayProgress('2026-09-06', { BOOK: 45, GYM: 60, STUDY2: 210 }), {
   dateKey: '2026-09-06', weekend: true,
   targets: { BOOK: 45, GYM: 120, STUDY2: 420 },
