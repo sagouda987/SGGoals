@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { buildPeriodTimeTargets } from '@/lib/must-focus-targets';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 import { buildMustFocusDayProgress, buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
@@ -126,7 +127,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v84';
+const APP_VERSION = 'cloud-sync-v85';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -1991,6 +1992,41 @@ export function SgGoalsApp() {
       .map(([reason, count]) => ({ reason, count }))
       .sort((a, b) => b.count - a.count);
   }, [analytics.failures]);
+
+  const periodTimeTargets = useMemo(() => {
+    const sessions = activities.filter((activity) => activity.scope === 'today' && activity.kind === 'focus-session')
+      .map((activity) => ({ code: normalizeStrikeCode(activity.taskText) || '', createdAt: activity.createdAt, minutes: activity.focusMinutes || 0 }));
+    return {
+      weekly: buildPeriodTimeTargets(sessions, currentDateKey, 'weekly'),
+      monthly: buildPeriodTimeTargets(sessions, currentDateKey, 'monthly'),
+      yearly: buildPeriodTimeTargets(sessions, currentDateKey, 'yearly')
+    };
+  }, [activities, currentDateKey]);
+
+  function renderPeriodTimeTargets(period: 'weekly' | 'monthly' | 'yearly') {
+    const progress = periodTimeTargets[period];
+    return (
+      <section className="mx-auto max-w-4xl px-5 pb-4">
+        <h2 className="text-sm font-bold capitalize text-[#e8e8f5]">{period} time targets</h2>
+        <p className="mt-1 text-xs text-[#8b8bb3]">{progress.start} to {progress.end} · 3 AM IST</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {progress.items.map((item) => (
+            <div key={item.code} className="min-w-0 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] p-3">
+              <h3 className="text-sm font-bold" style={{ color: DAILY_PRIORITY_FOCUS_COLORS[item.code] }}>{habitLabels[item.code]}</h3>
+              <dl className="mt-3 space-y-2 text-xs text-[#8b8bb3]">
+                <div className="flex justify-between gap-2"><dt>Target</dt><dd>{formatMinutes(item.target)}</dd></div>
+                <div className="flex justify-between gap-2"><dt>Completed</dt><dd className="text-[#00d97e]">{formatMinutes(item.completed)}</dd></div>
+                <div className="flex justify-between gap-2"><dt>{item.ahead ? 'Ahead by' : 'Remaining'}</dt><dd className="font-bold text-[#e8e8f5]">{formatMinutes(item.ahead || item.remaining)}</dd></div>
+              </dl>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#1a1a30]" role="progressbar" aria-label={`${habitLabels[item.code]} ${period} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={item.target ? Math.min(100, Math.round(item.completed / item.target * 100)) : 0}>
+                <div className="h-full bg-[#00d97e]" style={{ width: `${item.target ? Math.min(100, item.completed / item.target * 100) : 0}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   const targetTasks = useMemo(() => {
     return targetTaskIds.map((taskId) => store.today.find((task) => task.id === taskId)).filter((task): task is GoalTask => Boolean(task));
@@ -4321,6 +4357,7 @@ export function SgGoalsApp() {
       {scope === 'weekly' ? (
         <>
           {renderScopeCompletionCard('Weekly completion', 'Weighted progress for this week.', sectionCompletion.weekly)}
+          {renderPeriodTimeTargets('weekly')}
           <section className="mx-auto max-w-4xl px-5 pb-2">
             <div className="mb-4 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
               <div className="flex items-start justify-between gap-3">
@@ -4469,6 +4506,7 @@ export function SgGoalsApp() {
       {scope === 'monthly' ? (
         <>
           {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
+          {renderPeriodTimeTargets('monthly')}
           {renderPointHistorySection('Date-wise progress history', 'Completed points, failed points, focus time, and daily must-target progress for the current month.', monthlyPointHistory)}
         </>
       ) : null}
@@ -4476,6 +4514,7 @@ export function SgGoalsApp() {
       {scope === 'yearly' ? (
         <>
         {renderScopeCompletionCard('Yearly completion', 'Weighted progress for your big goals.', sectionCompletion.yearly)}
+        {renderPeriodTimeTargets('yearly')}
         <section className="mx-auto max-w-4xl px-5 pb-4">
           <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">

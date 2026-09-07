@@ -6,6 +6,35 @@ export const MUST_FOCUS_WEEKEND_MINUTES = { BOOK: 45, GYM: 120, STUDY2: 420 };
 
 type FocusSession = { code: string; createdAt: string; minutes: number };
 
+export function buildPeriodTimeTargets(sessions: FocusSession[], todayKey: string, period: 'weekly' | 'monthly' | 'yearly') {
+  const today = new Date(`${todayKey}T00:00:00Z`);
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth();
+  const start = period === 'weekly' ? shiftDay(todayKey, -today.getUTCDay())
+    : period === 'monthly' ? `${todayKey.slice(0, 7)}-01` : `${year}-01-01`;
+  const end = period === 'weekly' ? shiftDay(start, 6)
+    : period === 'monthly' ? new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10) : `${year}-12-31`;
+  const trackedStart = start < MUST_FOCUS_TARGET_START ? MUST_FOCUS_TARGET_START : start;
+  const totals = { BOOK: 0, GYM: 0, STUDY2: 0 };
+  const completed = { BOOK: 0, GYM: 0, STUDY2: 0 };
+  for (let day = trackedStart; day <= end; day = shiftDay(day, 1)) {
+    const targets = mustFocusTargets(day).minutes;
+    MUST_FOCUS_TARGET_CODES.forEach((code) => { totals[code] += targets[code]; });
+  }
+  sessions.forEach((session) => {
+    const day = istFocusDateKey(session.createdAt);
+    if (day < trackedStart || day > end || day > todayKey || !Number.isFinite(session.minutes) || session.minutes <= 0) return;
+    if (!(MUST_FOCUS_TARGET_CODES as readonly string[]).includes(session.code)) return;
+    completed[session.code as MustFocusTargetCode] += Math.round(session.minutes);
+  });
+  const items = MUST_FOCUS_TARGET_CODES.map((code) => ({
+    code, target: totals[code], completed: completed[code],
+    remaining: Math.max(0, totals[code] - completed[code]),
+    ahead: Math.max(0, completed[code] - totals[code])
+  }));
+  return { start: trackedStart, end, items };
+}
+
 export function istFocusDateKey(timestamp: number | string) {
   const date = new Date(timestamp);
   if (!Number.isFinite(date.getTime())) return '';

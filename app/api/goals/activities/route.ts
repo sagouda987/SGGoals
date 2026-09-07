@@ -109,8 +109,7 @@ export async function GET() {
   try {
     const rows = await prisma.goalActivity.findMany({
       where: { ownerKey },
-      orderBy: { createdAt: 'desc' },
-      take: 1000
+      orderBy: { createdAt: 'desc' }
     });
     return NextResponse.json({ activities: rows.map(toActivity) });
   } catch (error) {
