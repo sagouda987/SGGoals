@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { dailyHabitPointEvents } from '@/lib/goal-points';
+import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { buildMustFocusDayProgress, istFocusDateKey } from '@/lib/must-focus-targets';
 
 const ownerKey = 'default';
@@ -315,11 +316,11 @@ async function archiveMonthlySummary() {
 
   const { start, end } = monthRange(monthKey);
   const rawActivities = await prisma.goalActivity.findMany({
-    where: { ownerKey, createdAt: { gte: start, lt: end } },
+    where: { ownerKey, OR: [{ createdAt: { gte: start, lt: end } }, { kind: 'focus-correction' }] },
     orderBy: { createdAt: 'asc' },
-    select: { scope: true, taskText: true, kind: true, note: true, startedAt: true, completedAt: true, createdAt: true }
+    select: { id: true, scope: true, taskText: true, kind: true, note: true, startedAt: true, completedAt: true, createdAt: true }
   });
-  const activities = dailyHabitPointEvents(rawActivities, normalizeHabitCode);
+  const activities = dailyHabitPointEvents(applyFocusCorrections(rawActivities, normalizeHabitCode), normalizeHabitCode);
   const completedHabitKeys = new Set(
     activities
       .filter((activity) => activity.kind === 'completion')

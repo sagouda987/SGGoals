@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildPeriodTimeTargets } from '@/lib/must-focus-targets';
 import { dailyHabitPointEvents } from '@/lib/goal-points';
 import { extraFocusMinutes } from '@/lib/extra-focus';
+import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 import { buildMustFocusDayProgress, buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
@@ -34,7 +35,7 @@ type GoalTask = {
   updatedAt: string;
 };
 
-type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'focus-session';
+type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'focus-session' | 'focus-correction';
 type StrikeCode = 'O' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 
@@ -485,12 +486,17 @@ function parseMonthlySummary(activity: GoalActivity, sourceActivities?: GoalActi
       return null;
     }
     // Recompute displayed points from retained events; never rewrite archives.
-    if (sourceActivities?.some((event) => (event.kind === 'completion' || event.kind === 'undo') && istFocusDateKey(event.createdAt).startsWith(parsed.monthKey!))) {
+    if (sourceActivities?.some((event) => (event.kind === 'completion' || event.kind === 'undo' || event.kind === 'focus-session') && istFocusDateKey(event.createdAt).startsWith(parsed.monthKey!))) {
       const dates = parsed.days.map((day) => new Date(`${day.dateKey}T12:00:00Z`));
       const corrected = buildPointHistory(sourceActivities, dates);
       const byDate = new Map(corrected.map((day) => [day.dateKey, day]));
-      parsed.days = parsed.days.map((day) => ({ ...day, completedPoints: byDate.get(day.dateKey)?.completedPoints ?? day.completedPoints }));
+      parsed.days = parsed.days.map((day) => ({ ...day,
+        completedPoints: byDate.get(day.dateKey)?.completedPoints ?? day.completedPoints,
+        focusMinutes: byDate.get(day.dateKey)?.focusMinutes ?? day.focusMinutes,
+        mustTaskFocusMinutes: byDate.get(day.dateKey)?.mustTaskFocusMinutes ?? day.mustTaskFocusMinutes
+      }));
       parsed.completedPoints = parsed.days.reduce((sum, day) => sum + day.completedPoints, 0);
+      parsed.focusMinutes = parsed.days.reduce((sum, day) => sum + (day.focusMinutes || 0), 0);
     }
     return {
       monthKey: parsed.monthKey,
@@ -1345,7 +1351,8 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
 
 export function SgGoalsApp() {
   const [store, setStore] = useState<GoalsStore>(starterStore);
-  const [activities, setActivities] = useState<GoalActivity[]>([]);
+  const [activityRecords, setActivities] = useState<GoalActivity[]>([]);
+  const activities = useMemo(() => applyFocusCorrections(activityRecords, normalizeStrikeCode), [activityRecords]);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(emptyWeeklyPlan);
   const [yearlyNotes, setYearlyNotes] = useState<YearlyNotes>(emptyYearlyNotes);
   const [ready, setReady] = useState(false);
@@ -1661,8 +1668,8 @@ export function SgGoalsApp() {
   }, [ready, store]);
 
   useEffect(() => {
-    if (ready) window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activities));
-  }, [activities, ready]);
+    if (ready) window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(activityRecords));
+  }, [activityRecords, ready]);
 
   useEffect(() => {
     if (ready) window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(weeklyPlan));
