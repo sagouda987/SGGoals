@@ -126,7 +126,7 @@ const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v81';
+const APP_VERSION = 'cloud-sync-v82';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -2120,6 +2120,24 @@ export function SgGoalsApp() {
   const mustTaskRealLiveMs = activeMustTaskFocus.length
     ? Math.max(0, timerNow - Math.min(...activeMustTaskFocus.map((item) => new Date(mustTaskStopwatches[item.code]?.startedAt || '').getTime())))
     : 0;
+  const currentMustTaskFocus = activeMustTaskFocus.reduce<(typeof activeMustTaskFocus)[number] | null>((latest, item) => {
+    if (!latest) return item;
+    const latestStartedAt = new Date(mustTaskStopwatches[latest.code]?.startedAt || '').getTime();
+    const itemStartedAt = new Date(mustTaskStopwatches[item.code]?.startedAt || '').getTime();
+    return itemStartedAt > latestStartedAt ? item : latest;
+  }, null);
+  const browserTabTitle = currentMustTaskFocus
+    ? `${currentMustTaskFocus.label} ${formatElapsed(currentMustTaskFocus.liveElapsedMs)} | SG Goals`
+    : focusRunning && focusActiveTask
+      ? `${focusActiveTask.text} ${focusPeriodLabel} | SG Goals`
+      : 'SG Goals';
+
+  useEffect(() => {
+    document.title = browserTabTitle;
+    return () => {
+      document.title = 'SG Goals';
+    };
+  }, [browserTabTitle]);
 
   useEffect(() => {
     if (!ready) return;
