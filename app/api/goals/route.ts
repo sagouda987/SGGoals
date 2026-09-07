@@ -236,9 +236,10 @@ function parseSubtasks(value: unknown): GoalSubtaskInput[] | undefined {
 }
 
 function normalizeTaskWeight(value: unknown, fallback = 1) {
+  if (value === '' || value === null || value === undefined) return fallback;
   const weight = Number(value);
-  if (!Number.isFinite(weight) || weight <= 0) return fallback;
-  return Math.min(100, Math.max(1, Math.round(weight)));
+  if (!Number.isFinite(weight) || weight < 0) return fallback;
+  return Math.min(100, Math.max(0, Math.round(weight)));
 }
 
 function parseTaskMeta(value: unknown) {

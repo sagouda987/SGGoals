@@ -437,7 +437,8 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
     const code = normalizeStrikeCode(activity.taskText);
     if (code) completedHabitKeys.add(`${istFocusDateKey(activity.createdAt)}:${code}`);
   });
-  activities.forEach((activity) => {
+  const chronologicalActivities = [...activities].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  chronologicalActivities.forEach((activity) => {
     const dateKey = istFocusDateKey(activity.createdAt);
     const day = byDate.get(dateKey);
     if (!day) return;
@@ -795,7 +796,7 @@ function isHabitTask(text: string) {
 
 function defaultHabitWeight(text: string) {
   const code = normalizeStrikeCode(text);
-  return code ? habitDefaultWeights[code] || 1 : 1;
+  return code ? habitDefaultWeights[code] ?? 1 : 1;
 }
 
 function defaultTaskWeightFromText(text: string) {

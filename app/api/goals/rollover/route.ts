@@ -139,9 +139,10 @@ function normalizeHabitCode(text: string) {
 }
 
 function normalizeTaskWeight(value: unknown, fallback = 1) {
+  if (value === '' || value === null || value === undefined) return fallback;
   const weight = Number(value);
-  if (!Number.isFinite(weight) || weight <= 0) return fallback;
-  return Math.min(100, Math.max(1, Math.round(weight)));
+  if (!Number.isFinite(weight) || weight < 0) return fallback;
+  return Math.min(100, Math.max(0, Math.round(weight)));
 }
 
 function taskWeightFromNote(note: string | null, fallback: number) {
@@ -167,15 +168,15 @@ function activityPointsFromNote(note: string | null, taskText: string) {
     if (match) {
       try {
         const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as Partial<{ points: unknown }>;
-        const points = normalizeTaskWeight(parsed.points, 0);
-        if (points > 0) return points;
+        const points = normalizeTaskWeight(parsed.points, Number.NaN);
+        if (Number.isFinite(points)) return points;
       } catch {
         // Fall back to the current habit weight below.
       }
     }
   }
   const code = normalizeHabitCode(taskText);
-  return code ? habitDefaultWeights[code] || 1 : 1;
+  return code ? habitDefaultWeights[code] ?? 1 : 1;
 }
 
 function activityFocusMinutesFromNote(note: string | null) {
@@ -460,7 +461,7 @@ async function recordHabitMisses() {
       if (!code || !ACTIVE_HABIT_CODES.has(code) || plannedCodes.has(code) || handledHabitCodes.has(code)) return [];
       const id = `habit-miss-${missedDateKey}-${code}`;
       const taskText = habitLabels[code] || task.text;
-      const points = taskWeightFromNote(task.note, habitDefaultWeights[code] || 1);
+      const points = taskWeightFromNote(task.note, habitDefaultWeights[code] ?? 1);
       if (existingKeys.has(id) || existingKeys.has(taskText)) return [];
       plannedCodes.add(code);
       return [{

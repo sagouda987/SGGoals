@@ -51,9 +51,10 @@ function isActivity(input: unknown): input is GoalActivityInput {
 }
 
 function normalizeActivityPoints(value: unknown) {
+  if (value === '' || value === null || value === undefined) return undefined;
   const points = Number(value);
-  if (!Number.isFinite(points) || points <= 0) return undefined;
-  return Math.min(100, Math.max(1, Math.round(points)));
+  if (!Number.isFinite(points) || points < 0) return undefined;
+  return Math.min(100, Math.max(0, Math.round(points)));
 }
 
 function normalizeFocusMinutes(value: unknown) {
