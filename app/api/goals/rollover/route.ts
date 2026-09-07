@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { dailyHabitPointEvents } from '@/lib/goal-points';
 import { buildMustFocusDayProgress, istFocusDateKey } from '@/lib/must-focus-targets';
 
 const ownerKey = 'default';
@@ -125,10 +126,10 @@ function normalizeHabitCode(text: string) {
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
   if (compact === 'MORNINGSKINCARE' || compact === 'SKINCAREMORNING') return 'SKINCAREMORNING';
   if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
-  if (compact === 'BOOKREAD') return 'BOOK';
+  if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
   if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
-  if (compact === 'SLEEP11TO6') return 'SLEEP';
+  if (compact === 'SLEEP11TO6' || compact === 'WAKEUPBEFORE8') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
   if (compact === 'NOSOCIALMEDIA') return 'NOSOCIAL';
   if (compact === 'NOE') return 'NOE';
@@ -313,11 +314,12 @@ async function archiveMonthlySummary() {
   }
 
   const { start, end } = monthRange(monthKey);
-  const activities = await prisma.goalActivity.findMany({
+  const rawActivities = await prisma.goalActivity.findMany({
     where: { ownerKey, createdAt: { gte: start, lt: end } },
     orderBy: { createdAt: 'asc' },
-    select: { taskText: true, kind: true, note: true, startedAt: true, completedAt: true, createdAt: true }
+    select: { scope: true, taskText: true, kind: true, note: true, startedAt: true, completedAt: true, createdAt: true }
   });
+  const activities = dailyHabitPointEvents(rawActivities, normalizeHabitCode);
   const completedHabitKeys = new Set(
     activities
       .filter((activity) => activity.kind === 'completion')

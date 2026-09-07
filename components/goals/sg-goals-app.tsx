@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildPeriodTimeTargets } from '@/lib/must-focus-targets';
+import { dailyHabitPointEvents } from '@/lib/goal-points';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 import { buildMustFocusDayProgress, buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
@@ -415,6 +416,7 @@ function buildScopeCompletion(tasks: GoalTask[]) {
 }
 
 function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
+  activities = dailyHabitPointEvents(activities, normalizeStrikeCode);
   const byDate = new Map<
     string,
     {
@@ -469,7 +471,7 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
   return Array.from(byDate.values()).map((day) => ({ ...day, targetProgress: buildMustFocusDayProgress(day.dateKey, day.mustTaskFocusMinutes) })).reverse();
 }
 
-function parseMonthlySummary(activity: GoalActivity): MonthlySummary | null {
+function parseMonthlySummary(activity: GoalActivity, sourceActivities?: GoalActivity[]): MonthlySummary | null {
   if (activity.kind !== 'monthly-summary' || !activity.note?.startsWith(MONTHLY_SUMMARY_NOTE_PREFIX)) return null;
   try {
     const parsed = JSON.parse(activity.note.slice(MONTHLY_SUMMARY_NOTE_PREFIX.length)) as Partial<MonthlySummary>;
@@ -480,6 +482,14 @@ function parseMonthlySummary(activity: GoalActivity): MonthlySummary | null {
       !Array.isArray(parsed.days)
     ) {
       return null;
+    }
+    // Recompute displayed points from retained events; never rewrite archives.
+    if (sourceActivities?.some((event) => (event.kind === 'completion' || event.kind === 'undo') && istFocusDateKey(event.createdAt).startsWith(parsed.monthKey!))) {
+      const dates = parsed.days.map((day) => new Date(`${day.dateKey}T12:00:00Z`));
+      const corrected = buildPointHistory(sourceActivities, dates);
+      const byDate = new Map(corrected.map((day) => [day.dateKey, day]));
+      parsed.days = parsed.days.map((day) => ({ ...day, completedPoints: byDate.get(day.dateKey)?.completedPoints ?? day.completedPoints }));
+      parsed.completedPoints = parsed.days.reduce((sum, day) => sum + day.completedPoints, 0);
     }
     return {
       monthKey: parsed.monthKey,
@@ -1942,7 +1952,7 @@ export function SgGoalsApp() {
 
   const monthlyPointHistory = useMemo(() => buildPointHistory(activities, monthWindow), [activities, monthWindow]);
   const monthlySummaries = useMemo(
-    () => activities.map(parseMonthlySummary).filter((summary): summary is MonthlySummary => Boolean(summary)).sort((a, b) => b.monthKey.localeCompare(a.monthKey)),
+    () => activities.map((activity) => parseMonthlySummary(activity, activities)).filter((summary): summary is MonthlySummary => Boolean(summary)).sort((a, b) => b.monthKey.localeCompare(a.monthKey)),
     [activities]
   );
 

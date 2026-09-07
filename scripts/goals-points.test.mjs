@@ -40,12 +40,14 @@ const rollover = loadFunctions('app/api/goals/rollover/route.ts', [
   'taskWeightFromNote', 'composeAutoMissNote', 'activityPointsFromNote'
 ]);
 const focus = loadFunctions('lib/must-focus-targets.ts', ['istFocusDateKey']);
+const pointsLogic = loadFunctions('lib/goal-points.ts', ['dailyHabitPointEvents'], { istFocusDateKey: focus.istFocusDateKey });
 const history = loadFunctions('components/goals/sg-goals-app.tsx', [
   'habitDefaultWeights', 'AUTO_HABIT_MISS_NOTE', 'normalizeTaskWeight', 'taskWeight',
   'buildScopeCompletion', 'normalizeStrikeCode', 'isHabitTask', 'defaultHabitWeight',
   'defaultTaskWeightFromText', 'activityPoints', 'toISODate', 'emptyMustTaskFocusMinutes',
-  'isAutoHabitMiss', 'completedFocusMinutes', 'buildPointHistory'
+  'isAutoHabitMiss', 'completedFocusMinutes', 'buildPointHistory', 'MONTHLY_SUMMARY_NOTE_PREFIX', 'parseMonthlySummary'
 ], {
+  dailyHabitPointEvents: pointsLogic.dailyHabitPointEvents,
   istFocusDateKey: focus.istFocusDateKey,
   // Target-time presentation is unrelated to weighted points.
   buildMustFocusDayProgress: () => ({})
@@ -116,4 +118,57 @@ test('missing and invalid points still use defaults, positive points are preserv
   const note = activityApi.composeActivityNote(undefined, 5, undefined);
   assert.equal(activityApi.splitActivityNote(note).points, 5);
   assert.equal(rollover.activityPointsFromNote(note, 'Gym'), 5);
+});
+
+const september7 = [
+  ['O', 1], ['No Social Media', 1], ['Manifestation', 1],
+  ['Book read and communication practice', 4], ['Office work', 8],
+  ['L1', 2], ['Language learn', 1], ['Gym', 4],
+  ['Office work', 8], ['Language learn', 1], ['L1', 2], ['Gym', 4]
+].map(([taskText, points], index) => ({ ...event('completion', String(index + 8).padStart(2, '0'), points), taskText }));
+
+test('September 7 duplicate habits: 37 recorded points become 22 credited points', () => {
+  assert.equal(september7.reduce((sum, item) => sum + item.points, 0), 37);
+  const result = day([...september7].reverse());
+  assert.equal(result.completedPoints, 22);
+  assert.equal(result.completedTasks.length, 8);
+  assert.equal(result.completedTasks.reduce((sum, item) => sum + item.points, 0), 22);
+  const serverEvents = pointsLogic.dailyHabitPointEvents(september7, rollover.normalizeHabitCode);
+  assert.equal(serverEvents.reduce((sum, item) => sum + rollover.activityPointsFromNote(
+    activityApi.composeActivityNote(undefined, item.points, undefined), item.taskText), 0), 22);
+});
+
+test('duplicate then undo clears the habit only, even when undo weight differs', () => {
+  const events = [event('completion', '09', 0), event('completion', '10', 4),
+    { ...event('completion', '11', 8), taskText: 'Office work' }, event('undo', '12', 100)];
+  assert.equal(day(events).completedPoints, 8);
+  assert.equal(day(events).completedTasks.length, 1);
+  assert.equal(day([...events, event('completion', '13', 4)]).completedPoints, 12);
+  assert.equal(day(events.slice(0, 2)).completedPoints, 0);
+});
+
+test('habit aliases share credit; other scopes and ordinary tasks remain independent', () => {
+  const book = { ...event('completion', '09', 4), taskText: 'Book read' };
+  const alias = { ...event('completion', '10', 4), taskText: 'Book read and communication practice' };
+  assert.equal(day([book, alias]).completedPoints, 4);
+  assert.equal(day([book, { ...alias, scope: 'weekly' }]).completedPoints, 8);
+  assert.equal(day([book, alias].map((item) => ({ ...item, taskText: 'Ordinary task' }))).completedPoints, 8);
+});
+
+test('habits are credited separately across the 03:00 IST reporting boundary', () => {
+  const events = ['2026-09-07T21:29:59Z', '2026-09-07T21:30:00Z'].map((createdAt) => ({ ...event('completion', '10', 4), createdAt }));
+  const days = history.buildPointHistory(events, [new Date('2026-09-07T12:00:00Z'), new Date('2026-09-08T12:00:00Z')]);
+  assert.equal(days[0].completedPoints, 4);
+  assert.equal(days[1].completedPoints, 4);
+});
+
+test('stored monthly summaries display corrected points without changing the stored snapshot', () => {
+  const summary = { kind: 'monthly-summary', createdAt: '2026-10-01T00:00:00Z', note: 'monthly-summary:' + JSON.stringify({
+    monthKey: '2026-09', completedPoints: 37, failedPoints: 0,
+    days: [{ dateKey: '2026-09-07', completedPoints: 37, failedPoints: 0 }]
+  }) };
+  const before = summary.note;
+  assert.equal(history.parseMonthlySummary(summary, september7).completedPoints, 22);
+  assert.equal(summary.note, before);
+  assert.equal(history.parseMonthlySummary(summary, []).completedPoints, 37);
 });
