@@ -10,7 +10,7 @@ const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
-const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'GYM', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'SLEEP', 'NOSOCIAL', 'MANIFEST']);
+const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'SLEEP', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -25,6 +25,7 @@ const habitLabels: Record<string, string> = {
   M: 'M',
   B: 'B',
   MEDITATION: 'Meditation',
+  LANGUAGE: 'Language learn',
   GYM: 'Gym',
   HEALTHYDRINKMORNING: 'Healthy drink morning',
   HEALTHYDRINKEVENING: 'Healthy drink evening',
@@ -50,6 +51,7 @@ const habitDefaultWeights: Record<string, number> = {
   M: 1,
   B: 1,
   MEDITATION: 1,
+  LANGUAGE: 1,
   GYM: 4,
   HEALTHYDRINKMORNING: 2,
   HEALTHYDRINKEVENING: 2,
@@ -117,6 +119,7 @@ function normalizeHabitCode(text: string) {
   if (compact === 'M') return 'M';
   if (compact === 'B') return 'B';
   if (compact === 'MEDITATION') return 'MEDITATION';
+  if (compact === 'LANGUAGELEARN' || compact === 'LANGUAGELEARNING') return 'LANGUAGE';
   if (compact === 'GYM') return 'GYM';
   if (compact === 'HEALTHYDRINKMORNING') return 'HEALTHYDRINKMORNING';
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
