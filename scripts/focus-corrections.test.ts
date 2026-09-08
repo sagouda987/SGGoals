@@ -25,3 +25,14 @@ assert.equal(applyFocusCorrections([...rows, correction, extra], normalize).filt
 assert.equal(applyFocusCorrections([...rows, correction, { ...extra, taskText: 'Gym' }], normalize).filter((row) => row.taskText === 'Gym').length, 1);
 assert.equal(applyFocusCorrections([...rows, { ...correction, note: 'invalid' }], normalize).filter((row) => row.kind === 'focus-session').length, 5);
 console.log('Focus corrections: 300-minute replacement, duplicate IDs, raw preservation, extra sessions, other tasks, and all period totals passed.');
+
+for (const taskText of ['Study', 'Gym', 'Book read', 'Office work']) {
+  const normalizeTask = (text: string) => text === taskText ? 'TASK' : null;
+  const oldSession = { ...rows[0], taskText, focusMinutes: 913 };
+  const reset = { ...correction, taskText, note: JSON.stringify({ dateKey: '2026-09-07', through: '2026-09-07T18:30:00Z', minutes: 0 }) };
+  const result = applyFocusCorrections([oldSession, reset], normalizeTask);
+  assert.equal(result.filter((row) => row.kind === 'focus-session').reduce((sum, row) => sum + (row.focusMinutes || 0), 0), 0);
+  const later = { ...extra, taskText };
+  assert.equal(applyFocusCorrections([oldSession, reset, later], normalizeTask).filter((row) => row.kind === 'focus-session').reduce((sum, row) => sum + (row.focusMinutes || 0), 0), 45);
+}
+console.log('All four must-do tasks: zero reset and subsequent extra time passed.');

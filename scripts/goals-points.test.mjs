@@ -198,4 +198,10 @@ test('extra focus adds time without task points, and retrying a save cannot dupl
   // No tracked stopwatch intervals are needed for a manual minutes entry.
   assert.equal(history.completedFocusMinutes([activity]), 45);
   assert.equal(history.activityPoints(activity), 0);
+  const reset = { id: 'reset-study', scope: 'today', priority: 'other', taskText: 'Study', kind: 'focus-correction',
+    note: JSON.stringify({ dateKey: '2026-09-08', through: '2026-09-08T10:00:00Z', minutes: 0 }) };
+  const resetRequest = { json: async () => ({ activity: reset }) };
+  assert.equal((await api.POST(resetRequest)).status, 200);
+  assert.equal((await api.POST(resetRequest)).status, 200);
+  assert.equal(rows.size, 2);
 });

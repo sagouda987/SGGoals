@@ -154,9 +154,9 @@ export async function POST(req: NextRequest) {
       if (!(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')) throw error;
       const existing = await prisma.goalActivity.findUnique({ where: { id: activity.id } });
       // Retrying the same manual session must not create another time award.
-      if (!existing || activity.kind !== 'focus-session' || existing.ownerKey !== ownerKey ||
+      if (!existing || !['focus-session', 'focus-correction'].includes(activity.kind) || existing.ownerKey !== ownerKey ||
         existing.kind !== activity.kind || existing.scope !== activity.scope ||
-        existing.taskText !== activity.taskText || existing.minutes !== activity.minutes ||
+        existing.taskText !== activity.taskText || existing.minutes !== (activity.minutes ?? null) ||
         existing.note !== composeActivityNote(activity.note, activity.points, activity.focusMinutes)) {
         return NextResponse.json({ error: 'Activity ID already exists with different data.' }, { status: 409 });
       }

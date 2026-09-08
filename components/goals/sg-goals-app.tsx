@@ -1407,6 +1407,10 @@ export function SgGoalsApp() {
   const [extraFocusMessage, setExtraFocusMessage] = useState('');
   const extraFocusPendingRef = useRef<GoalActivity | null>(null);
   const extraFocusSavingRef = useRef(false);
+  const [focusResetCode, setFocusResetCode] = useState<keyof MustTaskFocusMinutes | null>(null);
+  const [focusResetSaving, setFocusResetSaving] = useState(false);
+  const focusResetPendingRef = useRef<GoalActivity | null>(null);
+  const focusResetSavingRef = useRef(false);
   const targetPlanSignatureRef = useRef('');
 
   const showGoalNotification = useCallback((title: string, body: string, tag: string) => {
@@ -2705,6 +2709,44 @@ export function SgGoalsApp() {
     }
   }
 
+  async function resetMustTaskTime(code: keyof MustTaskFocusMinutes) {
+    if (focusResetSavingRef.current) return;
+    if (!cloudReady) {
+      setExtraFocusMessage('Wait for your saved data to load before resetting time.');
+      return;
+    }
+    const now = new Date().toISOString();
+    const activity: GoalActivity = focusResetPendingRef.current ?? {
+      id: activityId(), scope: 'today', priority: 'other', taskText: habitLabels[code] || code,
+      kind: 'focus-correction', createdAt: now,
+      note: JSON.stringify({ dateKey: istFocusDateKey(now), through: now, minutes: 0, reason: 'Daily task time reset by user' })
+    };
+    focusResetPendingRef.current = activity;
+    focusResetSavingRef.current = true;
+    setFocusResetSaving(true);
+    setExtraFocusMessage('');
+    try {
+      const response = await fetch('/api/goals/activities', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activity })
+      });
+      if (!response.ok) throw new Error('Reset could not be confirmed');
+      appendActivity(activity, false);
+      setMustTaskStopwatches((current) => ({ ...current,
+        [code]: { running: false, startedAt: '', elapsedMs: 0, updatedAt: new Date().toISOString() }
+      }));
+      if (focusActiveTask && normalizeStrikeCode(focusActiveTask.text) === code) resetTargetTimer();
+      markTargetChanged();
+      focusResetPendingRef.current = null;
+      setFocusResetCode(null);
+      setExtraFocusMessage(`${activity.taskText} time reset to 0 for ${JSON.parse(activity.note!).dateKey}. New sessions will count normally.`);
+    } catch {
+      setExtraFocusMessage('Reset could not be confirmed. Retry this reset safely.');
+    } finally {
+      focusResetSavingRef.current = false;
+      setFocusResetSaving(false);
+    }
+  }
+
   function toggleTargetTimer() {
     if (!targetTaskIds.length) return;
     if (focusMode === 'stopwatch') {
@@ -3579,7 +3621,7 @@ export function SgGoalsApp() {
                       if (item.isActive && item.task) finishMustTaskStopwatch(item.code, item.task);
                       else if (item.task) startMustTaskStopwatch(item.code);
                     }}
-                    disabled={item.isActive ? item.liveElapsedMs < 1000 : unavailable}
+                    disabled={focusResetCode === item.code || (item.isActive ? item.liveElapsedMs < 1000 : unavailable)}
                     className={`shrink-0 rounded-lg border px-2.5 py-2 text-[10px] font-bold ${
                       item.isActive
                         ? 'border-[#00d97e40] bg-[#00d97e18] text-[#00d97e] disabled:opacity-40'
@@ -3600,11 +3642,27 @@ export function SgGoalsApp() {
                     <p className="mt-1 text-[9px] text-[#8b8bb3]">Weekdays {formatMinutes(MUST_FOCUS_WEEKDAY_MINUTES[targetCode])} · Weekends {formatMinutes(MUST_FOCUS_WEEKEND_MINUTES[targetCode])}</p>
                   </>
                 ) : <p className="mt-1 text-[9px] text-[#8b8bb3]">{sharePct}% of real completed focus · no daily time target</p>}
-                <button type="button" disabled={extraFocusSaving || Boolean(extraFocusPendingRef.current)} onClick={() => {
+                <button type="button" disabled={focusResetCode !== null || extraFocusSaving || Boolean(extraFocusPendingRef.current)} onClick={() => {
                   setExtraFocusCode(item.code); setExtraMinutesDraft(''); setExtraFocusMessage('');
                 }} className="mt-3 rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7] disabled:opacity-40">
                   Add time to {item.label}
                 </button>
+                <button type="button" disabled={focusResetSaving || Boolean(focusResetPendingRef.current) || extraFocusSaving || Boolean(extraFocusPendingRef.current)}
+                  onClick={() => { setFocusResetCode(item.code); setExtraFocusCode(null); setExtraFocusMessage(''); }}
+                  className="ml-2 mt-3 rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b] disabled:opacity-40">
+                  Reset time
+                </button>
+                {focusResetCode === item.code ? (
+                  <div className="mt-3 space-y-2 rounded-lg border border-[#ff6b6b44] p-3">
+                    <p className="text-xs text-[#e8e8f5]">Reset {item.label} to 0 for today and stop its timer? Weekly, monthly and yearly time totals will update. Points and earlier days stay unchanged.</p>
+                    <button type="button" disabled={focusResetSaving} onClick={() => void resetMustTaskTime(item.code)}
+                      className="rounded-lg bg-[#ff6b6b] px-3 py-2 text-xs font-bold text-[#07070f] disabled:opacity-40">
+                      {focusResetSaving ? 'Resetting…' : focusResetPendingRef.current ? 'Retry reset' : 'Reset to 0'}
+                    </button>
+                    <button type="button" disabled={focusResetSaving || Boolean(focusResetPendingRef.current)} onClick={() => setFocusResetCode(null)}
+                      className="ml-2 px-3 py-2 text-xs text-[#8b8bb3] disabled:opacity-40">Cancel</button>
+                  </div>
+                ) : null}
                 {extraFocusCode === item.code ? (
                   <form className="mt-3 space-y-2" onSubmit={(event) => { event.preventDefault(); void saveExtraFocus(); }}>
                     <label className="block text-xs text-[#e8e8f5]">
