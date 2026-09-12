@@ -1,8 +1,9 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { dailyHabitPointEvents } from '@/lib/goal-points';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { buildMustFocusDayProgress, istFocusDateKey } from '@/lib/must-focus-targets';
+import { generateAndStoreDailyReview } from '@/lib/ai/daily-review-store';
 
 const ownerKey = 'default';
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -497,17 +498,26 @@ async function recordHabitMisses() {
   return { missedDateKey, checked: habitTasks.length, existing: existingMisses.length, recorded: rows.length };
 }
 
-export async function GET() {
+async function runRollover() {
   try {
     const monthlySummary = await archiveMonthlySummary();
     const result = await recordHabitMisses();
-    return NextResponse.json({ ok: true, monthlySummary, ...result });
+    const dailyReview = await generateAndStoreDailyReview();
+    return NextResponse.json({ ok: true, monthlySummary, dailyReview: { dateKey: dailyReview.review.dateKey, created: dailyReview.created }, ...result });
   } catch (error) {
     console.error('Failed to roll over habit misses', error);
     return NextResponse.json({ error: 'Could not record habit misses.' }, { status: 503 });
   }
 }
 
+export async function GET(request: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (secret && request.headers.get('authorization') !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
+  }
+  return runRollover();
+}
+
 export async function POST() {
-  return GET();
+  return runRollover();
 }

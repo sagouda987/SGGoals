@@ -7,6 +7,7 @@ import { extraFocusMinutes } from '@/lib/extra-focus';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
+import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 import { buildMustFocusDayProgress, buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
@@ -1419,6 +1420,7 @@ export function SgGoalsApp() {
   const [availableMinutes, setAvailableMinutes] = useState(30);
   const [nextAction, setNextAction] = useState<NextActionRecommendation | null>(null);
   const [nextActionState, setNextActionState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [dailyReview, setDailyReview] = useState<StoredDailyReview | null>(null);
   const focusResetPendingRef = useRef<GoalActivity | null>(null);
   const focusResetSavingRef = useRef(false);
   const targetPlanSignatureRef = useRef('');
@@ -1439,6 +1441,21 @@ export function SgGoalsApp() {
       setNextActionState('error');
     }
   }, [availableMinutes]);
+
+  const loadDailyReview = useCallback(async () => {
+    try {
+      const response = await fetch('/api/goals/daily-review', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data = (await response.json()) as { review?: StoredDailyReview | null };
+      if (data.review) setDailyReview(data.review);
+    } catch {
+      // The rest of SG Goals remains usable if the stored review cannot load.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDailyReview();
+  }, [loadDailyReview]);
 
   const showGoalNotification = useCallback((title: string, body: string, tag: string) => {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -1862,11 +1879,12 @@ export function SgGoalsApp() {
           setActivities(data.activities);
           window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(data.activities));
         }
+        void loadDailyReview();
       })
       .catch(() => {
         window.localStorage.removeItem(HABIT_MISS_ROLLOVER_KEY);
       });
-  }, [cloudReady, ready, currentDateKey]);
+  }, [cloudReady, ready, currentDateKey, loadDailyReview]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -4193,6 +4211,47 @@ export function SgGoalsApp() {
             <p className="mt-3 text-xs text-[#52527a]">Choose how much time you have, then ask for one clear next action.</p>
           )}
         </div>
+        {dailyReview ? (
+          <div className="mb-3 rounded-xl border border-[#ffd16645] bg-[#ffd1660b] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#ffd166]">Morning review</p>
+                <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Review for {formatStartedDate(dailyReview.dateKey)}</h2>
+              </div>
+              <span className="rounded-full border border-[#ffd16635] px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-[#ffd166]">3:00 AM IST</span>
+            </div>
+            <p className="mt-3 text-sm leading-6 text-[#d5d5e8]">{dailyReview.dailyReview}</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] p-3">
+                <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Progress insight</p>
+                <p className="mt-2 text-xs leading-5 text-[#b8b8d0]">{dailyReview.progressInsight}</p>
+              </div>
+              <div className="rounded-lg border border-[#1a1a30] bg-[#0f0f1d] p-3">
+                <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Tomorrow&apos;s focus</p>
+                <div className="mt-2 space-y-1">
+                  {dailyReview.tomorrowFocus.map((focus, index) => (
+                    <p key={`${focus.taskId || focus.title}-${index}`} className="text-xs text-[#e8e8f5]">{index + 1}. {focus.title} <span className="text-[#52527a]">· {focus.category}</span></p>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {dailyReview.missedPriorities.length ? (
+              <div className="mt-3">
+                <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#ff6b6b]">Missed priorities</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {dailyReview.missedPriorities.map((item, index) => (
+                    <span key={`${item.title}-${index}`} className="rounded-full border border-[#ff6b6b35] bg-[#ff6b6b0d] px-2 py-1 text-[10px] text-[#ff9a9a]">{item.title}: {item.reason}</span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {dailyReview.flags.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {dailyReview.flags.map((flag) => <span key={flag} className="rounded-full border border-[#292947] px-2 py-1 text-[10px] text-[#8b8bb3]">{flag}</span>)}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="mb-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
