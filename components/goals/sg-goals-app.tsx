@@ -5,6 +5,8 @@ import { buildPeriodTimeTargets } from '@/lib/must-focus-targets';
 import { dailyHabitPointEvents } from '@/lib/goal-points';
 import { extraFocusMinutes } from '@/lib/extra-focus';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
+import { scoreGoalCategory } from '@/lib/goals/category-score';
+import type { NextActionRecommendation } from '@/lib/ai/schema';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 import { buildMustFocusDayProgress, buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
@@ -1316,16 +1318,17 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
 
   const scorecard = (Object.keys(priorities) as Priority[]).map((priority) => {
     const data = byPriority[priority];
-    const totalActions = data.completions + data.failures + data.undos;
-    const consistency = days.length ? data.daysHit.size / days.length : 0;
-    const completionRate = totalActions ? data.completions / totalActions : 0;
-    const weeklyTargets: Record<Priority, number> = { health: 180, career: 300, communication: 90, looks: 45, other: 60 };
-    const timeTarget = Math.max(1, Math.round((weeklyTargets[priority] / 7) * Math.max(days.length, 1)));
-    const timeScore = Math.min(data.minutes / timeTarget, 1);
-    const raw = completionRate * 0.45 + consistency * 0.35 + timeScore * 0.2;
     return {
       priority,
-      score: Math.round(raw * 100),
+      score: scoreGoalCategory({
+        priority,
+        completions: data.completions,
+        failures: data.failures,
+        undos: data.undos,
+        minutes: data.minutes,
+        daysHit: data.daysHit.size,
+        windowDays: days.length
+      }),
       completions: data.completions,
       failures: data.failures,
       undos: data.undos,
@@ -1413,9 +1416,29 @@ export function SgGoalsApp() {
   const extraFocusSavingRef = useRef(false);
   const [focusResetCode, setFocusResetCode] = useState<keyof MustTaskFocusMinutes | null>(null);
   const [focusResetSaving, setFocusResetSaving] = useState(false);
+  const [availableMinutes, setAvailableMinutes] = useState(30);
+  const [nextAction, setNextAction] = useState<NextActionRecommendation | null>(null);
+  const [nextActionState, setNextActionState] = useState<'idle' | 'loading' | 'error'>('idle');
   const focusResetPendingRef = useRef<GoalActivity | null>(null);
   const focusResetSavingRef = useRef(false);
   const targetPlanSignatureRef = useRef('');
+
+  const requestNextAction = useCallback(async () => {
+    setNextActionState('loading');
+    try {
+      const response = await fetch('/api/goals/next-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ availableMinutes })
+      });
+      const data = (await response.json()) as { recommendation?: NextActionRecommendation; error?: string };
+      if (!response.ok || !data.recommendation) throw new Error(data.error || 'Recommendation failed');
+      setNextAction(data.recommendation);
+      setNextActionState('idle');
+    } catch {
+      setNextActionState('error');
+    }
+  }, [availableMinutes]);
 
   const showGoalNotification = useCallback((title: string, body: string, tag: string) => {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -4118,6 +4141,58 @@ export function SgGoalsApp() {
 
       {scope === 'today' ? (
       <section className="mx-auto max-w-4xl px-5 pb-2">
+        <div className="mb-3 overflow-hidden rounded-xl border border-[#4f8ef755] bg-gradient-to-br from-[#12142a] to-[#0f0f1d] p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-[#4f8ef7]" />
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#4f8ef7]">SG Goals guide</p>
+              </div>
+              <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">What should I do now?</h2>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-[#8b8bb3]">
+                Uses your pending work, points, recent misses, category scores, and consistency to choose one action. It runs on SG Goals data with no paid AI service.
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <label htmlFor="next-action-minutes" className="text-[10px] font-bold uppercase tracking-[.14em] text-[#8b8bb3]">Time</label>
+              <select
+                id="next-action-minutes"
+                value={availableMinutes}
+                onChange={(event) => setAvailableMinutes(Number(event.target.value))}
+                className="rounded-lg border border-[#292947] bg-[#07070f] px-2 py-2 text-xs font-bold text-[#e8e8f5]"
+              >
+                {[15, 30, 45, 60, 90, 120].map((minutes) => <option key={minutes} value={minutes}>{minutes} min</option>)}
+              </select>
+              <button
+                type="button"
+                onClick={() => void requestNextAction()}
+                disabled={nextActionState === 'loading'}
+                className="rounded-lg bg-[#4f8ef7] px-3 py-2 text-xs font-bold text-white disabled:cursor-wait disabled:opacity-60"
+              >
+                {nextActionState === 'loading' ? 'Analyzing…' : 'Recommend'}
+              </button>
+            </div>
+          </div>
+          {nextAction ? (
+            <div className="mt-4 rounded-xl border border-[#4f8ef740] bg-[#4f8ef710] p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Do this next</p>
+                  <p className="mt-1 text-base font-bold text-[#e8e8f5]">{nextAction.title}</p>
+                  <p className="mt-1 text-xs leading-5 text-[#a8a8c7]">{nextAction.reason}</p>
+                </div>
+                <div className="shrink-0 rounded-lg border border-[#00d97e40] bg-[#00d97e12] px-3 py-2 text-center">
+                  <p className="text-lg font-bold text-[#00d97e]">{nextAction.suggestedMinutes} min</p>
+                  <p className="text-[9px] font-bold uppercase tracking-[.14em] text-[#8b8bb3]">{nextAction.category}</p>
+                </div>
+              </div>
+            </div>
+          ) : nextActionState === 'error' ? (
+            <p className="mt-3 text-xs text-[#ff6b6b]">SG Goals could not analyze the data right now. Please try again.</p>
+          ) : (
+            <p className="mt-3 text-xs text-[#52527a]">Choose how much time you have, then ask for one clear next action.</p>
+          )}
+        </div>
         <div className="mb-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
