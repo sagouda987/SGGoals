@@ -23,6 +23,13 @@ function loadFunctions(file, names, globals = {}) {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }
   }).outputText;
   vm.runInContext(code, context, { filename });
+  // `const` declarations do not become properties of a VM context by default.
+  // Expose every requested production declaration for assertions.
+  for (const name of names) {
+    const key = `__test_${name}`;
+    vm.runInContext(`globalThis[${JSON.stringify(key)}] = ${name};`, context, { filename });
+    context[name] = context[key];
+  }
   return context;
 }
 
@@ -36,13 +43,13 @@ const taskApi = loadFunctions('app/api/goals/route.ts', [
 ]);
 const rollover = loadFunctions('app/api/goals/rollover/route.ts', [
   'taskMetaNotePattern', 'activityMetaNotePattern', 'AUTO_HABIT_MISS_NOTE',
-  'habitDefaultWeights', 'normalizeHabitCode', 'normalizeTaskWeight',
+  'ACTIVE_HABIT_CODES', 'habitLabels', 'habitDefaultWeights', 'normalizeHabitCode', 'normalizeTaskWeight',
   'taskWeightFromNote', 'composeAutoMissNote', 'activityPointsFromNote'
 ]);
 const focus = loadFunctions('lib/must-focus-targets.ts', ['istFocusDateKey']);
 const pointsLogic = loadFunctions('lib/goal-points.ts', ['dailyHabitPointEvents'], { istFocusDateKey: focus.istFocusDateKey });
 const history = loadFunctions('components/goals/sg-goals-app.tsx', [
-  'habitDefaultWeights', 'AUTO_HABIT_MISS_NOTE', 'normalizeTaskWeight', 'taskWeight',
+  'HABIT_TASKS', 'REMOVED_HABIT_TASKS', 'habitDefaultWeights', 'AUTO_HABIT_MISS_NOTE', 'normalizeTaskWeight', 'taskWeight',
   'buildScopeCompletion', 'normalizeStrikeCode', 'isHabitTask', 'defaultHabitWeight',
   'defaultTaskWeightFromText', 'activityPoints', 'toISODate', 'emptyMustTaskFocusMinutes',
   'isAutoHabitMiss', 'completedFocusMinutes', 'buildPointHistory', 'MONTHLY_SUMMARY_NOTE_PREFIX', 'parseMonthlySummary'
@@ -118,6 +125,23 @@ test('missing and invalid points still use defaults, positive points are preserv
   const note = activityApi.composeActivityNote(undefined, 5, undefined);
   assert.equal(activityApi.splitActivityNote(note).points, 5);
   assert.equal(rollover.activityPointsFromNote(note, 'Gym'), 5);
+});
+
+test('O1/O2/O3 and the requested morning/evening routines are independent active habits', () => {
+  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care'];
+  for (const task of expected) {
+    assert.equal(history.HABIT_TASKS.includes(task), true, `${task} is a visible daily habit`);
+    assert.equal(history.REMOVED_HABIT_TASKS.includes(task), false, `${task} is not removed`);
+    const clientCode = history.normalizeStrikeCode(task);
+    const serverCode = rollover.normalizeHabitCode(task);
+    assert.ok(clientCode, `${task} has a client code`);
+    assert.equal(clientCode, serverCode, `${task} uses the same client and rollover code`);
+    assert.equal(rollover.ACTIVE_HABIT_CODES.has(serverCode), true, `${task} is included by overnight rollover`);
+    assert.equal(history.defaultHabitWeight(task), rollover.habitDefaultWeights[serverCode]);
+  }
+  assert.deepEqual(['O1', 'O2', 'O3'].map(history.normalizeStrikeCode), ['O1', 'O2', 'O3']);
+  assert.equal(history.normalizeStrikeCode('O'), 'O', 'Historical O entries remain readable');
+  assert.equal(history.REMOVED_HABIT_TASKS.includes('O'), true, 'The retired single O task is removed from today');
 });
 
 const september7 = [

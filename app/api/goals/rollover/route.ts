@@ -12,7 +12,7 @@ const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
-const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'SLEEP', 'NOSOCIAL', 'MANIFEST']);
+const ACTIVE_HABIT_CODES = new Set(['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'SLEEP', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -21,6 +21,9 @@ function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
 
 const habitLabels: Record<string, string> = {
   O: 'O',
+  O1: 'O1',
+  O2: 'O2',
+  O3: 'O3',
   L1: 'L1',
   L2: 'L2',
   L3: 'L3',
@@ -47,6 +50,9 @@ const habitLabels: Record<string, string> = {
 
 const habitDefaultWeights: Record<string, number> = {
   O: 1,
+  O1: 1,
+  O2: 1,
+  O3: 1,
   L1: 2,
   L2: 2,
   L3: 2,
@@ -116,7 +122,8 @@ function istDateKeyToUtcDate(dateKey: string, hours: number, minutes: number) {
 
 function normalizeHabitCode(text: string) {
   const compact = text.trim().toUpperCase().replace(/\s+/g, '');
-  if (compact === 'O' || /^O[123]$/.test(compact)) return 'O';
+  if (compact === 'O') return 'O';
+  if (/^O[123]$/.test(compact)) return compact;
   if (/^L[123]$/.test(compact)) return compact;
   if (compact === 'M') return 'M';
   if (compact === 'B') return 'B';

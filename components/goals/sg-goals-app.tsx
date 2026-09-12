@@ -36,7 +36,7 @@ type GoalTask = {
 };
 
 type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'focus-session' | 'focus-correction';
-type StrikeCode = 'O' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
+type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 
 type GoalActivity = {
@@ -180,26 +180,26 @@ const blocks: Record<Block, { label: string; time: string }> = {
   evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
-const HABIT_TASKS = ['O', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Language learn', 'Gym', 'Book read and communication practice', 'Study', 'Office work', 'Wake up before 8', 'No Social Media', 'Manifestation'];
+const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Language learn', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Book read and communication practice', 'Study', 'Office work', 'Wake up before 8', 'No Social Media', 'Manifestation'];
 const REMOVED_HABIT_TASKS = [
+  'O',
   'Chess improvement',
   'Office course',
   'B',
-  'Healthy drink morning',
-  'Healthy drink evening',
-  'Morning skin care',
-  'Evening skin care',
   'Eye care',
   'Salt water gargle',
   'No E',
   'No junk food'
 ];
-const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'NOSOCIAL', 'MANIFEST'];
+const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'NOSOCIAL', 'MANIFEST'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
 const HABIT_MISS_ROLLOVER_KEY = 'sg-goals-habit-miss-rollover-v1';
 
 const habitLabels: Partial<Record<StrikeCode, string>> = {
   O: 'O',
+  O1: 'O1',
+  O2: 'O2',
+  O3: 'O3',
   L1: 'L1',
   L2: 'L2',
   L3: 'L3',
@@ -225,6 +225,9 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
 };
 const habitDefaultWeights: Partial<Record<StrikeCode, number>> = {
   O: 1,
+  O1: 1,
+  O2: 1,
+  O3: 1,
   L1: 2,
   L2: 2,
   L3: 2,
@@ -783,7 +786,8 @@ function formatIstClock(timestamp: number) {
 
 function normalizeStrikeCode(text: string) {
   const compact = text.trim().toUpperCase().replace(/\s+/g, '');
-  if (compact === 'O' || /^O[123]$/.test(compact)) return 'O';
+  if (compact === 'O') return 'O';
+  if (/^O[123]$/.test(compact)) return compact as Extract<StrikeCode, 'O1' | 'O2' | 'O3'>;
   if (/^L[123]$/.test(compact)) return compact as Extract<StrikeCode, 'L1' | 'L2' | 'L3'>;
   if (compact === 'M') return 'M';
   if (compact === 'B') return 'B';
@@ -1164,7 +1168,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
 
   const dayResults = Array.from(byDay.entries()).map(([day, codes]) => ({
     day,
-    o: codes.has('O'),
+    o: codes.has('O') || ['O1', 'O2', 'O3'].every((code) => codes.has(code)),
     l: ['L1', 'L2', 'L3'].every((code) => codes.has(code)),
     m: codes.has('M'),
     b: codes.has('B'),
