@@ -2915,6 +2915,19 @@ export function SgGoalsApp() {
     updateTimingPreview(guessedValue, nowValue);
   }
 
+  function openMustTaskCompletion(task: GoalTask) {
+    if (task.done) return;
+    const now = new Date();
+    const nowValue = formatClock(now);
+    setTimingTask(task);
+    setTimingScope('today');
+    // Reuse the standard confirmation path so the completion event and points
+    // exactly match completing the task in the Today checklist.
+    setTimingStart(nowValue);
+    setTimingEnd(nowValue);
+    updateTimingPreview(nowValue, nowValue);
+  }
+
   function updateTimingPreview(nextStart = timingStart, nextEnd = timingEnd) {
     if (!nextStart || !nextEnd) {
       setTimingPreview('-');
@@ -3655,6 +3668,11 @@ export function SgGoalsApp() {
                   onClick={() => { setFocusResetCode(item.code); setExtraFocusCode(null); setExtraFocusMessage(''); }}
                   className="ml-2 mt-3 rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b] disabled:opacity-40">
                   Reset time
+                </button>
+                <button type="button" disabled={!item.task || item.task.done || item.isActive || focusResetSaving || Boolean(focusResetPendingRef.current)}
+                  onClick={() => { if (item.task) openMustTaskCompletion(item.task); }}
+                  className="ml-2 mt-3 rounded-lg border border-[#00d97e40] px-3 py-2 text-xs font-bold text-[#00d97e] disabled:opacity-40">
+                  {item.task?.done ? 'Task complete' : 'Complete task'}
                 </button>
                 {focusResetCode === item.code ? (
                   <div className="mt-3 space-y-2 rounded-lg border border-[#ff6b6b44] p-3">
