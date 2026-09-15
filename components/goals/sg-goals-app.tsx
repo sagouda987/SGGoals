@@ -8,6 +8,7 @@ import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
+import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
 import { AlertTriangle, ArrowDown, ArrowUp, BarChart3, CalendarDays, Check, Clock, Copy, Download, Edit3, Flame, Pause, Play, RotateCcw, Save, Sparkles, Star, Trash2, TrendingUp, Upload } from 'lucide-react';
 import { buildMustFocusDayProgress, buildMustFocusTargetProgress, istFocusDateKey, MUST_FOCUS_TARGET_CODES, MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES, type MustFocusTargetCode } from '@/lib/must-focus-targets';
 
@@ -132,8 +133,9 @@ const TARGET_FOCUS_LOGGED_KEY = 'sg-goals-target-focus-logged-v1';
 const TARGET_UPDATED_KEY = 'sg-goals-target-updated-v1';
 const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
+const WAKE_LOG_KEY_PREFIX = 'sg-goals-wake-time-v1:';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v85';
+const APP_VERSION = 'cloud-sync-v86';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -1421,6 +1423,9 @@ export function SgGoalsApp() {
   const [nextAction, setNextAction] = useState<NextActionRecommendation | null>(null);
   const [nextActionState, setNextActionState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [dailyReview, setDailyReview] = useState<StoredDailyReview | null>(null);
+  const [wakeLog, setWakeLog] = useState<WakeLog | null>(null);
+  const [wakeTimeDraft, setWakeTimeDraft] = useState('07:00');
+  const [wakeLogState, setWakeLogState] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle');
   const focusResetPendingRef = useRef<GoalActivity | null>(null);
   const focusResetSavingRef = useRef(false);
   const targetPlanSignatureRef = useRef('');
@@ -1456,6 +1461,68 @@ export function SgGoalsApp() {
   useEffect(() => {
     void loadDailyReview();
   }, [loadDailyReview]);
+
+  const wakeDateKey = istCalendarDateKey(timerNow || Date.now());
+
+  useEffect(() => {
+    if (!wakeDateKey) return;
+    let cancelled = false;
+    setWakeLogState('loading');
+    const localKey = `${WAKE_LOG_KEY_PREFIX}${wakeDateKey}`;
+    try {
+      const local = JSON.parse(window.localStorage.getItem(localKey) || 'null') as WakeLog | null;
+      if (local?.dateKey === wakeDateKey) {
+        setWakeLog(local);
+        setWakeTimeDraft(local.wakeTime);
+      }
+    } catch {
+      // Cloud state below remains the source of truth when local data is invalid.
+    }
+    void fetch(`/api/goals/wake-time?dateKey=${encodeURIComponent(wakeDateKey)}`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Wake time load failed');
+        const data = (await response.json()) as { wakeLog?: WakeLog | null };
+        if (cancelled) return;
+        if (data.wakeLog) {
+          setWakeLog(data.wakeLog);
+          setWakeTimeDraft(data.wakeLog.wakeTime);
+          window.localStorage.setItem(localKey, JSON.stringify(data.wakeLog));
+        }
+        setWakeLogState('idle');
+      })
+      .catch(() => {
+        if (!cancelled) setWakeLogState('idle');
+      });
+    return () => { cancelled = true; };
+  }, [wakeDateKey]);
+
+  const wakeTimer = useMemo(
+    () => (wakeLog ? calculateWakeTimer(wakeLog, timerNow || Date.now()) : null),
+    [timerNow, wakeLog]
+  );
+  const bedtimeTimer = useMemo(
+    () => calculateBedtimeRemaining(wakeDateKey, timerNow || Date.now()),
+    [timerNow, wakeDateKey]
+  );
+
+  const saveWakeTime = useCallback(async () => {
+    if (!wakeDateKey || !wakeTimeDraft) return;
+    setWakeLogState('saving');
+    try {
+      const response = await fetch('/api/goals/wake-time', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dateKey: wakeDateKey, wakeTime: wakeTimeDraft })
+      });
+      const data = (await response.json()) as { wakeLog?: WakeLog; error?: string };
+      if (!response.ok || !data.wakeLog) throw new Error(data.error || 'Wake time save failed');
+      setWakeLog(data.wakeLog);
+      window.localStorage.setItem(`${WAKE_LOG_KEY_PREFIX}${wakeDateKey}`, JSON.stringify(data.wakeLog));
+      setWakeLogState('saved');
+    } catch {
+      setWakeLogState('error');
+    }
+  }, [wakeDateKey, wakeTimeDraft]);
 
   const showGoalNotification = useCallback((title: string, body: string, tag: string) => {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -4135,6 +4202,73 @@ export function SgGoalsApp() {
             </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-4xl px-5 pt-4">
+        <div className="rounded-xl border border-[#a78bfa55] bg-gradient-to-br from-[#17132a] to-[#0f0f1d] p-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-[#a78bfa]" />
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#a78bfa]">Wake and bedtime timer</p>
+              </div>
+              <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">Bedtime is fixed at 11:00 PM IST</h2>
+              <p className="mt-1 text-xs leading-5 text-[#8b8bb3]">Log when you woke up. SG Goals calculates sleep from the previous 11:00 PM and keeps the bedtime countdown running.</p>
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-[10px] font-bold uppercase tracking-[.14em] text-[#8b8bb3]">
+                Wake-up time
+                <input
+                  type="time"
+                  max="22:59"
+                  value={wakeTimeDraft}
+                  onChange={(event) => setWakeTimeDraft(event.target.value)}
+                  className="mt-1 block rounded-lg border border-[#292947] bg-[#07070f] px-3 py-2 text-sm font-bold text-[#e8e8f5]"
+                />
+              </label>
+              <button type="button" onClick={() => setWakeTimeDraft(istTimeInput(timerNow || Date.now()))} className="rounded-lg border border-[#292947] px-3 py-2 text-xs font-bold text-[#a8a8c7]">Use now</button>
+              <button type="button" onClick={() => void saveWakeTime()} disabled={wakeLogState === 'saving' || !wakeTimeDraft} className="rounded-lg bg-[#a78bfa] px-3 py-2 text-xs font-bold text-black disabled:opacity-60">
+                {wakeLogState === 'saving' ? 'Saving…' : wakeLog ? 'Update' : 'Log wake time'}
+              </button>
+            </div>
+          </div>
+          {wakeLog && wakeTimer ? (
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-lg border border-[#292947] bg-[#0b0b17] p-3">
+                <p className="text-[10px] uppercase tracking-[.14em] text-[#52527a]">Woke up</p>
+                <p className="mt-1 text-xl font-bold text-[#e8e8f5]">{wakeLog.wakeTime}</p>
+                <p className={`mt-1 text-[10px] font-bold ${wakeTimer.wokeBeforeEight ? 'text-[#00d97e]' : 'text-[#f7a04f]'}`}>{wakeTimer.wokeBeforeEight ? 'Before 8 AM goal met' : 'After 8 AM'}</p>
+              </div>
+              <div className="rounded-lg border border-[#292947] bg-[#0b0b17] p-3">
+                <p className="text-[10px] uppercase tracking-[.14em] text-[#52527a]">Sleep from 11 PM</p>
+                <p className="mt-1 text-xl font-bold text-[#4f8ef7]">{formatMinutes(wakeTimer.sleepMinutes)}</p>
+                <p className="mt-1 text-[10px] text-[#8b8bb3]">Previous bedtime to wake-up</p>
+              </div>
+              <div className="rounded-lg border border-[#292947] bg-[#0b0b17] p-3">
+                <p className="text-[10px] uppercase tracking-[.14em] text-[#52527a]">Awake window</p>
+                <p className="mt-1 text-xl font-bold text-[#ffd166]">{formatMinutes(wakeTimer.awakeWindowMinutes)}</p>
+                <p className="mt-1 text-[10px] text-[#8b8bb3]">Wake-up to tonight&apos;s bedtime</p>
+              </div>
+              <div className="rounded-lg border border-[#a78bfa55] bg-[#a78bfa10] p-3">
+                <p className="text-[10px] uppercase tracking-[.14em] text-[#a78bfa]">Time left until 11 PM</p>
+                <p className="mt-1 font-mono text-xl font-bold text-[#e8e8f5]">{formatWakeCountdown(wakeTimer.remainingMs)}</p>
+                <p className="mt-1 text-[10px] text-[#8b8bb3]">{wakeTimer.bedtimeReached ? 'Bedtime reached' : 'Live IST countdown'}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#a78bfa55] bg-[#a78bfa10] p-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[.14em] text-[#a78bfa]">Time left until 11 PM</p>
+                <p className="mt-1 text-xs text-[#8b8bb3]">Log today&apos;s wake-up time to add sleep and awake-window totals.</p>
+              </div>
+              <div className="text-right">
+                <p className="font-mono text-xl font-bold text-[#e8e8f5]">{formatWakeCountdown(bedtimeTimer.remainingMs)}</p>
+                <p className="mt-1 text-[10px] text-[#8b8bb3]">{bedtimeTimer.bedtimeReached ? 'Bedtime reached' : 'Live IST countdown'}</p>
+              </div>
+            </div>
+          )}
+          {wakeLogState === 'error' ? <p className="mt-2 text-xs text-[#ff6b6b]">Wake-up time could not be saved. Check the time and try again.</p> : null}
         </div>
       </section>
 
