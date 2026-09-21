@@ -4291,7 +4291,7 @@ export function SgGoalsApp() {
         </div>
       </section>
 
-      {scope === 'today' ? (
+      {scope === 'weekend' ? (
       <section className="mx-auto max-w-4xl px-5 pb-2">
         <div className="mb-3 overflow-hidden rounded-xl border border-[#4f8ef755] bg-gradient-to-br from-[#12142a] to-[#0f0f1d] p-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -4386,6 +4386,11 @@ export function SgGoalsApp() {
             ) : null}
           </div>
         ) : null}
+      </section>
+      ) : null}
+
+      {scope === 'today' ? (
+      <section className="mx-auto max-w-4xl px-5 pb-2">
         <div className="mb-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
