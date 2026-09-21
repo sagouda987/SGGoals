@@ -9,6 +9,7 @@
     "start": "cross-env NODE_ENV=production tsx server/index.ts",
     "start:socket": "node socket-server/index.js",
     "mcp:start": "tsx scripts/mcp-server.ts",
+    "mcp:stdio": "tsx scripts/mcp-stdio.ts",
     "test:mcp": "tsx scripts/mcp.test.ts",
     "lint": "next lint",
     "db:migrate": "prisma migrate dev",

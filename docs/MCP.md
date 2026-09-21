@@ -47,6 +47,34 @@ npm.cmd run mcp:start
 
 The endpoint is `http://127.0.0.1:3333/mcp` by default. Configure an MCP client for Streamable HTTP and add the bearer-token authorization header.
 
+## Connect SG Goals to ChatGPT privately
+
+Use OpenAI Secure MCP Tunnel for the ChatGPT connection. The tunnel makes an outbound connection from this computer, so the SG Goals database and MCP server do not need a public URL or an inbound firewall rule. ChatGPT calls the tools only when a conversation needs current SG Goals data; the application does not continuously upload the database.
+
+The tunnel uses the stdio entry point below. It exposes the same read-only tools and service layer as the local HTTP server, without putting `SG_GOALS_MCP_TOKEN` into ChatGPT:
+
+```powershell
+cd D:\TalkFluent
+npm.cmd run mcp:stdio
+```
+
+For the one-time connection:
+
+1. Sign in at `https://platform.openai.com/settings/organization/tunnels` with the same OpenAI account used for ChatGPT.
+2. Create a tunnel associated with the personal ChatGPT workspace and create its runtime API key.
+3. Download the latest official `tunnel-client` from the tunnel settings page.
+4. Initialize a profile named `sg-goals` with the tunnel ID and this stdio command:
+
+   ```powershell
+   tunnel-client init --profile sg-goals --tunnel-id tunnel_your_id --mcp-command "npm.cmd --prefix D:\TalkFluent run mcp:stdio"
+   tunnel-client doctor --profile sg-goals --explain
+   tunnel-client run --profile sg-goals
+   ```
+
+5. In `https://chatgpt.com/plugins`, choose **Create app**, name it **SG Goals**, select **Tunnel**, select the new tunnel, review the six discovered tools, acknowledge the developer-mode warning, and create the app.
+
+Keep `tunnel-client run --profile sg-goals` running whenever ChatGPT should have live access. If this computer or the tunnel client is offline, ChatGPT cannot read SG Goals. The connection remains read-only and does not modify database records.
+
 Run the MCP regression tests:
 
 ```powershell
