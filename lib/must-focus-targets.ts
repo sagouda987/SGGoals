@@ -42,11 +42,24 @@ export function istFocusDateKey(timestamp: number | string) {
   return new Date(date.getTime() + 150 * 60000).toISOString().slice(0, 10);
 }
 
-function shiftDay(dateKey: string, offset: number) {
+export function shiftReportingDateKey(dateKey: string, offset: number) {
   const date = new Date(`${dateKey}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
 }
+
+export function reportingDayBounds(dateKey: string) {
+  const start = new Date(`${dateKey}T03:00:00+05:30`);
+  return { start, end: new Date(start.getTime() + 24 * 60 * 60 * 1000) };
+}
+
+export function reportingWeekBounds(dateKey: string) {
+  const day = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
+  const startDate = shiftReportingDateKey(dateKey, -day);
+  return { startDate, endDate: shiftReportingDateKey(startDate, 6) };
+}
+
+const shiftDay = shiftReportingDateKey;
 
 export function mustFocusTargets(dateKey: string) {
   const day = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
