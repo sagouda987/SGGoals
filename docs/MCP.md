@@ -73,7 +73,7 @@ For the one-time connection:
    tunnel-client run --profile sg-goals
    ```
 
-5. In `https://chatgpt.com/plugins`, choose **Create app**, name it **SG Goals**, select **Tunnel**, select the new tunnel, review the six discovered tools, acknowledge the developer-mode warning, and create the app.
+5. In `https://chatgpt.com/plugins`, choose **Create app**, name it **SG Goals**, select **Tunnel**, select the new tunnel, review the seven discovered tools, acknowledge the developer-mode warning, and create the app.
 
 Keep `tunnel-client run --profile sg-goals` running whenever ChatGPT should have live access. If this computer or the tunnel client is offline, ChatGPT cannot read SG Goals. The connection remains read-only and does not modify database records.
 
@@ -127,6 +127,14 @@ No input. Reuses the deterministic service behind `/api/goals/next-action`; no p
 ```
 
 Supported categories match SG Goals: `health`, `career`, `communication`, `looks`, and `other`. Returns recorded completion, points, focus time, category score, daily trend, and frequent misses.
+
+### `get_priority_review`
+
+```json
+{ "period": "week", "date": "2026-09-22" }
+```
+
+`period` supports `day`, `week`, and `month`; `date` is optional and defaults to the current SG Goals reporting date. The result combines recorded progress, misses, focus time, category performance, an equal-length previous-period comparison, the current yearly-to-daily goal hierarchy, notes, and the deterministic next action. ChatGPT can use this evidence for an on-demand review at any time; it does not create or modify SG Goals records.
 
 ## 3:00 AM IST boundary
 

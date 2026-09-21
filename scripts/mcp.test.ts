@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { authorizeMcpRequest, requireConfiguredMcpToken } from '../lib/mcp/auth';
 import { SgGoalsMcpError } from '../lib/mcp/errors';
 import { buildDailyActivitySummary, type McpActivityRecord, type McpTaskRecord } from '../lib/mcp/reporting';
-import { dailyReportInputSchema, goalProgressInputSchema, missedTasksInputSchema, weeklySummaryInputSchema } from '../lib/mcp/schemas';
+import { dailyReportInputSchema, goalProgressInputSchema, missedTasksInputSchema, priorityReviewInputSchema, weeklySummaryInputSchema } from '../lib/mcp/schemas';
 import { HttpSgGoalsMcpDataSource, SgGoalsMcpService, type SgGoalsMcpDataSource } from '../lib/mcp/service';
 import { istFocusDateKey, reportingDayBounds } from '../lib/must-focus-targets';
 
@@ -76,6 +76,13 @@ async function run() {
   assert.equal(progress.points, 5);
   assert.equal(progress.missedTasks, 1);
   assert.equal((await service.getNextAction(now)).taskId, null);
+  const priorityReview = await service.getPriorityReview({ period: 'week', date: '2026-09-22' }, now);
+  assert.deepEqual(priorityReview.range, { startDate: '2026-09-20', endDate: '2026-09-22' });
+  assert.deepEqual(priorityReview.comparisonRange, { startDate: '2026-09-17', endDate: '2026-09-19' });
+  assert.equal(priorityReview.current.completedPoints, 5);
+  assert.equal(priorityReview.current.missedTasks, 1);
+  assert.equal(priorityReview.priorityPlan.today[0]?.title, 'Study');
+  assert.equal(priorityReview.nextAction.source, 'deterministic');
 
   const sequence = [
     activity({ id: 'c1', taskText: 'Gym', kind: 'completion', note: note(5), createdAt: '2026-09-21T22:00:00Z' }),
@@ -98,6 +105,7 @@ async function run() {
   assert.equal(weeklySummaryInputSchema.safeParse({ startDate: '2025-01-01', endDate: '2026-09-22' }).success, false);
   assert.equal(missedTasksInputSchema.safeParse({ days: 366, limit: 20 }).success, false);
   assert.equal(goalProgressInputSchema.safeParse({ category: 'money', days: 30 }).success, false);
+  assert.equal(priorityReviewInputSchema.safeParse({ period: 'year' }).success, false);
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | URL | Request) => {
@@ -120,7 +128,7 @@ async function run() {
     globalThis.fetch = originalFetch;
   }
 
-  console.log('MCP: auth, IST boundary, today status, daily report, weekly aggregation, point chronology, remote live-data mapping, empty data, and input validation passed.');
+  console.log('MCP: auth, IST boundary, today status, daily report, weekly aggregation, priority review, point chronology, remote live-data mapping, empty data, and input validation passed.');
 }
 
 void run();

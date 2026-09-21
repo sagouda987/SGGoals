@@ -3362,6 +3362,11 @@ export function SgGoalsApp() {
     window.setTimeout(() => setReportCopied(false), 1800);
   }
 
+  function chatGptPriorityReviewUrl(period: 'day' | 'week' | 'month') {
+    const prompt = `Use the SG Goals get_priority_review tool for my ${period}. Analyze my progress, missed priorities, consistency risks, and the highest-value improvements while keeping my yearly, monthly, weekly, and daily priorities aligned.`;
+    return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
+  }
+
   const completedInCurrentScope = scope === 'today' || scope === 'weekend' ? activeTasks.filter((task) => task.done) : [];
 
   const groupedToday = (Object.keys(blocks) as Block[]).map((block) => {
@@ -4345,14 +4350,37 @@ export function SgGoalsApp() {
             <p className="mt-3 text-xs text-[#52527a]">Choose how much time you have, then ask for one clear next action.</p>
           )}
         </div>
+        <div className="mb-3 rounded-xl border border-[#4f8ef745] bg-[#4f8ef70b] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#4f8ef7]">Priority coaching</p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Review and improve at any time</h2>
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-[#a8a8c7]">ChatGPT will read the selected SG Goals period, compare it with the previous period, and keep suggestions aligned with your yearly, monthly, weekly, and daily priorities.</p>
+            </div>
+            <span className="rounded-full border border-[#4f8ef735] px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-[#4f8ef7]">Read only</span>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {(['day', 'week', 'month'] as const).map((period) => (
+              <a
+                key={period}
+                href={chatGptPriorityReviewUrl(period)}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-center text-xs font-bold capitalize text-[#8db7ff] transition hover:bg-[#4f8ef715]"
+              >
+                Review {period}
+              </a>
+            ))}
+          </div>
+        </div>
         {dailyReview ? (
           <div className="mb-3 rounded-xl border border-[#ffd16645] bg-[#ffd1660b] p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#ffd166]">Morning review</p>
+                <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#ffd166]">Previous day snapshot</p>
                 <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Review for {formatStartedDate(dailyReview.dateKey)}</h2>
               </div>
-              <span className="rounded-full border border-[#ffd16635] px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-[#ffd166]">3:00 AM IST</span>
+              <span className="rounded-full border border-[#ffd16635] px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-[#ffd166]">Generated at 3:00 AM IST</span>
             </div>
             <p className="mt-3 text-sm leading-6 text-[#d5d5e8]">{dailyReview.dailyReview}</p>
             <div className="mt-3 grid gap-3 md:grid-cols-2">

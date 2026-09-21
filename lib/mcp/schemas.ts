@@ -37,4 +37,9 @@ export const goalProgressInputSchema = z.object({
   days: z.number().int().min(1).max(365).default(30)
 }).strict();
 
+export const priorityReviewInputSchema = z.object({
+  period: z.enum(['day', 'week', 'month']),
+  date: dateKeySchema.optional()
+}).strict();
+
 export const noInputSchema = z.object({}).strict();

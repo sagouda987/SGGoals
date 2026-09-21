@@ -6,6 +6,7 @@ import {
   goalProgressInputSchema,
   missedTasksInputSchema,
   noInputSchema,
+  priorityReviewInputSchema,
   weeklySummaryInputSchema,
   weeklySummaryToolInputSchema
 } from '@/lib/mcp/schemas';
@@ -81,6 +82,14 @@ export function createSgGoalsMcpServer(service: SgGoalsMcpService) {
     annotations: readOnlyAnnotations
   }, async (input) => {
     try { return success(await service.getGoalProgress(input)); } catch (error) { return failure(error); }
+  });
+
+  server.registerTool('get_priority_review', {
+    description: 'Return a compact, priority-aware SG Goals review for a day, week-to-date, or month-to-date, including comparison data and improvement evidence for ChatGPT coaching.',
+    inputSchema: priorityReviewInputSchema,
+    annotations: readOnlyAnnotations
+  }, async (input) => {
+    try { return success(await service.getPriorityReview(input)); } catch (error) { return failure(error); }
   });
 
   return server;

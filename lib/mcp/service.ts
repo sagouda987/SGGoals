@@ -325,4 +325,95 @@ export class SgGoalsMcpService {
       frequentMisses: summarizeMisses(days.map((day) => ({ ...day, missedTasks: day.missedTasks.filter((miss) => miss.category === input.category) })))
     };
   }
+
+  async getPriorityReview(input: { period: 'day' | 'week' | 'month'; date?: string }, now = new Date()) {
+    const currentDate = istFocusDateKey(now.toISOString());
+    const endDate = input.date && input.date < currentDate ? input.date : currentDate;
+    const weekStart = reportingWeekBounds(endDate).startDate;
+    const startDate = input.period === 'day' ? endDate : input.period === 'week' ? weekStart : `${endDate.slice(0, 7)}-01`;
+    const elapsedDays = enumerateDateKeys(startDate, endDate).length;
+    const previousEndDate = shiftReportingDateKey(startDate, -1);
+    const previousStartDate = shiftReportingDateKey(previousEndDate, -(elapsedDays - 1));
+    const { start } = reportingDayBounds(previousStartDate);
+    const { end } = reportingDayBounds(endDate);
+    const [taskRecords, activities] = await Promise.all([
+      this.dataSource.getTasks(),
+      this.dataSource.getActivities(start, end)
+    ]);
+    const currentActivities = activities.filter((activity) => {
+      const date = istFocusDateKey(activity.createdAt instanceof Date ? activity.createdAt.toISOString() : activity.createdAt);
+      return date >= startDate && date <= endDate;
+    });
+    const previousActivities = activities.filter((activity) => {
+      const date = istFocusDateKey(activity.createdAt instanceof Date ? activity.createdAt.toISOString() : activity.createdAt);
+      return date >= previousStartDate && date <= previousEndDate;
+    });
+
+    const summarize = (records: McpActivityRecord[], rangeStart: string, rangeEnd: string) => {
+      const days = enumerateDateKeys(rangeStart, rangeEnd).map((date) => buildDailyActivitySummary(records, date));
+      const completedTasks = days.reduce((sum, day) => sum + day.completedTasks.length, 0);
+      const missedTasks = days.reduce((sum, day) => sum + day.missedTasks.length, 0);
+      return {
+        completedTasks,
+        missedTasks,
+        completedPoints: days.reduce((sum, day) => sum + day.completedPoints, 0),
+        missedPoints: days.reduce((sum, day) => sum + day.failedPoints, 0),
+        timeInvestedMinutes: days.reduce((sum, day) => sum + day.timeInvestedMinutes, 0),
+        completionPercentage: completedTasks + missedTasks ? Math.round(completedTasks / (completedTasks + missedTasks) * 100) : 0,
+        categoryPerformance: buildCategoryPerformance(records, rangeStart, rangeEnd),
+        frequentMisses: summarizeMisses(days),
+        dailyTrend: days.map((day) => ({
+          date: day.date,
+          completedTasks: day.completedTasks.length,
+          missedTasks: day.missedTasks.length,
+          completedPoints: day.completedPoints,
+          missedPoints: day.failedPoints,
+          timeInvestedMinutes: day.timeInvestedMinutes
+        }))
+      };
+    };
+
+    const current = summarize(currentActivities, startDate, endDate);
+    const previous = summarize(previousActivities, previousStartDate, previousEndDate);
+    const tasks = buildTasks(taskRecords, currentActivities, now);
+    const priorityPlan = Object.fromEntries(['yearly', 'monthly', 'weekly', 'weekend', 'today', 'tomorrow'].map((scope) => [
+      scope,
+      tasks.filter((task) => task.scope === scope).map((task) => ({
+        id: task.id,
+        title: task.text,
+        category: task.priority,
+        points: task.weight,
+        completed: task.done,
+        timeInvestedMinutes: task.investedMinutes,
+        note: task.note || null
+      }))
+    ]));
+    const scoreChanges = current.categoryPerformance.map((category) => ({
+      category: category.priority,
+      score: category.score,
+      previousScore: previous.categoryPerformance.find((item) => item.priority === category.priority)?.score ?? 0,
+      change: category.score - (previous.categoryPerformance.find((item) => item.priority === category.priority)?.score ?? 0)
+    }));
+    const nextAction = await this.getNextAction(now);
+
+    return {
+      period: input.period,
+      reportingBoundary: '03:00 Asia/Kolkata',
+      range: { startDate, endDate },
+      comparisonRange: { startDate: previousStartDate, endDate: previousEndDate },
+      taskSource: 'current_goal_hierarchy_and_recorded_activity_history',
+      current,
+      previous,
+      changes: {
+        completionPercentage: current.completionPercentage - previous.completionPercentage,
+        completedPoints: current.completedPoints - previous.completedPoints,
+        timeInvestedMinutes: current.timeInvestedMinutes - previous.timeInvestedMinutes,
+        missedTasks: current.missedTasks - previous.missedTasks,
+        categoryScores: scoreChanges
+      },
+      priorityPlan,
+      nextAction,
+      coachingRequest: 'Identify progress, missed priorities, the biggest bottleneck, consistency risks, and the highest-value improvements while respecting the yearly, monthly, weekly, and daily priority hierarchy.'
+    };
+  }
 }

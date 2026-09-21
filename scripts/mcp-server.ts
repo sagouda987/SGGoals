@@ -40,7 +40,7 @@ const statusPage = `<!doctype html>
   <div class="status"><span class="dot"></span>Server running</div>
   <h1>SG Goals MCP</h1>
   <p>The read-only MCP endpoint is available at <code>POST /mcp</code>. MCP clients must send the configured bearer token. This browser page exposes no SG Goals data.</p>
-  <ul><li>get_today_status</li><li>get_daily_report</li><li>get_weekly_summary</li><li>get_missed_tasks</li><li>get_next_action</li><li>get_goal_progress</li></ul>
+  <ul><li>get_today_status</li><li>get_daily_report</li><li>get_weekly_summary</li><li>get_missed_tasks</li><li>get_next_action</li><li>get_goal_progress</li><li>get_priority_review</li></ul>
 </main></body>
 </html>`;
 
