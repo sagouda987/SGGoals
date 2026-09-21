@@ -2,14 +2,15 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { config } from 'dotenv';
 import path from 'node:path';
 import { createSgGoalsMcpServer } from '../lib/mcp/server';
-import { SgGoalsMcpService } from '../lib/mcp/service';
+import { HttpSgGoalsMcpDataSource, SgGoalsMcpService } from '../lib/mcp/service';
 
 const projectRoot = path.resolve(__dirname, '..');
 
 config({ path: path.join(projectRoot, '.env.local') });
 config({ path: path.join(projectRoot, '.env') });
 
-const server = createSgGoalsMcpServer(new SgGoalsMcpService());
+const dataUrl = process.env.SG_GOALS_MCP_DATA_URL?.trim() || 'https://sg-goals.vercel.app';
+const server = createSgGoalsMcpServer(new SgGoalsMcpService(new HttpSgGoalsMcpDataSource(dataUrl)));
 const transport = new StdioServerTransport();
 
 async function main() {

@@ -21,6 +21,90 @@ export interface SgGoalsMcpDataSource {
   getActivities(start: Date, end: Date, limit?: number): Promise<McpActivityRecord[]>;
 }
 
+type GoalsApiTask = Omit<McpTaskRecord, 'block' | 'note' | 'investedMinutes'> & {
+  block?: string;
+  note?: string;
+  weight?: number;
+  investedMinutes?: number;
+};
+
+type GoalsApiActivity = Omit<McpActivityRecord, 'reason' | 'note' | 'minutes' | 'startedAt' | 'completedAt'> & {
+  reason?: string;
+  note?: string;
+  points?: number;
+  minutes?: number;
+  focusMinutes?: number;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+function appendEncodedMetadata(note: string | undefined, marker: string, value: object) {
+  const encoded = Buffer.from(JSON.stringify(value), 'utf8').toString('base64');
+  return `${note?.trim() || ''}\n[${marker}:${encoded}]`.trim();
+}
+
+/** Reads the deployed SG Goals APIs so the private tunnel sees the same live data as the website. */
+export class HttpSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
+  constructor(private readonly baseUrl: string) {}
+
+  private async getJson(pathname: string) {
+    const url = new URL(pathname, this.baseUrl);
+    if (url.protocol !== 'https:' && url.hostname !== '127.0.0.1' && url.hostname !== 'localhost') {
+      throw new Error('SG Goals MCP data URL must use HTTPS.');
+    }
+    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+    if (!response.ok) throw new Error(`SG Goals API returned ${response.status}.`);
+    return response.json() as Promise<Record<string, unknown>>;
+  }
+
+  async getTasks() {
+    const payload = await this.getJson('/api/goals');
+    const store = payload.store;
+    if (!store || typeof store !== 'object') throw new Error('SG Goals API returned an invalid task store.');
+    return Object.values(store as Record<string, unknown>).flatMap((value) => Array.isArray(value) ? value : [])
+      .filter((value): value is GoalsApiTask => Boolean(value) && typeof value === 'object' && typeof value.id === 'string' && typeof value.text === 'string')
+      .map((task) => ({
+        id: task.id,
+        scope: task.scope,
+        text: task.text,
+        priority: task.priority,
+        block: task.block ?? null,
+        done: task.done,
+        note: task.weight === undefined ? task.note ?? null : appendEncodedMetadata(task.note, 'sg-task-meta', { weight: task.weight }),
+        investedMinutes: task.investedMinutes ?? null
+      }));
+  }
+
+  async getActivities(start: Date, end: Date, limit = 5000) {
+    const payload = await this.getJson('/api/goals/activities');
+    const activities = payload.activities;
+    if (!Array.isArray(activities)) throw new Error('SG Goals API returned invalid activities.');
+    return activities
+      .filter((value): value is GoalsApiActivity => Boolean(value) && typeof value === 'object' && typeof value.id === 'string' && typeof value.createdAt === 'string')
+      .filter((activity) => {
+        const createdAt = Date.parse(String(activity.createdAt));
+        return createdAt >= start.getTime() && createdAt < end.getTime();
+      })
+      .sort((a, b) => Date.parse(String(a.createdAt)) - Date.parse(String(b.createdAt)))
+      .slice(0, Math.min(limit, 10000))
+      .map((activity) => ({
+        id: activity.id,
+        scope: activity.scope,
+        priority: activity.priority,
+        taskText: activity.taskText,
+        kind: activity.kind,
+        reason: activity.reason ?? null,
+        note: activity.points === undefined && activity.focusMinutes === undefined
+          ? activity.note ?? null
+          : appendEncodedMetadata(activity.note, 'sg-activity-meta', { points: activity.points, focusMinutes: activity.focusMinutes }),
+        minutes: activity.minutes ?? null,
+        startedAt: activity.startedAt ?? null,
+        completedAt: activity.completedAt ?? null,
+        createdAt: activity.createdAt
+      }));
+  }
+}
+
 export class PrismaSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
   async getTasks() {
     return prisma.goalTask.findMany({

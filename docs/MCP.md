@@ -58,6 +58,8 @@ cd D:\TalkFluent
 npm.cmd run mcp:stdio
 ```
 
+The stdio entry point reads the deployed website's existing read-only `/api/goals` and `/api/goals/activities` endpoints, so ChatGPT sees the same live data as `https://sg-goals.vercel.app`. Override `SG_GOALS_MCP_DATA_URL` only when testing another SG Goals deployment. No database credentials are sent to ChatGPT.
+
 For the one-time connection:
 
 1. Sign in at `https://platform.openai.com/settings/organization/tunnels` with the same OpenAI account used for ChatGPT.

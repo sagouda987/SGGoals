@@ -3,7 +3,7 @@ import { authorizeMcpRequest, requireConfiguredMcpToken } from '../lib/mcp/auth'
 import { SgGoalsMcpError } from '../lib/mcp/errors';
 import { buildDailyActivitySummary, type McpActivityRecord, type McpTaskRecord } from '../lib/mcp/reporting';
 import { dailyReportInputSchema, goalProgressInputSchema, missedTasksInputSchema, weeklySummaryInputSchema } from '../lib/mcp/schemas';
-import { SgGoalsMcpService, type SgGoalsMcpDataSource } from '../lib/mcp/service';
+import { HttpSgGoalsMcpDataSource, SgGoalsMcpService, type SgGoalsMcpDataSource } from '../lib/mcp/service';
 import { istFocusDateKey, reportingDayBounds } from '../lib/must-focus-targets';
 
 function activity(input: Partial<McpActivityRecord> & Pick<McpActivityRecord, 'id' | 'taskText' | 'kind' | 'createdAt'>): McpActivityRecord {
@@ -99,7 +99,28 @@ async function run() {
   assert.equal(missedTasksInputSchema.safeParse({ days: 366, limit: 20 }).success, false);
   assert.equal(goalProgressInputSchema.safeParse({ category: 'money', days: 30 }).success, false);
 
-  console.log('MCP: auth, IST boundary, today status, daily report, weekly aggregation, point chronology, empty data, and input validation passed.');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const pathname = new URL(String(input)).pathname;
+    if (pathname === '/api/goals') return Response.json({ store: { today: [{ id: 'zero-task', scope: 'today', text: 'Zero', priority: 'career', done: true, weight: 0 }] } });
+    return Response.json({ activities: [
+      { id: 'later', scope: 'today', priority: 'career', taskText: 'Zero', kind: 'undo', points: 0, createdAt: '2026-09-22T01:00:00Z' },
+      { id: 'earlier', scope: 'today', priority: 'career', taskText: 'Zero', kind: 'completion', points: 0, createdAt: '2026-09-22T00:00:00Z' }
+    ] });
+  }) as typeof fetch;
+  try {
+    const httpSource = new HttpSgGoalsMcpDataSource('https://sg-goals.example');
+    const remoteTasks = await httpSource.getTasks();
+    const remoteActivities = await httpSource.getActivities(new Date('2026-09-21T23:00:00Z'), new Date('2026-09-22T02:00:00Z'));
+    assert.match(remoteTasks[0]?.note ?? '', /sg-task-meta/);
+    assert.deepEqual(remoteActivities.map((item) => item.id), ['earlier', 'later']);
+    assert.match(remoteActivities[0]?.note ?? '', /sg-activity-meta/);
+    assert.equal(buildDailyActivitySummary(remoteActivities, '2026-09-22').completedPoints, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  console.log('MCP: auth, IST boundary, today status, daily report, weekly aggregation, point chronology, remote live-data mapping, empty data, and input validation passed.');
 }
 
 void run();
