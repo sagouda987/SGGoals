@@ -85,7 +85,7 @@ export function createSgGoalsMcpServer(service: SgGoalsMcpService) {
   });
 
   server.registerTool('get_priority_review', {
-    description: 'Return a compact, priority-aware SG Goals review for a day, week-to-date, or month-to-date, including comparison data and improvement evidence for ChatGPT coaching.',
+    description: 'Return a complete, priority-aware SG Goals review payload for a day, week-to-date, or month-to-date, including task notes, planning notes, activity notes, event history, comparison data, and improvement evidence for ChatGPT coaching.',
     inputSchema: priorityReviewInputSchema,
     annotations: readOnlyAnnotations
   }, async (input) => {

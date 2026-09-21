@@ -10,6 +10,7 @@ import {
   buildTasks,
   enumerateDateKeys,
   normalizeHabitCode,
+  toPublicMcpActivity,
   type McpActivityRecord,
   type McpTaskRecord
 } from '@/lib/mcp/reporting';
@@ -38,6 +39,20 @@ type GoalsApiActivity = Omit<McpActivityRecord, 'reason' | 'note' | 'minutes' | 
   completedAt?: string;
 };
 
+function metadataTask(id: string, text: string, value: unknown): McpTaskRecord | null {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    id,
+    scope: '__meta__',
+    text,
+    priority: 'other',
+    block: null,
+    done: false,
+    note: JSON.stringify(value),
+    investedMinutes: null
+  };
+}
+
 function appendEncodedMetadata(note: string | undefined, marker: string, value: object) {
   const encoded = Buffer.from(JSON.stringify(value), 'utf8').toString('base64');
   return `${note?.trim() || ''}\n[${marker}:${encoded}]`.trim();
@@ -61,7 +76,7 @@ export class HttpSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
     const payload = await this.getJson('/api/goals');
     const store = payload.store;
     if (!store || typeof store !== 'object') throw new Error('SG Goals API returned an invalid task store.');
-    return Object.values(store as Record<string, unknown>).flatMap((value) => Array.isArray(value) ? value : [])
+    const tasks = Object.values(store as Record<string, unknown>).flatMap((value) => Array.isArray(value) ? value : [])
       .filter((value): value is GoalsApiTask => Boolean(value) && typeof value === 'object' && typeof value.id === 'string' && typeof value.text === 'string')
       .map((task) => ({
         id: task.id,
@@ -73,6 +88,12 @@ export class HttpSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
         note: task.weight === undefined ? task.note ?? null : appendEncodedMetadata(task.note, 'sg-task-meta', { weight: task.weight }),
         investedMinutes: task.investedMinutes ?? null
       }));
+    const metadata = [
+      metadataTask('__target_state__', 'Target timer state', payload.targetState),
+      metadataTask('__weekly_plan__', 'Weekly planning state', payload.weeklyPlan),
+      metadataTask('__yearly_notes__', 'Yearly notes state', payload.yearlyNotes)
+    ].filter((task): task is McpTaskRecord => task !== null);
+    return [...tasks, ...metadata];
   }
 
   async getActivities(start: Date, end: Date, limit = 5000) {
@@ -135,6 +156,11 @@ function dateRange(startDate: string, endDate: string) {
 
 function normalizedName(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function planningValue(note: string | null): unknown {
+  if (!note) return null;
+  try { return JSON.parse(note) as unknown; } catch { return note; }
 }
 
 function summarizeMisses(days: ReturnType<typeof buildDailyActivitySummary>[], limit = 10) {
@@ -376,6 +402,41 @@ export class SgGoalsMcpService {
     const current = summarize(currentActivities, startDate, endDate);
     const previous = summarize(previousActivities, previousStartDate, previousEndDate);
     const tasks = buildTasks(taskRecords, currentActivities, now);
+    const taskContext = tasks.filter((task) => task.scope !== '__meta__').map((task) => ({
+      id: task.id,
+      scope: task.scope,
+      title: task.text,
+      category: task.priority,
+      block: task.block,
+      points: task.weight,
+      completed: task.done,
+      timeInvestedMinutes: task.investedMinutes,
+      note: task.note || null
+    }));
+    const planningContext = taskRecords.filter((task) => task.scope === '__meta__').map((task) => ({
+      id: task.id,
+      title: task.text,
+      data: planningValue(task.note)
+    }));
+    const activityHistory = currentActivities
+      .map(toPublicMcpActivity)
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+      .map((activity) => ({
+        id: activity.id,
+        reportingDate: istFocusDateKey(activity.createdAt),
+        scope: activity.scope,
+        taskName: activity.taskName,
+        category: activity.category,
+        event: activity.kind,
+        points: activity.points,
+        minutes: activity.minutes,
+        focusMinutes: activity.focusMinutes,
+        reason: activity.reason,
+        note: activity.note,
+        startedAt: activity.startedAt,
+        completedAt: activity.completedAt,
+        createdAt: activity.createdAt
+      }));
     const priorityPlan = Object.fromEntries(['yearly', 'monthly', 'weekly', 'weekend', 'today', 'tomorrow'].map((scope) => [
       scope,
       tasks.filter((task) => task.scope === scope).map((task) => ({
@@ -412,8 +473,19 @@ export class SgGoalsMcpService {
         categoryScores: scoreChanges
       },
       priorityPlan,
+      taskContext,
+      planningContext,
+      activityHistory,
+      dataCoverage: {
+        taskCount: taskContext.length,
+        taskNotes: taskContext.filter((task) => task.note).length,
+        planningRecords: planningContext.length,
+        activityEvents: activityHistory.length,
+        activityNotes: activityHistory.filter((activity) => activity.note).length,
+        missedReasons: activityHistory.filter((activity) => activity.reason).length
+      },
       nextAction,
-      coachingRequest: 'Identify progress, missed priorities, the biggest bottleneck, consistency risks, and the highest-value improvements while respecting the yearly, monthly, weekly, and daily priority hierarchy.'
+      coachingRequest: 'Use the complete task context, planning context, activity history, notes, and missed reasons. Identify progress, missed priorities, the biggest bottleneck, consistency risks, and the highest-value improvements while respecting the yearly, monthly, weekly, and daily priority hierarchy.'
     };
   }
 }

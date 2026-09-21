@@ -42,10 +42,13 @@ async function run() {
   assert.equal(bounds.start.toISOString(), '2026-09-21T21:30:00.000Z');
   assert.equal(bounds.end.toISOString(), '2026-09-22T21:30:00.000Z');
 
-  const taskNote = `[sg-task-meta:${Buffer.from(JSON.stringify({ weight: 5 }), 'utf8').toString('base64')}]`;
-  const tasks: McpTaskRecord[] = [{ id: 'study', scope: 'today', text: 'Study', priority: 'career', block: 'morning', done: true, note: taskNote, investedMinutes: 60 }];
+  const taskNote = `Revise database joins\n[sg-task-meta:${Buffer.from(JSON.stringify({ weight: 5 }), 'utf8').toString('base64')}]`;
+  const tasks: McpTaskRecord[] = [
+    { id: 'study', scope: 'today', text: 'Study', priority: 'career', block: 'morning', done: true, note: taskNote, investedMinutes: 60 },
+    { id: '__weekly_plan__', scope: '__meta__', text: 'Weekly planning state', priority: 'other', block: null, done: false, note: JSON.stringify({ mainGoal: 'Finish DBT', notes: 'Protect study time' }), investedMinutes: null }
+  ];
   const activities = [
-    activity({ id: 'done', taskText: 'Study', kind: 'completion', note: note(5), minutes: 60, createdAt: '2026-09-21T22:00:00.000Z' }),
+    activity({ id: 'done', taskText: 'Study', kind: 'completion', note: `Finished chapter 3\n${note(5)}`, minutes: 60, createdAt: '2026-09-21T22:00:00.000Z' }),
     activity({ id: 'focus', taskText: 'Study', kind: 'focus-session', note: note(0, 60), minutes: 60, createdAt: '2026-09-21T22:05:00.000Z' }),
     activity({ id: 'miss', taskText: 'Read', kind: 'failure', note: note(2), reason: 'Busy', createdAt: '2026-09-22T10:00:00.000Z' })
   ];
@@ -82,6 +85,12 @@ async function run() {
   assert.equal(priorityReview.current.completedPoints, 5);
   assert.equal(priorityReview.current.missedTasks, 1);
   assert.equal(priorityReview.priorityPlan.today[0]?.title, 'Study');
+  assert.equal(priorityReview.taskContext.find((task) => task.id === 'study')?.note, 'Revise database joins');
+  const weeklyPlanning = priorityReview.planningContext.find((item) => item.id === '__weekly_plan__')?.data;
+  assert.equal(weeklyPlanning && typeof weeklyPlanning === 'object' ? (weeklyPlanning as { notes?: string }).notes : null, 'Protect study time');
+  assert.equal(priorityReview.activityHistory.find((item) => item.id === 'done')?.note, 'Finished chapter 3');
+  assert.equal(priorityReview.activityHistory.find((item) => item.id === 'miss')?.reason, 'Busy');
+  assert.deepEqual(priorityReview.dataCoverage, { taskCount: 1, taskNotes: 1, planningRecords: 1, activityEvents: 3, activityNotes: 1, missedReasons: 1 });
   assert.equal(priorityReview.nextAction.source, 'deterministic');
 
   const sequence = [

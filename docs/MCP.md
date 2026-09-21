@@ -134,7 +134,7 @@ Supported categories match SG Goals: `health`, `career`, `communication`, `looks
 { "period": "week", "date": "2026-09-22" }
 ```
 
-`period` supports `day`, `week`, and `month`; `date` is optional and defaults to the current SG Goals reporting date. The result combines recorded progress, misses, focus time, category performance, an equal-length previous-period comparison, the current yearly-to-daily goal hierarchy, notes, and the deterministic next action. ChatGPT can use this evidence for an on-demand review at any time; it does not create or modify SG Goals records.
+`period` supports `day`, `week`, and `month`; `date` is optional and defaults to the current SG Goals reporting date. The result combines recorded progress, misses, focus time, category performance, an equal-length previous-period comparison, the current yearly-to-daily goal hierarchy, every current task and its note, all activity events and their notes or reasons in the selected period, stored planning records such as weekly planning and yearly notes, and the deterministic next action. ChatGPT can use this evidence for an on-demand review at any time; it does not create or modify SG Goals records.
 
 ## 3:00 AM IST boundary
 

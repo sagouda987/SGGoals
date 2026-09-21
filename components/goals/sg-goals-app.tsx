@@ -3363,7 +3363,7 @@ export function SgGoalsApp() {
   }
 
   function chatGptPriorityReviewUrl(period: 'day' | 'week' | 'month') {
-    const prompt = `Use the SG Goals get_priority_review tool for my ${period}. Analyze my progress, missed priorities, consistency risks, and the highest-value improvements while keeping my yearly, monthly, weekly, and daily priorities aligned.`;
+    const prompt = `Use the SG Goals get_priority_review tool for my ${period}. Read the complete task context, activity history, notes, missed reasons, and weekly/yearly planning context returned by the tool. Analyze my progress, missed priorities, consistency risks, and the highest-value improvements while keeping my yearly, monthly, weekly, and daily priorities aligned.`;
     return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
   }
 
@@ -4355,7 +4355,7 @@ export function SgGoalsApp() {
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#4f8ef7]">Priority coaching</p>
               <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Review and improve at any time</h2>
-              <p className="mt-2 max-w-2xl text-xs leading-5 text-[#a8a8c7]">ChatGPT will read the selected SG Goals period, compare it with the previous period, and keep suggestions aligned with your yearly, monthly, weekly, and daily priorities.</p>
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-[#a8a8c7]">ChatGPT will read the complete activity history, task notes, missed reasons, and planning notes for the selected period, compare it with the previous period, and keep suggestions aligned with your yearly, monthly, weekly, and daily priorities.</p>
             </div>
             <span className="rounded-full border border-[#4f8ef735] px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-[#4f8ef7]">Read only</span>
           </div>
