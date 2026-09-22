@@ -11,6 +11,7 @@
     "mcp:start": "tsx scripts/mcp-server.ts",
     "mcp:stdio": "tsx scripts/mcp-stdio.ts",
     "test:mcp": "tsx scripts/mcp.test.ts",
+    "test:goal-sync": "tsx scripts/goal-sync.test.ts",
     "lint": "next lint",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

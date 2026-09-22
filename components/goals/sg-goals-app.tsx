@@ -6,6 +6,7 @@ import { dailyHabitPointEvents } from '@/lib/goal-points';
 import { extraFocusMinutes } from '@/lib/extra-focus';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
+import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
@@ -1429,6 +1430,9 @@ export function SgGoalsApp() {
   const focusResetPendingRef = useRef<GoalActivity | null>(null);
   const focusResetSavingRef = useRef(false);
   const targetPlanSignatureRef = useRef('');
+  const cloudStoreRef = useRef<GoalsStore>(starterStore);
+  const storeRevisionRef = useRef<string | null>(null);
+  const skipNextCloudSaveRef = useRef(false);
 
   const requestNextAction = useCallback(async () => {
     setNextActionState('loading');
@@ -1639,10 +1643,14 @@ export function SgGoalsApp() {
       try {
         const response = await fetch('/api/goals', { cache: 'no-store' });
         if (!response.ok) throw new Error('Cloud database is not ready.');
-        const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown; hasCloudData?: boolean };
+        const data = (await response.json()) as { store?: GoalsStore; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown; storeRevision?: string | null; hasCloudData?: boolean };
         if (cancelled) return;
+        storeRevisionRef.current = data.storeRevision ?? null;
         if (data.hasCloudData && data.store) {
-          setStore(ensureHabitTemplates(data.store, localActivities, toIstDateKey()));
+          const cloudStore = ensureHabitTemplates(data.store, localActivities, toIstDateKey());
+          cloudStoreRef.current = cloudStore;
+          skipNextCloudSaveRef.current = JSON.stringify(cloudStore) === JSON.stringify(data.store);
+          setStore(cloudStore);
           if (isWeeklyPlan(data.weeklyPlan)) {
             setWeeklyPlan(data.weeklyPlan);
             window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(data.weeklyPlan));
@@ -1663,10 +1671,11 @@ export function SgGoalsApp() {
             }
           }
         } else {
-          await fetch('/api/goals', {
+          const saveResponse = await fetch('/api/goals', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              expectedRevision: data.storeRevision ?? null,
               store: localStore,
               targetState: {
                 taskIds: savedTargetIds.length ? savedTargetIds : legacyTargetId ? [legacyTargetId] : [],
@@ -1690,6 +1699,10 @@ export function SgGoalsApp() {
               yearlyNotes: localYearlyNotes
             })
           });
+          if (!saveResponse.ok) throw new Error('Initial cloud save failed.');
+          const saved = (await saveResponse.json()) as { storeRevision?: string };
+          storeRevisionRef.current = saved.storeRevision ?? null;
+          cloudStoreRef.current = localStore;
         }
         setCloudReady(true);
         setSyncState('saved');
@@ -1890,6 +1903,11 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
+    if (skipNextCloudSaveRef.current) {
+      skipNextCloudSaveRef.current = false;
+      setSyncState('saved');
+      return;
+    }
     setSyncState('saving');
     setTimerSyncState('saving');
     const timeout = window.setTimeout(async () => {
@@ -1898,6 +1916,7 @@ export function SgGoalsApp() {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            expectedRevision: storeRevisionRef.current,
             store,
             targetState: {
               taskIds: targetTaskIds,
@@ -1919,7 +1938,28 @@ export function SgGoalsApp() {
             yearlyNotes
           })
         });
+        if (response.status === 409) {
+          const refresh = await fetch('/api/goals', { cache: 'no-store' });
+          if (!refresh.ok) throw new Error('Conflict refresh failed.');
+          const cloud = (await refresh.json()) as { store?: GoalsStore; weeklyPlan?: unknown; yearlyNotes?: unknown; storeRevision?: string | null };
+          if (!cloud.store) throw new Error('Conflict refresh returned no store.');
+          const remoteStore = ensureHabitTemplates(cloud.store, activityRecords, currentDateKey);
+          const mergedStore = mergeGoalStores(cloudStoreRef.current, store, remoteStore) as GoalsStore;
+          const needsRetry = JSON.stringify(mergedStore) !== JSON.stringify(remoteStore);
+          cloudStoreRef.current = remoteStore;
+          storeRevisionRef.current = cloud.storeRevision ?? null;
+          skipNextCloudSaveRef.current = !needsRetry;
+          setStore(mergedStore);
+          if (isWeeklyPlan(cloud.weeklyPlan)) setWeeklyPlan(newerUpdatedValue(weeklyPlan, cloud.weeklyPlan));
+          if (isYearlyNotes(cloud.yearlyNotes)) setYearlyNotes(newerUpdatedValue(yearlyNotes, normalizeYearlyNotes(cloud.yearlyNotes)));
+          setSyncState(needsRetry ? 'saving' : 'saved');
+          setTimerSyncState('saved');
+          return;
+        }
         if (!response.ok) throw new Error('Save failed.');
+        const saved = (await response.json()) as { storeRevision?: string };
+        storeRevisionRef.current = saved.storeRevision ?? storeRevisionRef.current;
+        cloudStoreRef.current = store;
         setSyncState('saved');
         setTimerSyncState('saved');
         setLastSavedAt(new Date().toISOString());
@@ -1929,7 +1969,7 @@ export function SgGoalsApp() {
       }
     }, SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timeout);
-  }, [cloudReady, focusDailyGoalMinutes, focusMode, mustTaskStopwatches, ready, stopwatchElapsedMs, stopwatchStartedAt, store, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
+  }, [activityRecords, cloudReady, currentDateKey, focusDailyGoalMinutes, focusMode, mustTaskStopwatches, ready, stopwatchElapsedMs, stopwatchStartedAt, store, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
@@ -1955,11 +1995,30 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if (!ready || !cloudReady) return;
-    const interval = window.setInterval(async () => {
+    const refreshCloudState = async () => {
       try {
         const response = await fetch('/api/goals', { cache: 'no-store' });
         if (!response.ok) return;
-        const data = (await response.json()) as { targetState?: unknown };
+        const data = (await response.json()) as {
+          store?: GoalsStore;
+          storeRevision?: string | null;
+          targetState?: unknown;
+          weeklyPlan?: unknown;
+          yearlyNotes?: unknown;
+        };
+        if (data.store && (data.storeRevision ?? null) !== storeRevisionRef.current) {
+          const remoteStore = ensureHabitTemplates(data.store, activityRecords, currentDateKey);
+          const mergedStore = mergeGoalStores(cloudStoreRef.current, store, remoteStore) as GoalsStore;
+          const needsSave = JSON.stringify(mergedStore) !== JSON.stringify(remoteStore);
+          cloudStoreRef.current = remoteStore;
+          storeRevisionRef.current = data.storeRevision ?? null;
+          skipNextCloudSaveRef.current = !needsSave;
+          setStore(mergedStore);
+          if (isWeeklyPlan(data.weeklyPlan)) setWeeklyPlan(newerUpdatedValue(weeklyPlan, data.weeklyPlan));
+          if (isYearlyNotes(data.yearlyNotes)) setYearlyNotes(newerUpdatedValue(yearlyNotes, normalizeYearlyNotes(data.yearlyNotes)));
+          setSyncState(needsSave ? 'saving' : 'saved');
+          setLastSavedAt(new Date().toISOString());
+        }
         if (!isTargetState(data.targetState)) return;
         if (new Date(data.targetState.updatedAt).getTime() > new Date(targetUpdatedAt).getTime()) {
           const cloudIds = data.targetState.taskIds.join('|');
@@ -1999,9 +2058,19 @@ export function SgGoalsApp() {
       } catch {
         // Keep the local timer running when background refresh is unavailable.
       }
-    }, 10000);
-    return () => window.clearInterval(interval);
-  }, [applyTargetState, cloudReady, focusDailyGoalMinutes, focusMode, mustTaskStopwatches, ready, stopwatchElapsedMs, stopwatchStartedAt, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt]);
+    };
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refreshCloudState();
+    };
+    const interval = window.setInterval(() => void refreshCloudState(), 10000);
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [activityRecords, applyTargetState, cloudReady, currentDateKey, focusDailyGoalMinutes, focusMode, mustTaskStopwatches, ready, stopwatchElapsedMs, stopwatchStartedAt, store, targetDurationMinutes, targetEndAt, targetFocusLogged, targetRemainingMs, targetRunning, targetTaskIds, targetTaskMinutes, targetUpdatedAt, weeklyPlan, yearlyNotes]);
 
   const activeTasks = store[scope];
   const completion = useMemo(() => buildScopeCompletion(activeTasks), [activeTasks]);

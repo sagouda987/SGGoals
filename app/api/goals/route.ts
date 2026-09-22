@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { latestTaskRevision, storeRevisionConflicts } from '@/lib/goals/store-sync';
 
 type Scope = 'today' | 'weekly' | 'weekend' | 'monthly' | 'yearly' | 'tomorrow';
 type GoalSubtaskInput = {
@@ -64,9 +65,16 @@ const ownerKey = 'default';
 const targetStateId = '__target_state__';
 const weeklyPlanId = '__weekly_plan__';
 const yearlyNotesId = '__yearly_notes__';
+const storeRevisionId = '__store_revision__';
 const targetStateScope = '__meta__';
 const subtaskNotePattern = /\n?\[sg-subtasks:([A-Za-z0-9+/=]+)\]$/;
 const taskMetaNotePattern = /\n?\[sg-task-meta:([A-Za-z0-9+/=]+)\]$/;
+
+class StoreSyncConflict extends Error {
+  constructor(readonly currentRevision: string | null) {
+    super('A newer SG Goals snapshot is already saved.');
+  }
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -242,6 +250,17 @@ function normalizeTaskWeight(value: unknown, fallback = 1) {
   return Math.min(100, Math.max(0, Math.round(weight)));
 }
 
+function validRevision(value: string | null | undefined) {
+  if (!value) return null;
+  const time = Date.parse(value);
+  return Number.isFinite(time) ? new Date(time).toISOString() : null;
+}
+
+function taskUpdatedAt(value: string | undefined) {
+  const revision = validRevision(value);
+  return revision ? new Date(revision) : new Date();
+}
+
 function parseTaskMeta(value: unknown) {
   if (!value || typeof value !== 'object') return { weight: undefined };
   const candidate = value as Partial<{ weight: unknown }>;
@@ -302,6 +321,9 @@ export async function GET() {
     const yearlyNotesRow = await prisma.goalTask.findUnique({
       where: { id: yearlyNotesId }
     });
+    const storeRevisionRow = await prisma.goalTask.findUnique({
+      where: { id: storeRevisionId }
+    });
 
     const store = emptyStore();
     rows.forEach((row) => {
@@ -325,8 +347,10 @@ export async function GET() {
     const targetState = parseTargetState(targetStateRow?.note);
     const weeklyPlan = parseWeeklyPlan(weeklyPlanRow?.note);
     const yearlyNotes = parseYearlyNotes(yearlyNotesRow?.note);
+    const storeRows = rows.filter((row) => scopes.includes(row.scope as Scope));
+    const storeRevision = validRevision(storeRevisionRow?.note) ?? latestTaskRevision(storeRows);
 
-    return NextResponse.json({ store, targetState, weeklyPlan, yearlyNotes, hasCloudData: rows.length > 0 || Boolean(weeklyPlan) || Boolean(yearlyNotes) });
+    return NextResponse.json({ store, targetState, weeklyPlan, yearlyNotes, storeRevision, hasCloudData: storeRows.length > 0 || Boolean(weeklyPlan) || Boolean(yearlyNotes) });
   } catch (error) {
     console.error('Failed to load goals', error);
     return NextResponse.json({ error: 'Database is not ready yet.' }, { status: 503 });
@@ -335,13 +359,16 @@ export async function GET() {
 
 export async function PUT(req: NextRequest) {
   try {
-    const body = (await req.json()) as { store?: unknown; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown };
+    const body = (await req.json()) as { store?: unknown; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown; expectedRevision?: unknown };
     if (!isGoalStore(body.store)) {
       return NextResponse.json({ error: 'Invalid goals payload.' }, { status: 400 });
     }
     const targetState = isTargetState(body.targetState) ? body.targetState : null;
     const weeklyPlan = isWeeklyPlan(body.weeklyPlan) ? body.weeklyPlan : null;
     const yearlyNotes = isYearlyNotes(body.yearlyNotes) ? body.yearlyNotes : null;
+    const expectedRevision = body.expectedRevision === null || typeof body.expectedRevision === 'string'
+      ? validRevision(body.expectedRevision)
+      : undefined;
 
     const store = body.store;
     const rows = scopes.flatMap((scope) =>
@@ -357,7 +384,8 @@ export async function PUT(req: NextRequest) {
         startedAt: task.startedAt ? new Date(task.startedAt) : null,
         completedAt: task.completedAt ? new Date(task.completedAt) : null,
         investedMinutes: typeof task.investedMinutes === 'number' ? task.investedMinutes : null,
-        position: index
+        position: index,
+        updatedAt: taskUpdatedAt(task.updatedAt)
       }))
     );
 
@@ -366,12 +394,35 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Duplicate task IDs found. Refresh and try again.' }, { status: 409 });
     }
 
-    await prisma.$transaction(
+    const storeRevision = await prisma.$transaction(
       async (tx) => {
         // Prevent overlapping browser saves from deleting and recreating the same rows concurrently.
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ownerKey}))`;
+        const [currentRows, revisionRow] = await Promise.all([
+          tx.goalTask.findMany({ where: { ownerKey, scope: { in: scopes } }, select: { updatedAt: true } }),
+          tx.goalTask.findUnique({ where: { id: storeRevisionId }, select: { note: true } })
+        ]);
+        const currentRevision = validRevision(revisionRow?.note) ?? latestTaskRevision(currentRows);
+        if (storeRevisionConflicts(currentRevision, expectedRevision ?? null)) throw new StoreSyncConflict(currentRevision);
+
         await tx.goalTask.deleteMany({ where: { ownerKey, scope: { in: scopes } } });
         if (rows.length) await tx.goalTask.createMany({ data: rows });
+
+        const nextRevision = new Date().toISOString();
+        await tx.goalTask.upsert({
+          where: { id: storeRevisionId },
+          create: {
+            id: storeRevisionId,
+            ownerKey,
+            scope: targetStateScope,
+            text: 'Goal store revision',
+            note: nextRevision,
+            priority: 'other',
+            done: false,
+            position: 3
+          },
+          update: { note: nextRevision, updatedAt: new Date() }
+        });
 
         if (targetState) {
           const existingTarget = await tx.goalTask.findUnique({ where: { id: targetStateId } });
@@ -438,12 +489,16 @@ export async function PUT(req: NextRequest) {
             }
           });
         }
+        return nextRevision;
       },
       { maxWait: 15000, timeout: 15000 }
     );
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, storeRevision });
   } catch (error) {
+    if (error instanceof StoreSyncConflict) {
+      return NextResponse.json({ error: error.message, code: 'STORE_SYNC_CONFLICT', storeRevision: error.currentRevision }, { status: 409 });
+    }
     console.error('Failed to save goals', error);
     return NextResponse.json({ error: 'Could not save goals.' }, { status: 503 });
   }
