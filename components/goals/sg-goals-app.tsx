@@ -1997,7 +1997,21 @@ export function SgGoalsApp() {
     if (!ready || !cloudReady) return;
     const refreshCloudState = async () => {
       try {
-        const response = await fetch('/api/goals', { cache: 'no-store' });
+        const [response, activitiesResponse] = await Promise.all([
+          fetch('/api/goals', { cache: 'no-store' }),
+          fetch('/api/goals/activities', { cache: 'no-store' })
+        ]);
+        if (activitiesResponse.ok) {
+          const activityData = (await activitiesResponse.json()) as { activities?: GoalActivity[] };
+          if (Array.isArray(activityData.activities)) {
+            const cloudActivities = activityData.activities;
+            setActivities((current) => {
+              if (JSON.stringify(current) === JSON.stringify(cloudActivities)) return current;
+              window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(cloudActivities));
+              return cloudActivities;
+            });
+          }
+        }
         if (!response.ok) return;
         const data = (await response.json()) as {
           store?: GoalsStore;
