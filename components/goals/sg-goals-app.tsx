@@ -4224,6 +4224,7 @@ export function SgGoalsApp() {
               { key: 'LANGUAGE' as const, label: 'Language count', rule: 'Language learn complete', color: '#60a5fa', todayDone: strikeCounts.today.language, value: strikeCounts.language },
               { key: 'SLEEP' as const, label: 'Wake count', rule: 'Wake up before 8 complete', color: '#a78bfa', todayDone: strikeCounts.today.sleep, value: strikeCounts.sleep },
               { key: 'NOSOCIAL' as const, label: 'No social count', rule: 'No Social Media complete', color: '#38bdf8', todayDone: strikeCounts.today.noSocial, value: strikeCounts.noSocial },
+              { key: 'EYECARE' as const, label: 'Eye care count', rule: 'Eye care complete', color: '#2dd4bf', todayDone: strikeCounts.today.eyeCare, value: strikeCounts.eyeCare },
               { key: 'MANIFEST' as const, label: 'Manifest count', rule: 'Manifestation complete', color: '#fb7185', todayDone: strikeCounts.today.manifest, value: strikeCounts.manifest }
             ].map((item) => {
               const reachedTarget = item.value >= HABIT_TARGET_COUNT;

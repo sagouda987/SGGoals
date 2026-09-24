@@ -5,6 +5,8 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 import ts from 'typescript';
 
+const goalsComponentSource = readFileSync(fileURLToPath(new URL('../components/goals/sg-goals-app.tsx', import.meta.url)), 'utf8');
+
 // Exercise the existing private functions without importing route modules,
 // initializing Prisma, or mounting the component (which triggers cloud writes).
 function loadFunctions(file, names, globals = {}) {
@@ -142,6 +144,7 @@ test('requested daily routines are independent active habits', () => {
   assert.deepEqual(['O1', 'O2', 'O3'].map(history.normalizeStrikeCode), ['O1', 'O2', 'O3']);
   assert.equal(history.normalizeStrikeCode('O'), 'O', 'Historical O entries remain readable');
   assert.equal(history.REMOVED_HABIT_TASKS.includes('O'), true, 'The retired single O task is removed from today');
+  assert.match(goalsComponentSource, /label: 'Eye care count'/, 'Eye care has a visible habit counter card');
 });
 
 const september7 = [
