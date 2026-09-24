@@ -127,8 +127,8 @@ test('missing and invalid points still use defaults, positive points are preserv
   assert.equal(rollover.activityPointsFromNote(note, 'Gym'), 5);
 });
 
-test('O1/O2/O3 and the requested morning/evening routines are independent active habits', () => {
-  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care'];
+test('requested daily routines are independent active habits', () => {
+  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care'];
   for (const task of expected) {
     assert.equal(history.HABIT_TASKS.includes(task), true, `${task} is a visible daily habit`);
     assert.equal(history.REMOVED_HABIT_TASKS.includes(task), false, `${task} is not removed`);
