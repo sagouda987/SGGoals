@@ -20,6 +20,7 @@ const OWNER_KEY = 'default';
 export interface SgGoalsMcpDataSource {
   getTasks(): Promise<McpTaskRecord[]>;
   getActivities(start: Date, end: Date, limit?: number): Promise<McpActivityRecord[]>;
+  getReviewData?(start: Date, end: Date, limit?: number): Promise<{ tasks: McpTaskRecord[]; activities: McpActivityRecord[] }>;
 }
 
 type GoalsApiTask = Omit<McpTaskRecord, 'block' | 'note' | 'investedMinutes'> & {
@@ -129,6 +130,22 @@ export class HttpSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
         createdAt: activity.createdAt
       }));
   }
+
+  async getReviewData(start: Date, end: Date, limit = 5000) {
+    const params = new URLSearchParams({
+      start: start.toISOString(),
+      end: end.toISOString(),
+      limit: String(Math.min(limit, 10000))
+    });
+    const payload = await this.getJson(`/api/goals/mcp-context?${params}`);
+    if (!Array.isArray(payload.tasks) || !Array.isArray(payload.activities)) {
+      throw new Error('SG Goals API returned invalid review context.');
+    }
+    return {
+      tasks: payload.tasks as McpTaskRecord[],
+      activities: payload.activities as McpActivityRecord[]
+    };
+  }
 }
 
 export class PrismaSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
@@ -218,10 +235,11 @@ export class SgGoalsMcpService {
 
   async getDailyReport(date: string, now = new Date()) {
     const { start, end } = reportingDayBounds(date);
-    const [taskRecords, activities] = await Promise.all([
-      this.dataSource.getTasks(),
-      this.dataSource.getActivities(start, end)
-    ]);
+    const reviewData = this.dataSource.getReviewData
+      ? await this.dataSource.getReviewData(start, end)
+      : await Promise.all([this.dataSource.getTasks(), this.dataSource.getActivities(start, end)])
+        .then(([tasks, activities]) => ({ tasks, activities }));
+    const { tasks: taskRecords, activities } = reviewData;
     const day = buildDailyActivitySummary(activities, date);
     const currentDate = istFocusDateKey(now.toISOString());
     const currentTasks = date === currentDate ? buildTasks(taskRecords, activities, now).filter((task) => task.scope === 'today') : [];

@@ -122,6 +122,10 @@ async function run() {
     const requestUrl = new URL(String(input));
     const pathname = requestUrl.pathname;
     if (pathname === '/api/goals') return Response.json({ store: { today: [{ id: 'zero-task', scope: 'today', text: 'Zero', priority: 'career', done: true, weight: 0 }] } });
+    if (pathname === '/api/goals/mcp-context') return Response.json({
+      tasks: [{ id: 'zero-task', scope: 'today', text: 'Zero', priority: 'career', block: null, done: true, note: note(0), investedMinutes: null }],
+      activities: [{ id: 'earlier', scope: 'today', priority: 'career', taskText: 'Zero', kind: 'completion', note: note(0), reason: null, minutes: null, startedAt: null, completedAt: null, createdAt: '2026-09-22T00:00:00Z' }]
+    });
     activityRequestUrl = requestUrl.toString();
     return Response.json({ activities: [
       { id: 'later', scope: 'today', priority: 'career', taskText: 'Zero', kind: 'undo', points: 0, createdAt: '2026-09-22T01:00:00Z' },
@@ -140,6 +144,9 @@ async function run() {
     assert.deepEqual(remoteActivities.map((item) => item.id), ['earlier', 'later']);
     assert.match(remoteActivities[0]?.note ?? '', /sg-activity-meta/);
     assert.equal(buildDailyActivitySummary(remoteActivities, '2026-09-22').completedPoints, 0);
+    const remoteReview = await httpSource.getReviewData!(new Date('2026-09-21T23:00:00Z'), new Date('2026-09-22T02:00:00Z'));
+    assert.equal(remoteReview.tasks[0]?.id, 'zero-task');
+    assert.equal(remoteReview.activities[0]?.id, 'earlier');
   } finally {
     globalThis.fetch = originalFetch;
   }
