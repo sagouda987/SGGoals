@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict';
 import { connectionStatus } from '../lib/mcp/connection-status';
 import { pointBreakdown } from '../lib/goals/point-breakdown';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { verifyConnectionReport } from '../lib/mcp/connection-auth';
 
 const now = Date.parse('2026-09-26T12:00:00Z');
+const keys = generateKeyPairSync('ed25519');
+const key = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+const body = JSON.stringify({ event: 'review-success', at: new Date(now).toISOString() });
+const signature = sign(null, Buffer.from(body), keys.privateKey).toString('base64');
+assert.equal(verifyConnectionReport(body, signature, now, key)?.lastSuccessfulReviewAt, new Date(now).toISOString());
+assert.equal(verifyConnectionReport(body.replace('success', 'error'), signature, now, key), null);
+assert.equal(verifyConnectionReport(body, signature, now + 61000, key), null);
+assert.equal(verifyConnectionReport(body, '', now, key), null);
 assert.equal(connectionStatus({}, now).state, 'Offline');
 assert.equal(connectionStatus({ heartbeatAt: new Date(now - 91000).toISOString() }, now).state, 'Offline');
 assert.equal(connectionStatus({ heartbeatAt: new Date(now).toISOString() }, now).state, 'Connected');

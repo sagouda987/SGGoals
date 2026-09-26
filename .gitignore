@@ -4,3 +4,4 @@
 .env.local
 dist
 coverage
+.codex/connection-private.pem

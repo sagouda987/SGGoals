@@ -3,7 +3,8 @@ import { config } from 'dotenv';
 import path from 'node:path';
 import { createSgGoalsMcpServer } from '../lib/mcp/server';
 import { HttpSgGoalsMcpDataSource, SgGoalsMcpService } from '../lib/mcp/service';
-import { recordConnection } from '../lib/mcp/connection-store';
+import { readFileSync } from 'node:fs';
+import { sign } from 'node:crypto';
 
 const projectRoot = path.resolve(__dirname, '..');
 
@@ -11,10 +12,17 @@ config({ path: path.join(projectRoot, '.env.local') });
 config({ path: path.join(projectRoot, '.env') });
 
 const dataUrl = process.env.SG_GOALS_MCP_DATA_URL?.trim() || 'https://sg-goals.vercel.app';
+async function reportConnection(event: 'heartbeat' | 'review-success' | 'review-error') {
+  const key = process.env.SG_GOALS_CONNECTION_PRIVATE_KEY || readFileSync(path.join(projectRoot, '.codex/connection-private.pem'), 'utf8');
+  const body = JSON.stringify({ event, at: new Date().toISOString() });
+  const response = await fetch(new URL('/api/goals/connection-status', dataUrl), {
+    method: 'POST', body, signal: AbortSignal.timeout(10000),
+    headers: { 'Content-Type': 'application/json', 'x-sg-signature': sign(null, Buffer.from(body), key).toString('base64') }
+  });
+  if (!response.ok) throw new Error(`Status reporting failed (${response.status}).`);
+}
 const server = createSgGoalsMcpServer(new SgGoalsMcpService(new HttpSgGoalsMcpDataSource(dataUrl)), async (ok) => {
-  await recordConnection(ok
-    ? { lastSuccessfulReviewAt: new Date().toISOString(), lastError: '' }
-    : { lastReviewErrorAt: new Date().toISOString(), lastError: 'The connector could not prepare review data. Try Review again; if it persists, check the host connection.' });
+  await reportConnection(ok ? 'review-success' : 'review-error');
 });
 const transport = new StdioServerTransport();
 let heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -22,7 +30,7 @@ let reporting = false;
 async function reportHeartbeat() {
   if (reporting) return;
   reporting = true;
-  try { await recordConnection({ heartbeatAt: new Date().toISOString() }); }
+  try { await reportConnection('heartbeat'); }
   catch { console.error('Unable to record SG Goals connector heartbeat.'); }
   finally { reporting = false; }
 }
