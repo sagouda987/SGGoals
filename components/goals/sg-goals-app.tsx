@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ReviewConnectionStatus } from './connection-status';
+import { HistoryPointBreakdown } from './point-breakdown';
 import { buildPeriodTimeTargets } from '@/lib/must-focus-targets';
 import { dailyHabitPointEvents } from '@/lib/goal-points';
 import { extraFocusMinutes } from '@/lib/extra-focus';
@@ -4074,11 +4076,12 @@ export function SgGoalsApp() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm font-bold text-[#e8e8f5]">{formatStartedDate(day.dateKey)}</p>
                     <div className="flex flex-wrap items-center justify-end gap-2 text-xs font-bold">
-                      <span className="text-[#00d97e]">Done {day.completedPoints} pts</span>
+                      <span className="text-[#00d97e]">Historical earned {day.completedPoints} pts</span>
                       <span className="text-[#ff6b6b]">Failed {day.failedPoints} pts</span>
                       <span className="text-[#4f8ef7]">Focus {formatMinutes(day.focusMinutes) || '0m'}</span>
                     </div>
                   </div>
+                  <HistoryPointBreakdown events={activities} date={day.dateKey} habitCode={normalizeStrikeCode} points={activityPoints} />
                   <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-[#1a1a30]">
                     <div className="bg-[#00d97e]" style={{ width: `${completedPct}%` }} />
                     <div className="bg-[#ff6b6b]" style={{ width: `${total ? 100 - completedPct : 0}%` }} />
@@ -4438,6 +4441,7 @@ export function SgGoalsApp() {
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#4f8ef7]">Priority coaching</p>
               <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Review and improve at any time</h2>
+              <ReviewConnectionStatus />
               <p className="mt-2 max-w-2xl text-xs leading-5 text-[#a8a8c7]">ChatGPT will read the complete activity history, task notes, missed reasons, and planning notes for the selected period, compare it with the previous period, and keep suggestions aligned with your yearly, monthly, weekly, and daily priorities.</p>
             </div>
             <span className="rounded-full border border-[#4f8ef735] px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-[#4f8ef7]">Read only</span>
@@ -4506,13 +4510,13 @@ export function SgGoalsApp() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Today points</p>
-              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Completed vs failed weighted points today</h2>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Checklist points and recorded history</h2>
             </div>
             <div className="rounded-lg bg-[#00d97e15] px-3 py-2 text-sm font-bold text-[#00d97e]">{completion.pct}%</div>
           </div>
           <div className="mt-4 grid gap-2 md:grid-cols-3">
             <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
-              <p className="text-[10px] text-[#52527a]">Completed</p>
+              <p className="text-[10px] text-[#52527a]">Current checklist · {scope}</p>
               <p className="mt-1 text-xl font-bold text-[#00d97e]">{completion.donePoints} pts</p>
             </div>
             <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
@@ -4524,6 +4528,14 @@ export function SgGoalsApp() {
               <p className="mt-1 text-xl font-bold text-[#e8e8f5]">{completion.totalPoints} pts</p>
             </div>
           </div>
+          <p className="mt-3 text-xs text-[#b8b8d0]">Checklist points sum the weights of tasks currently marked complete in {scope}. Historical points use recorded completion and undo events, with daily habit deduplication. Editing, renaming, removing, or rolling over a task can make these totals differ. Extra focus time earns no points.</p>
+          <details className="mt-2 text-xs text-[#b8b8d0]">
+            <summary className="cursor-pointer">Inspect current checklist · {completion.donePoints} pts</summary>
+            <ul className="mt-2 max-h-64 overflow-auto space-y-1">
+              {activeTasks.map(task => <li key={task.id}>{task.text} — {task.done ? 'Complete' : 'Pending'} · {task.done ? taskWeight(task) : 0} pts contributed (weight {taskWeight(task)})</li>)}
+            </ul>
+          </details>
+          <HistoryPointBreakdown events={activities} date={currentDateKey} habitCode={normalizeStrikeCode} points={activityPoints} />
         </div>
         <div className="grid gap-3 md:grid-cols-[1.2fr,.8fr]">
           <div className="min-w-0 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">

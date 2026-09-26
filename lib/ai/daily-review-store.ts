@@ -59,7 +59,7 @@ export async function buildDailyReviewContext(input: { dateKey: string; now?: Da
   const { start, end } = reportingDayBounds(input.dateKey);
   const historyStart = new Date(start.getTime() - 20 * 24 * 60 * 60 * 1000);
   const [tasks, dayActivities, recentActivities] = await Promise.all([
-    prisma.goalTask.findMany({ where: { ownerKey: OWNER_KEY }, orderBy: [{ scope: 'asc' }, { position: 'asc' }] }),
+    prisma.goalTask.findMany({ where: { ownerKey: OWNER_KEY, scope: { not: '__connection__' } }, orderBy: [{ scope: 'asc' }, { position: 'asc' }] }),
     prisma.goalActivity.findMany({ where: { ownerKey: OWNER_KEY, createdAt: { gte: start, lt: end } }, orderBy: { createdAt: 'asc' } }),
     prisma.goalActivity.findMany({ where: { ownerKey: OWNER_KEY, createdAt: { gte: historyStart, lt: end } }, orderBy: { createdAt: 'desc' }, take: 300 })
   ]);

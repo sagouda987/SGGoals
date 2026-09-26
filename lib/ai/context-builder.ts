@@ -10,7 +10,7 @@ export async function buildAIContext(input: { availableMinutes: number; now?: Da
   const now = input.now ?? new Date();
   const historyStart = new Date(now.getTime() - 21 * 24 * 60 * 60 * 1000);
   const [tasks, activities] = await Promise.all([
-    prisma.goalTask.findMany({ where: { ownerKey: 'default' }, orderBy: [{ scope: 'asc' }, { position: 'asc' }] }),
+    prisma.goalTask.findMany({ where: { ownerKey: 'default', scope: { not: '__connection__' } }, orderBy: [{ scope: 'asc' }, { position: 'asc' }] }),
     prisma.goalActivity.findMany({
       where: { ownerKey: 'default', createdAt: { gte: historyStart } },
       orderBy: { createdAt: 'desc' },

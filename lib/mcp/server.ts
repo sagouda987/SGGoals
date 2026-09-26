@@ -29,8 +29,15 @@ function failure(error: unknown) {
 
 const readOnlyAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
-export function createSgGoalsMcpServer(service: SgGoalsMcpService) {
+export function createSgGoalsMcpServer(service: SgGoalsMcpService, onReview?: (ok: boolean) => Promise<void>) {
   const server = new McpServer({ name: 'sg-goals', version: '1.0.0' });
+  async function reportReview(ok: boolean) {
+    if (!onReview) return;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([onReview(ok).catch(() => undefined), new Promise<void>(resolve => { timeout = setTimeout(resolve, 1000); })]);
+    } finally { clearTimeout(timeout); }
+  }
 
   server.registerTool('get_today_status', {
     description: 'Return the current SG Goals day status using the 03:00 Asia/Kolkata boundary.',
@@ -89,7 +96,14 @@ export function createSgGoalsMcpServer(service: SgGoalsMcpService) {
     inputSchema: priorityReviewInputSchema,
     annotations: readOnlyAnnotations
   }, async (input) => {
-    try { return success(await service.getPriorityReview(input)); } catch (error) { return failure(error); }
+    try {
+      const result = await service.getPriorityReview(input);
+      await reportReview(true);
+      return success(result);
+    } catch (error) {
+      await reportReview(false);
+      return failure(error);
+    }
   });
 
   return server;

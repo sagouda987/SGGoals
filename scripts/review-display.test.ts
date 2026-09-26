@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { connectionStatus } from '../lib/mcp/connection-status';
+import { pointBreakdown } from '../lib/goals/point-breakdown';
+
+const now = Date.parse('2026-09-26T12:00:00Z');
+assert.equal(connectionStatus({}, now).state, 'Offline');
+assert.equal(connectionStatus({ heartbeatAt: new Date(now - 91000).toISOString() }, now).state, 'Offline');
+assert.equal(connectionStatus({ heartbeatAt: new Date(now).toISOString() }, now).state, 'Connected');
+assert.equal(connectionStatus({ heartbeatAt: new Date(now).toISOString(), lastReviewErrorAt: new Date(now).toISOString() }, now).state, 'Retrying');
+assert.equal(connectionStatus({ heartbeatAt: new Date(now).toISOString(), lastReviewErrorAt: new Date(now - 10000).toISOString(), lastSuccessfulReviewAt: new Date(now).toISOString() }, now).state, 'Connected');
+const event = (id: string, kind: string, taskText: string, points: number) => ({ id, kind, taskText, points, scope: 'today', createdAt: `2026-09-26T0${id}:00:00Z` });
+const events = [event('1', 'completion', 'Gym', 5), event('2', 'completion', 'Gym', 5), event('3', 'undo', 'Gym', 5), event('4', 'completion', 'Task', 5), event('5', 'undo', 'Task', 5), event('6', 'focus-session', 'Task', 10), event('7', 'completion', 'Zero', 0)];
+const result = pointBreakdown(events.reverse(), '2026-09-26', text => text === 'Gym' ? 'GYM' : null, e => e.points);
+assert.equal(result.total, 0);
+assert.equal(result.rows.reduce((sum, row) => sum + row.delta, 0), result.total);
+assert.equal(result.rows.find(row => row.id === '4')?.delta, 5);
+assert.equal(result.rows.find(row => row.id === '5')?.delta, -5);
+assert.equal(result.rows.find(row => row.id === '6')?.delta, 0);
+assert.equal(pointBreakdown(events, '2026-09-25', () => null, e => e.points).total, 0);
+console.log('Connection freshness, review failure/recovery, chronological point contributions, zero points, deduplication, undo and time-only events passed.');
