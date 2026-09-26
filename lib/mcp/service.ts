@@ -97,7 +97,12 @@ export class HttpSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
   }
 
   async getActivities(start: Date, end: Date, limit = 5000) {
-    const payload = await this.getJson('/api/goals/activities');
+    const params = new URLSearchParams({
+      start: start.toISOString(),
+      end: end.toISOString(),
+      limit: String(Math.min(limit, 10000))
+    });
+    const payload = await this.getJson(`/api/goals/activities?${params}`);
     const activities = payload.activities;
     if (!Array.isArray(activities)) throw new Error('SG Goals API returned invalid activities.');
     return activities

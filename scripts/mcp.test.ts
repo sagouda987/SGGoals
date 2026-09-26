@@ -117,9 +117,12 @@ async function run() {
   assert.equal(priorityReviewInputSchema.safeParse({ period: 'year' }).success, false);
 
   const originalFetch = globalThis.fetch;
+  let activityRequestUrl = '';
   globalThis.fetch = (async (input: string | URL | Request) => {
-    const pathname = new URL(String(input)).pathname;
+    const requestUrl = new URL(String(input));
+    const pathname = requestUrl.pathname;
     if (pathname === '/api/goals') return Response.json({ store: { today: [{ id: 'zero-task', scope: 'today', text: 'Zero', priority: 'career', done: true, weight: 0 }] } });
+    activityRequestUrl = requestUrl.toString();
     return Response.json({ activities: [
       { id: 'later', scope: 'today', priority: 'career', taskText: 'Zero', kind: 'undo', points: 0, createdAt: '2026-09-22T01:00:00Z' },
       { id: 'earlier', scope: 'today', priority: 'career', taskText: 'Zero', kind: 'completion', points: 0, createdAt: '2026-09-22T00:00:00Z' }
@@ -129,6 +132,10 @@ async function run() {
     const httpSource = new HttpSgGoalsMcpDataSource('https://sg-goals.example');
     const remoteTasks = await httpSource.getTasks();
     const remoteActivities = await httpSource.getActivities(new Date('2026-09-21T23:00:00Z'), new Date('2026-09-22T02:00:00Z'));
+    const activityRequest = new URL(activityRequestUrl);
+    assert.equal(activityRequest.searchParams.get('start'), '2026-09-21T23:00:00.000Z');
+    assert.equal(activityRequest.searchParams.get('end'), '2026-09-22T02:00:00.000Z');
+    assert.equal(activityRequest.searchParams.get('limit'), '5000');
     assert.match(remoteTasks[0]?.note ?? '', /sg-task-meta/);
     assert.deepEqual(remoteActivities.map((item) => item.id), ['earlier', 'later']);
     assert.match(remoteActivities[0]?.note ?? '', /sg-activity-meta/);

@@ -106,11 +106,27 @@ function toActivity(row: GoalActivityRow): GoalActivityInput {
   };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const startValue = req.nextUrl.searchParams.get('start');
+    const endValue = req.nextUrl.searchParams.get('end');
+    const limitValue = req.nextUrl.searchParams.get('limit');
+    const start = startValue ? new Date(startValue) : null;
+    const end = endValue ? new Date(endValue) : null;
+    if ((startValue || endValue) && (!start || !end || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start >= end)) {
+      return NextResponse.json({ error: 'A valid activity date range is required.' }, { status: 400 });
+    }
+    const requestedLimit = limitValue ? Number(limitValue) : undefined;
+    if (requestedLimit !== undefined && (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 10000)) {
+      return NextResponse.json({ error: 'Activity limit must be between 1 and 10000.' }, { status: 400 });
+    }
     const rows = await prisma.goalActivity.findMany({
-      where: { ownerKey },
-      orderBy: { createdAt: 'desc' }
+      where: {
+        ownerKey,
+        ...(start && end ? { createdAt: { gte: start, lt: end } } : {})
+      },
+      orderBy: { createdAt: 'desc' },
+      ...(requestedLimit ? { take: requestedLimit } : {})
     });
     return NextResponse.json({ activities: rows.map(toActivity) });
   } catch (error) {
