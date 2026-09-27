@@ -21,6 +21,7 @@ type GoalTaskInput = {
   completedAt?: string;
   investedMinutes?: number;
   subtasks?: GoalSubtaskInput[];
+  allowSubtasks?: boolean;
   updatedAt?: string;
 };
 type GoalsStoreInput = Record<Scope, GoalTaskInput[]>;
@@ -106,6 +107,7 @@ function isGoalStore(value: unknown): value is GoalsStoreInput {
           typeof t.priority === 'string' &&
           typeof t.done === 'boolean' &&
           (t.weight === undefined || (typeof t.weight === 'number' && Number.isFinite(t.weight))) &&
+          (t.allowSubtasks === undefined || typeof t.allowSubtasks === 'boolean') &&
           hasValidSubtasks
         );
       })
@@ -262,45 +264,51 @@ function taskUpdatedAt(value: string | undefined) {
 }
 
 function parseTaskMeta(value: unknown) {
-  if (!value || typeof value !== 'object') return { weight: undefined };
-  const candidate = value as Partial<{ weight: unknown }>;
-  return { weight: candidate.weight === undefined ? undefined : normalizeTaskWeight(candidate.weight, 1) };
+  if (!value || typeof value !== 'object') return { weight: undefined, allowSubtasks: undefined };
+  const candidate = value as Partial<{ weight: unknown; allowSubtasks: unknown }>;
+  return {
+    weight: candidate.weight === undefined ? undefined : normalizeTaskWeight(candidate.weight, 1),
+    allowSubtasks: typeof candidate.allowSubtasks === 'boolean' ? candidate.allowSubtasks : undefined
+  };
 }
 
 function splitStoredTaskNote(note: string | null | undefined) {
-  if (!note) return { note: undefined, subtasks: undefined, weight: undefined };
+  if (!note) return { note: undefined, subtasks: undefined, weight: undefined, allowSubtasks: undefined };
   let workingNote = note;
   let weight: number | undefined;
+  let allowSubtasks: boolean | undefined;
   const metaMatch = workingNote.match(taskMetaNotePattern);
   if (metaMatch) {
     workingNote = workingNote.replace(taskMetaNotePattern, '').trim();
     try {
       const parsed = JSON.parse(Buffer.from(metaMatch[1], 'base64').toString('utf8')) as unknown;
-      weight = parseTaskMeta(parsed).weight;
+      const meta = parseTaskMeta(parsed);
+      weight = meta.weight;
+      allowSubtasks = meta.allowSubtasks;
     } catch {
       weight = undefined;
     }
   }
   const match = workingNote.match(subtaskNotePattern);
-  if (!match) return { note: workingNote || undefined, subtasks: undefined, weight };
+  if (!match) return { note: workingNote || undefined, subtasks: undefined, weight, allowSubtasks };
   const visibleNote = workingNote.replace(subtaskNotePattern, '').trim() || undefined;
   try {
     const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')) as unknown;
-    return { note: visibleNote, subtasks: parseSubtasks(parsed), weight };
+    return { note: visibleNote, subtasks: parseSubtasks(parsed), weight, allowSubtasks };
   } catch {
-    return { note: visibleNote, subtasks: undefined, weight };
+    return { note: visibleNote, subtasks: undefined, weight, allowSubtasks };
   }
 }
 
-function composeStoredTaskNote(note: string | undefined, subtasks: GoalSubtaskInput[] | undefined, weight: number | undefined) {
+function composeStoredTaskNote(note: string | undefined, subtasks: GoalSubtaskInput[] | undefined, weight: number | undefined, allowSubtasks?: boolean) {
   let storedNote = note?.trim() || '';
   if (subtasks?.length) {
     const payload = Buffer.from(JSON.stringify(subtasks), 'utf8').toString('base64');
     storedNote = `${storedNote}\n[sg-subtasks:${payload}]`.trim();
   }
-  if (weight !== undefined) {
+  if (weight !== undefined || allowSubtasks !== undefined) {
     const normalizedWeight = normalizeTaskWeight(weight, 1);
-    const payload = Buffer.from(JSON.stringify({ weight: normalizedWeight }), 'utf8').toString('base64');
+    const payload = Buffer.from(JSON.stringify({ weight: normalizedWeight, allowSubtasks }), 'utf8').toString('base64');
     storedNote = `${storedNote}\n[sg-task-meta:${payload}]`.trim();
   }
   return storedNote || null;
@@ -341,6 +349,7 @@ export async function GET() {
         completedAt: row.completedAt ? row.completedAt.toISOString() : undefined,
         investedMinutes: row.investedMinutes ?? undefined,
         subtasks: noteInfo.subtasks,
+        allowSubtasks: noteInfo.allowSubtasks ?? Boolean(noteInfo.subtasks?.length),
         updatedAt: row.updatedAt.toISOString()
       });
     });
@@ -377,7 +386,7 @@ export async function PUT(req: NextRequest) {
         ownerKey,
         scope,
         text: task.text,
-        note: composeStoredTaskNote(task.note, task.subtasks, task.weight),
+        note: composeStoredTaskNote(task.note, task.subtasks, task.weight, task.allowSubtasks),
         priority: task.priority,
         block: task.block || null,
         done: task.done,

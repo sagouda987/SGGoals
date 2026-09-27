@@ -43,12 +43,12 @@ const taskApi = loadFunctions('app/api/goals/route.ts', [
   'taskMetaNotePattern', 'subtaskNotePattern', 'normalizeTaskWeight', 'parseTaskMeta',
   'parseSubtasks', 'composeStoredTaskNote', 'splitStoredTaskNote'
 ]);
+const focus = loadFunctions('lib/must-focus-targets.ts', ['istFocusDateKey']);
 const rollover = loadFunctions('app/api/goals/rollover/route.ts', [
   'taskMetaNotePattern', 'activityMetaNotePattern', 'AUTO_HABIT_MISS_NOTE',
   'ACTIVE_HABIT_CODES', 'habitLabels', 'habitDefaultWeights', 'normalizeHabitCode', 'normalizeTaskWeight',
-  'taskWeightFromNote', 'composeAutoMissNote', 'activityPointsFromNote'
-]);
-const focus = loadFunctions('lib/must-focus-targets.ts', ['istFocusDateKey']);
+  'taskWeightFromNote', 'composeAutoMissNote', 'activityPointsFromNote', 'toISODate', 'istDateKeyToUtcDate', 'shiftDateKey', 'completedWeekWindow'
+], { istFocusDateKey: focus.istFocusDateKey });
 const pointsLogic = loadFunctions('lib/goal-points.ts', ['dailyHabitPointEvents'], { istFocusDateKey: focus.istFocusDateKey });
 const history = loadFunctions('components/goals/sg-goals-app.tsx', [
   'HABIT_TASKS', 'REMOVED_HABIT_TASKS', 'habitDefaultWeights', 'AUTO_HABIT_MISS_NOTE', 'normalizeTaskWeight', 'taskWeight',
@@ -127,6 +127,25 @@ test('missing and invalid points still use defaults, positive points are preserv
   const note = activityApi.composeActivityNote(undefined, 5, undefined);
   assert.equal(activityApi.splitActivityNote(note).points, 5);
   assert.equal(rollover.activityPointsFromNote(note, 'Gym'), 5);
+});
+
+test('no-subtask choice remains disabled after API save and reload', () => {
+  const stored = taskApi.composeStoredTaskNote('Keep focused', undefined, 3, false);
+  const restored = taskApi.splitStoredTaskNote(stored);
+  assert.equal(restored.allowSubtasks, false);
+  assert.equal(restored.weight, 3);
+  assert.equal(restored.note, 'Keep focused');
+});
+
+test('Sunday weekly report covers the completed Sunday-to-Saturday week', () => {
+  const sunday = rollover.completedWeekWindow(new Date('2026-09-26T21:30:00Z'));
+  assert.equal(sunday.shouldCreate, true);
+  assert.equal(sunday.startDate, '2026-09-20');
+  assert.equal(sunday.endDate, '2026-09-26');
+  assert.equal(sunday.weekKey, '2026-09-20-to-2026-09-26');
+  const monday = rollover.completedWeekWindow(new Date('2026-09-27T21:30:00Z'));
+  assert.equal(monday.shouldCreate, false);
+  assert.equal(monday.weekKey, sunday.weekKey);
 });
 
 test('requested daily routines are independent active habits', () => {

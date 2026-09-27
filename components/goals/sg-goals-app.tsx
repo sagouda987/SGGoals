@@ -42,7 +42,7 @@ type GoalTask = {
   updatedAt: string;
 };
 
-type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'focus-session' | 'focus-correction';
+type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'weekly-summary' | 'focus-session' | 'focus-correction';
 type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 
@@ -881,7 +881,7 @@ function completedFocusMinutes(activities: GoalActivity[]) {
 function allowsSubtasks(task: GoalTask) {
   const code = normalizeStrikeCode(task.text);
   if (code && NO_SUBTASK_STRIKE_CODES.includes(code)) return false;
-  return task.allowSubtasks !== false;
+  return task.allowSubtasks === true || Boolean(task.subtasks?.length);
 }
 
 function isAutoHabitMiss(activity: GoalActivity) {

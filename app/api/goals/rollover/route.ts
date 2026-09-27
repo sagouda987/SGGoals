@@ -10,6 +10,7 @@ const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
 const taskMetaNotePattern = /\n?\[sg-task-meta:([A-Za-z0-9+/=]+)\]$/;
 const activityMetaNotePattern = /\n?\[sg-activity-meta:([A-Za-z0-9+/=]+)\]$/;
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
+const WEEKLY_SUMMARY_NOTE_PREFIX = 'weekly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
@@ -427,6 +428,157 @@ async function archiveMonthlySummary() {
   return { archived: true, monthKey, emailed: Boolean(emailedAt) };
 }
 
+type WeeklySummary = {
+  weekKey: string;
+  startDate: string;
+  endDate: string;
+  completedPoints: number;
+  failedPoints: number;
+  focusMinutes: number;
+  days: Array<{ dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number }>;
+  createdAt: string;
+  emailedAt?: string;
+};
+
+function shiftDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function completedWeekWindow(date = new Date()) {
+  const reportingDate = istFocusDateKey(date.getTime());
+  const weekday = new Date(`${reportingDate}T00:00:00Z`).getUTCDay();
+  const currentWeekStart = shiftDateKey(reportingDate, -weekday);
+  const startDate = shiftDateKey(currentWeekStart, -7);
+  const endDate = shiftDateKey(currentWeekStart, -1);
+  return {
+    shouldCreate: weekday === 0,
+    weekKey: `${startDate}-to-${endDate}`,
+    startDate,
+    endDate,
+    start: istDateKeyToUtcDate(startDate, 3, 0),
+    end: istDateKeyToUtcDate(currentWeekStart, 3, 0)
+  };
+}
+
+function buildWeeklySummaryPdf(summary: WeeklySummary) {
+  const lines = [
+    `SG Goals - Weekly Report ${summary.startDate} to ${summary.endDate}`,
+    `Completed points: ${summary.completedPoints}`,
+    `Missed points: ${summary.failedPoints}`,
+    `Focus time: ${summary.focusMinutes} minutes`,
+    '',
+    'Daily progress:',
+    ...summary.days.map((day) => `${day.dateKey} | Done ${day.completedPoints} | Missed ${day.failedPoints} | Focus ${day.focusMinutes}m`)
+  ];
+  const content = `BT\n/F1 9 Tf\n40 760 Td\n${lines.map((line, index) => `${index ? '0 -16 Td\n' : ''}(${escapePdfText(line)}) Tj`).join('\n')}\nET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${Buffer.byteLength(content, 'binary')} >>\nstream\n${content}\nendstream`
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(pdf, 'binary'));
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(pdf, 'binary');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let index = 1; index <= objects.length; index += 1) pdf += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return Buffer.from(pdf, 'binary');
+}
+
+async function emailWeeklySummary(summary: WeeklySummary) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!apiKey || !from) return null;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [MONTHLY_SUMMARY_RECIPIENT],
+      subject: `SG Goals weekly report - ${summary.startDate} to ${summary.endDate}`,
+      text: `Your SG Goals week: ${summary.completedPoints} completed points, ${summary.failedPoints} missed points, and ${summary.focusMinutes} focus minutes.`,
+      attachments: [{ filename: `sg-goals-week-${summary.weekKey}.pdf`, content: buildWeeklySummaryPdf(summary).toString('base64') }]
+    })
+  });
+  if (!response.ok) throw new Error(`Weekly report email failed with status ${response.status}`);
+  return new Date().toISOString();
+}
+
+async function archiveWeeklySummary(date = new Date()) {
+  const window = completedWeekWindow(date);
+  const summaryId = `weekly-summary-${window.weekKey}`;
+  const existing = await prisma.goalActivity.findUnique({ where: { id: summaryId } });
+  if (existing?.note?.startsWith(WEEKLY_SUMMARY_NOTE_PREFIX)) {
+    const summary = JSON.parse(existing.note.slice(WEEKLY_SUMMARY_NOTE_PREFIX.length)) as WeeklySummary;
+    if (summary.emailedAt) return { archived: true, weekKey: window.weekKey, emailed: true };
+    const emailedAt = await emailWeeklySummary(summary);
+    if (emailedAt) await prisma.goalActivity.update({ where: { id: summaryId }, data: { note: `${WEEKLY_SUMMARY_NOTE_PREFIX}${JSON.stringify({ ...summary, emailedAt })}` } });
+    return { archived: true, weekKey: window.weekKey, emailed: Boolean(emailedAt) };
+  }
+  if (!window.shouldCreate) return { archived: false, weekKey: window.weekKey, emailed: false };
+
+  const rawActivities = await prisma.goalActivity.findMany({
+    where: { ownerKey, OR: [{ createdAt: { gte: window.start, lt: window.end } }, { kind: 'focus-correction' }] },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, scope: true, taskText: true, kind: true, note: true, startedAt: true, completedAt: true, createdAt: true }
+  });
+  const activities = dailyHabitPointEvents(applyFocusCorrections(rawActivities, normalizeHabitCode), normalizeHabitCode);
+  const completedHabitKeys = new Set(
+    activities
+      .filter((activity) => activity.kind === 'completion')
+      .map((activity) => {
+        const code = normalizeHabitCode(activity.taskText);
+        return code ? `${istDateKey(activity.createdAt)}:${code}` : null;
+      })
+      .filter((key): key is string => Boolean(key))
+  );
+  const days = new Map<string, { dateKey: string; completedPoints: number; failedPoints: number; focusMinutes: number; intervals: Array<{ start: number; end: number }>; fallback: number }>();
+  for (let key = window.startDate; key <= window.endDate; key = shiftDateKey(key, 1)) days.set(key, { dateKey: key, completedPoints: 0, failedPoints: 0, focusMinutes: 0, intervals: [], fallback: 0 });
+  activities.forEach((activity) => {
+    const day = days.get(istDateKey(activity.createdAt));
+    if (!day) return;
+    if (activity.kind === 'focus-session') {
+      const minutes = activityFocusMinutesFromNote(activity.note);
+      const start = activity.startedAt?.getTime() ?? Number.NaN;
+      const end = activity.completedAt?.getTime() ?? Number.NaN;
+      if (Number.isFinite(start) && Number.isFinite(end) && end > start) day.intervals.push({ start, end });
+      else day.fallback += minutes;
+      return;
+    }
+    const points = activityPointsFromNote(activity.note, activity.taskText);
+    if (activity.kind === 'completion') day.completedPoints += points;
+    if (activity.kind === 'undo') day.completedPoints = Math.max(0, day.completedPoints - points);
+    if (activity.kind === 'failure') {
+      const code = normalizeHabitCode(activity.taskText);
+      if (activity.note?.startsWith(AUTO_HABIT_MISS_NOTE) && code && completedHabitKeys.has(`${day.dateKey}:${code}`)) return;
+      day.failedPoints += points;
+    }
+  });
+  const summaryDays = Array.from(days.values()).map(({ intervals, fallback, ...day }) => ({ ...day, focusMinutes: mergedFocusMinutes(intervals, fallback) }));
+  const summary: WeeklySummary = {
+    weekKey: window.weekKey,
+    startDate: window.startDate,
+    endDate: window.endDate,
+    completedPoints: summaryDays.reduce((sum, day) => sum + day.completedPoints, 0),
+    failedPoints: summaryDays.reduce((sum, day) => sum + day.failedPoints, 0),
+    focusMinutes: summaryDays.reduce((sum, day) => sum + day.focusMinutes, 0),
+    days: summaryDays,
+    createdAt: new Date().toISOString()
+  };
+  await prisma.goalActivity.create({ data: { id: summaryId, ownerKey, scope: 'weekly', priority: 'other', taskText: `Weekly report ${window.weekKey}`, kind: 'weekly-summary', note: `${WEEKLY_SUMMARY_NOTE_PREFIX}${JSON.stringify(summary)}`, createdAt: new Date() } });
+  const emailedAt = await emailWeeklySummary(summary);
+  if (emailedAt) await prisma.goalActivity.update({ where: { id: summaryId }, data: { note: `${WEEKLY_SUMMARY_NOTE_PREFIX}${JSON.stringify({ ...summary, emailedAt })}` } });
+  return { archived: true, weekKey: window.weekKey, emailed: Boolean(emailedAt) };
+}
+
 async function recordHabitMisses() {
   const missedDateKey = previousIstDateKey();
   const createdAt = istDateKeyToUtcDate(missedDateKey, 23, 59);
@@ -514,9 +666,10 @@ async function recordHabitMisses() {
 async function runRollover() {
   try {
     const monthlySummary = await archiveMonthlySummary();
+    const weeklySummary = await archiveWeeklySummary();
     const result = await recordHabitMisses();
     const dailyReview = await generateAndStoreDailyReview();
-    return NextResponse.json({ ok: true, monthlySummary, dailyReview: { dateKey: dailyReview.review.dateKey, created: dailyReview.created }, ...result });
+    return NextResponse.json({ ok: true, monthlySummary, weeklySummary, dailyReview: { dateKey: dailyReview.review.dateKey, created: dailyReview.created }, ...result });
   } catch (error) {
     console.error('Failed to roll over habit misses', error);
     return NextResponse.json({ error: 'Could not record habit misses.' }, { status: 503 });
