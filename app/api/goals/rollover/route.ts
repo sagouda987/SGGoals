@@ -13,7 +13,7 @@ const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
-const ACTIVE_HABIT_CODES = new Set(['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'EYECARE', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
+const ACTIVE_HABIT_CODES = new Set(['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'EYECARE', 'BOOK', 'STUDY4H', 'STUDY1H', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -40,6 +40,8 @@ const habitLabels: Record<string, string> = {
   SKINCAREEVENING: 'Evening skin care',
   BOOK: 'Book read and communication practice',
   STUDY2: 'Study',
+  STUDY4H: 'Study for 4 hours',
+  STUDY1H: 'Study for 1 hour',
   OFFICEWORK2: 'Office work',
   SLEEP: 'Sleep 11 to 6',
   NOJUNK: 'No junk food',
@@ -71,6 +73,8 @@ const habitDefaultWeights: Record<string, number> = {
   SKINCAREEVENING: 1,
   BOOK: 4,
   STUDY2: 5,
+  STUDY4H: 4,
+  STUDY1H: 1,
   OFFICEWORK2: 8,
   SLEEP: 2,
   NOJUNK: 1,
@@ -142,6 +146,8 @@ function normalizeHabitCode(text: string) {
   if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
   if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
+  if (compact === 'STUDYFOR4HOURS' || compact === 'STUDY4HOURS') return 'STUDY4H';
+  if (compact === 'STUDYFOR1HOUR' || compact === 'STUDY1HOUR') return 'STUDY1H';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
   if (compact === 'SLEEP11TO6' || compact === 'WAKEUPBEFORE8') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
@@ -377,8 +383,9 @@ async function archiveMonthlySummary() {
       if (Number.isFinite(start) && Number.isFinite(end) && end > start) day.focusIntervals.push({ start, end });
       else day.fallbackFocusMinutes += focusMinutes;
       const code = normalizeHabitCode(activity.taskText);
-      if (code && (DAILY_PRIORITY_FOCUS_KEYS as readonly string[]).includes(code)) {
-        day.mustTaskFocusMinutes[code as keyof MustTaskFocusMinutes] += focusMinutes;
+      const focusCode = code === 'STUDY4H' || code === 'STUDY1H' ? 'STUDY2' : code;
+      if (focusCode && (DAILY_PRIORITY_FOCUS_KEYS as readonly string[]).includes(focusCode)) {
+        day.mustTaskFocusMinutes[focusCode as keyof MustTaskFocusMinutes] += focusMinutes;
       }
       return;
     }

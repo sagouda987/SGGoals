@@ -130,7 +130,7 @@ test('missing and invalid points still use defaults, positive points are preserv
 });
 
 test('requested daily routines are independent active habits', () => {
-  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'No junk food', 'No sugar', 'Practise B'];
+  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'No junk food', 'No sugar', 'Practise B', 'Study for 4 hours', 'Study for 1 hour'];
   for (const task of expected) {
     assert.equal(history.HABIT_TASKS.includes(task), true, `${task} is a visible daily habit`);
     assert.equal(history.REMOVED_HABIT_TASKS.includes(task), false, `${task} is not removed`);
@@ -146,9 +146,22 @@ test('requested daily routines are independent active habits', () => {
   assert.equal(history.REMOVED_HABIT_TASKS.includes('O'), true, 'The retired single O task is removed from today');
   assert.match(goalsComponentSource, /label: 'Eye care count'/, 'Eye care has a visible habit counter card');
   assert.equal(history.habitBlock('Healthy drink morning'), 'morning');
-  assert.equal(history.habitBlock('Study'), 'afternoon');
+  assert.equal(history.habitBlock('Study for 4 hours'), 'morning');
+  assert.equal(history.habitBlock('Study for 1 hour'), 'afternoon');
   assert.equal(history.habitBlock('No sugar'), 'evening');
-  assert.equal(history.habitBlock('Practise B'), 'afternoon');
+  assert.equal(history.habitBlock('Practise B'), 'evening');
+  assert.equal(history.defaultHabitWeight('Study for 4 hours') + history.defaultHabitWeight('Study for 1 hour'), 5);
+  const habits = Array.from(history.HABIT_TASKS);
+  assert.deepEqual(habits.filter((task) => history.habitBlock(task) === 'morning'), [
+    'O1', 'L1', 'Book read and communication practice', 'Manifestation', 'Eye care', 'Meditation',
+    'Healthy drink morning', 'Morning skin care', 'Wake up before 8', 'Study for 4 hours'
+  ]);
+  assert.deepEqual(habits.filter((task) => history.habitBlock(task) === 'afternoon'), [
+    'O2', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening'
+  ]);
+  assert.deepEqual(habits.filter((task) => history.habitBlock(task) === 'evening'), [
+    'Gym', 'O3', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'
+  ]);
 });
 
 const september7 = [

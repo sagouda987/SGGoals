@@ -278,7 +278,7 @@ export class SgGoalsMcpService {
     const missedPoints = days.reduce((sum, day) => sum + day.failedPoints, 0);
     const allActivities = days.flatMap((day) => day.activities);
     const focus = allActivities.filter((activity) => activity.kind === 'focus-session');
-    const studyTimeMinutes = focus.filter((activity) => normalizeHabitCode(activity.taskName) === 'STUDY2').reduce((sum, activity) => sum + activity.focusMinutes, 0);
+    const studyTimeMinutes = focus.filter((activity) => ['STUDY2', 'STUDY4H', 'STUDY1H'].includes(normalizeHabitCode(activity.taskName) ?? '')).reduce((sum, activity) => sum + activity.focusMinutes, 0);
     const healthActivities = allActivities.filter((activity) => activity.category === 'health' && ['completion', 'focus-session'].includes(activity.kind)).length;
     const streak = buildStreaks(activities, endDate > currentDate ? currentDate : endDate);
     return {

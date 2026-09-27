@@ -43,8 +43,8 @@ type GoalTask = {
 };
 
 type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'focus-session' | 'focus-correction';
-type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
-type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
+type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
+type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 
 type GoalActivity = {
   id: string;
@@ -189,7 +189,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
 };
 const SCHEDULE_BLOCKS = ['morning', 'afternoon', 'evening'] as const;
 
-const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Language learn', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'Book read and communication practice', 'Study', 'Office work', 'Wake up before 8', 'No junk food', 'No sugar', 'Practise B', 'No Social Media', 'Manifestation'];
+const HABIT_TASKS = ['O1', 'L1', 'Book read and communication practice', 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Wake up before 8', 'Study for 4 hours', 'O2', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening', 'Gym', 'O3', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
 const REMOVED_HABIT_TASKS = [
   'O',
   'Chess improvement',
@@ -197,6 +197,7 @@ const REMOVED_HABIT_TASKS = [
   'B',
   'Salt water gargle',
   'No E',
+  'Study',
 ];
 const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'EYECARE', 'NOSOCIAL', 'MANIFEST'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -222,6 +223,8 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   SKINCAREEVENING: 'Evening skin care',
   BOOK: 'Book read and communication practice',
   STUDY2: 'Study',
+  STUDY4H: 'Study for 4 hours',
+  STUDY1H: 'Study for 1 hour',
   OFFICEWORK2: 'Office work',
   SLEEP: 'Wake up before 8',
   NOJUNK: 'No junk food',
@@ -254,6 +257,8 @@ const habitDefaultWeights: Partial<Record<StrikeCode, number>> = {
   SALTGARGLE: 2,
   BOOK: 4,
   STUDY2: 5,
+  STUDY4H: 4,
+  STUDY1H: 1,
   NOJUNK: 1,
   NOSUGAR: 1,
   OFFICEWORK2: 8,
@@ -274,8 +279,9 @@ function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
   return { OFFICEWORK2: 0, STUDY2: 0, BOOK: 0, GYM: 0 };
 }
 
-function isDailyPriorityStrikeCode(code: StrikeCode | null): code is (typeof DAILY_PRIORITY_STRIKE_KEYS)[number] {
-  return Boolean(code && (DAILY_PRIORITY_STRIKE_KEYS as readonly StrikeCode[]).includes(code));
+function dailyPriorityStrikeCode(code: StrikeCode | null): keyof MustTaskFocusMinutes | null {
+  if (code === 'STUDY4H' || code === 'STUDY1H') return 'STUDY2';
+  return code && (DAILY_PRIORITY_STRIKE_KEYS as readonly StrikeCode[]).includes(code) ? code as keyof MustTaskFocusMinutes : null;
 }
 
 function normalizeMustTaskStopwatches(value: unknown): MustTaskStopwatchState {
@@ -463,7 +469,8 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
     if (activity.kind === 'focus-session') {
       const focusMinutes = Math.max(0, Math.round(activity.focusMinutes || 0));
       const code = normalizeStrikeCode(activity.taskText);
-      if (isDailyPriorityStrikeCode(code)) day.mustTaskFocusMinutes[code] += focusMinutes;
+      const focusCode = dailyPriorityStrikeCode(code);
+      if (focusCode) day.mustTaskFocusMinutes[focusCode] += focusMinutes;
       return;
     }
     const points = activityPoints(activity);
@@ -812,6 +819,8 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
   if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
+  if (compact === 'STUDYFOR4HOURS' || compact === 'STUDY4HOURS') return 'STUDY4H';
+  if (compact === 'STUDYFOR1HOUR' || compact === 'STUDY1HOUR') return 'STUDY1H';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
   if (compact === 'SLEEP11TO6' || compact === 'WAKEUPBEFORE8') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
@@ -826,8 +835,8 @@ function normalizeStrikeCode(text: string) {
 
 function habitBlock(text: string): Exclude<Block, 'habit'> {
   const code = normalizeStrikeCode(text);
-  if (['L1', 'L2', 'L3', 'LANGUAGE', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'PRACTISEB'].includes(code ?? '')) return 'afternoon';
-  if (['GYM', 'HEALTHYDRINKEVENING', 'SKINCAREEVENING', 'EYECARE', 'NOJUNK', 'NOSUGAR', 'NOSOCIAL', 'MANIFEST'].includes(code ?? '')) return 'evening';
+  if (['O2', 'L2', 'LANGUAGE', 'STUDY1H', 'OFFICEWORK2', 'HEALTHYDRINKEVENING'].includes(code ?? '')) return 'afternoon';
+  if (['GYM', 'O3', 'SKINCAREEVENING', 'NOJUNK', 'NOSUGAR', 'NOSOCIAL', 'L3', 'M', 'PRACTISEB'].includes(code ?? '')) return 'evening';
   return 'morning';
 }
 
@@ -1126,7 +1135,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
   };
   const counterCycleStart = buildCounterCycleStart(todayKey);
   const counterResetAt = Math.max(new Date(`${counterCycleStart}T03:00:00+05:30`).getTime(), new Date(COUNTER_FORCE_RESET_AT).getTime());
-  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, B: counterResetAt, PRACTISEB: counterResetAt, MEDITATION: counterResetAt, LANGUAGE: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, SKINCAREMORNING: counterResetAt, SKINCAREEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, NOSUGAR: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, NOE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
+  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, B: counterResetAt, PRACTISEB: counterResetAt, MEDITATION: counterResetAt, LANGUAGE: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, SKINCAREMORNING: counterResetAt, SKINCAREEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, STUDY4H: counterResetAt, STUDY1H: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, NOSUGAR: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, NOE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
     if (code.startsWith('L')) return 'L';
@@ -1201,7 +1210,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     skinCareMorning: codes.has('SKINCAREMORNING'),
     skinCareEvening: codes.has('SKINCAREEVENING'),
     book: codes.has('BOOK'),
-    study2: codes.has('STUDY2'),
+    study2: codes.has('STUDY2') || (codes.has('STUDY4H') && codes.has('STUDY1H')),
     officeWork2: codes.has('OFFICEWORK2'),
     sleep: codes.has('SLEEP'),
     noJunk: codes.has('NOJUNK'),
@@ -2234,7 +2243,7 @@ export function SgGoalsApp() {
 
   const periodTimeTargets = useMemo(() => {
     const sessions = activities.filter((activity) => activity.scope === 'today' && activity.kind === 'focus-session')
-      .map((activity) => ({ code: normalizeStrikeCode(activity.taskText) || '', createdAt: activity.createdAt, minutes: activity.focusMinutes || 0 }));
+      .map((activity) => ({ code: dailyPriorityStrikeCode(normalizeStrikeCode(activity.taskText)) || '', createdAt: activity.createdAt, minutes: activity.focusMinutes || 0 }));
     return {
       weekly: buildPeriodTimeTargets(sessions, currentDateKey, 'weekly'),
       monthly: buildPeriodTimeTargets(sessions, currentDateKey, 'monthly'),
@@ -2351,20 +2360,20 @@ export function SgGoalsApp() {
   const focusTargetDateKey = timerNow ? istFocusDateKey(timerNow) : todayKey;
   const mustFocusProgress = useMemo(() => buildMustFocusTargetProgress(
     activities.filter((activity) => activity.scope === 'today' && activity.kind === 'focus-session').map((activity) => ({
-      code: normalizeStrikeCode(activity.taskText) || '',
+      code: dailyPriorityStrikeCode(normalizeStrikeCode(activity.taskText)) || '',
       createdAt: activity.createdAt,
       minutes: activity.focusMinutes || 0
     })),
     focusTargetDateKey
   ), [activities, focusTargetDateKey]);
   const dailyPriorityFocus = DAILY_PRIORITY_STRIKE_KEYS.map((code) => {
-    const task = store.today.find((item) => normalizeStrikeCode(item.text) === code) || null;
+    const task = store.today.find((item) => dailyPriorityStrikeCode(normalizeStrikeCode(item.text)) === code) || null;
     const minutes = activities.reduce((total, activity) => {
       if (
         activity.scope === 'today' &&
         activity.kind === 'focus-session' &&
         istFocusDateKey(activity.createdAt) === focusTargetDateKey &&
-        normalizeStrikeCode(activity.taskText) === code
+        dailyPriorityStrikeCode(normalizeStrikeCode(activity.taskText)) === code
       ) {
         return total + Math.max(0, Math.round(activity.focusMinutes || 0));
       }
@@ -2944,7 +2953,7 @@ export function SgGoalsApp() {
       setMustTaskStopwatches((current) => ({ ...current,
         [code]: { running: false, startedAt: '', elapsedMs: 0, updatedAt: new Date().toISOString() }
       }));
-      if (focusActiveTask && normalizeStrikeCode(focusActiveTask.text) === code) resetTargetTimer();
+      if (focusActiveTask && dailyPriorityStrikeCode(normalizeStrikeCode(focusActiveTask.text)) === code) resetTargetTimer();
       markTargetChanged();
       focusResetPendingRef.current = null;
       setFocusResetCode(null);
@@ -5326,7 +5335,7 @@ export function SgGoalsApp() {
                         const doneSubtasks = subtasks.filter((subtask) => subtask.done).length;
                         const taskColor = scope === 'weekend' ? group.color : priorities[task.priority].color;
                         const taskSoft = scope === 'weekend' ? 'rgba(79,142,247,.12)' : priorities[task.priority].soft;
-                        const habitMissWarning = scope === 'today' && group.id === 'habit' && !task.done && threeDayHabitMissWarnings.has(normalizeStrikeCode(task.text) as StrikeCode);
+                        const habitMissWarning = scope === 'today' && isHabitTask(task.text) && !task.done && threeDayHabitMissWarnings.has(normalizeStrikeCode(task.text) as StrikeCode);
                         return (
                           <>
                             <div className={`flex items-stretch ${habitMissWarning ? 'bg-[#ff6b6b10] shadow-[inset_3px_0_0_#ff6b6b]' : ''}`}>
