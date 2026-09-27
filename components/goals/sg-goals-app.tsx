@@ -185,8 +185,9 @@ const blocks: Record<Block, { label: string; time: string }> = {
   habit: { label: 'Habit', time: 'Daily count checklist' },
   morning: { label: 'Morning', time: '6:00 AM - 12:00 PM' },
   afternoon: { label: 'Afternoon', time: '12:00 PM - 6:00 PM' },
-  evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
+  evening: { label: 'Night', time: '6:00 PM - 11:00 PM' }
 };
+const SCHEDULE_BLOCKS = ['morning', 'afternoon', 'evening'] as const;
 
 const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Language learn', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'Book read and communication practice', 'Study', 'Office work', 'Wake up before 8', 'No junk food', 'No sugar', 'Practise B', 'No Social Media', 'Manifestation'];
 const REMOVED_HABIT_TASKS = [
@@ -823,6 +824,13 @@ function normalizeStrikeCode(text: string) {
   return null;
 }
 
+function habitBlock(text: string): Exclude<Block, 'habit'> {
+  const code = normalizeStrikeCode(text);
+  if (['L1', 'L2', 'L3', 'LANGUAGE', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'PRACTISEB'].includes(code ?? '')) return 'afternoon';
+  if (['GYM', 'HEALTHYDRINKEVENING', 'SKINCAREEVENING', 'EYECARE', 'NOJUNK', 'NOSUGAR', 'NOSOCIAL', 'MANIFEST'].includes(code ?? '')) return 'evening';
+  return 'morning';
+}
+
 function isHabitTask(text: string) {
   return normalizeStrikeCode(text) !== null;
 }
@@ -1064,10 +1072,11 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
       return;
     }
     const defaultWeight = defaultHabitWeight(canonicalText);
+    const assignedBlock = habitBlock(canonicalText);
     const normalizedTask =
-      task.text === canonicalText && task.weight !== undefined
+      task.text === canonicalText && task.weight !== undefined && task.block === assignedBlock
         ? task
-        : { ...task, text: canonicalText, weight: task.weight ?? defaultWeight };
+        : { ...task, text: canonicalText, block: assignedBlock, weight: task.weight ?? defaultWeight };
     if (normalizedTask !== task) changed = true;
     const existingIndex = seenHabitIndexes.get(code);
     if (existingIndex === undefined) {
@@ -1093,7 +1102,7 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
   if (!missingHabits.length && !changed) return store;
   return {
     ...store,
-    today: [...today, ...missingHabits.map((text) => makeTask(text, undefined, 'other', 'habit', false, defaultHabitWeight(text)))]
+    today: [...today, ...missingHabits.map((text) => makeTask(text, undefined, 'other', habitBlock(text), false, defaultHabitWeight(text)))]
   };
 }
 
@@ -1861,7 +1870,7 @@ export function SgGoalsApp() {
     if (scope !== 'today') return;
     const text = draft.text.trim();
     if (!text) return;
-    if (draft.block !== 'habit' && !isHabitTask(text)) return;
+    if (!isHabitTask(text)) return;
     const defaultWeight = String(defaultHabitWeight(text));
     setDraft((current) => (current.weight === defaultWeight ? current : { ...current, weight: defaultWeight }));
   }, [draft.block, draft.text, editing, scope]);
@@ -3165,7 +3174,7 @@ export function SgGoalsApp() {
           ? {
               ...existing,
               text,
-              block: 'habit' as const,
+              block: habitBlock(text),
               weight: existing.weight ?? defaultHabitWeight(text),
               done: false,
               startedAt: undefined,
@@ -3458,16 +3467,16 @@ export function SgGoalsApp() {
 
   const completedInCurrentScope = scope === 'today' || scope === 'weekend' ? activeTasks.filter((task) => task.done) : [];
 
-  const groupedToday = (Object.keys(blocks) as Block[]).map((block) => {
+  const groupedToday = SCHEDULE_BLOCKS.map((block) => {
     const blockTasks = activeTasks.filter((task) => {
-      const effectiveBlock = isHabitTask(task.text) ? 'habit' : task.block;
+      const effectiveBlock = isHabitTask(task.text) ? habitBlock(task.text) : task.block;
       return effectiveBlock === block;
     });
     return {
       id: block,
       title: blocks[block].label,
       sub: blocks[block].time,
-      color: block === 'habit' ? '#00d97e' : '#4f8ef7',
+      color: '#4f8ef7',
       tasks: blockTasks.filter((task) => !task.done),
       done: blockTasks.filter((task) => task.done).length,
       total: blockTasks.length
@@ -4547,7 +4556,7 @@ export function SgGoalsApp() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next target</p>
-                <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{targetTasks.length ? `${targetTasks.length} task${targetTasks.length === 1 ? '' : 's'} selected` : 'Select tasks from Morning, Afternoon, or Evening'}</h2>
+                <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{targetTasks.length ? `${targetTasks.length} task${targetTasks.length === 1 ? '' : 's'} selected` : 'Select tasks from Morning, Afternoon, or Night'}</h2>
                 {mainGoal ? (
                   <p className="mt-1 text-xs text-[#8b8bb3]">
                     Current focus starts with {mainGoal.text} ({taskWeight(mainGoal)} pts)
@@ -5510,7 +5519,8 @@ export function SgGoalsApp() {
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Time block</p>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {Object.entries(blocks).map(([key, value]) => {
+                  {SCHEDULE_BLOCKS.map((key) => {
+                    const value = blocks[key];
                     const isActive = draft.block === key;
                     return (
                       <button

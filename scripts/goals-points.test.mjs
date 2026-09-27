@@ -52,7 +52,7 @@ const focus = loadFunctions('lib/must-focus-targets.ts', ['istFocusDateKey']);
 const pointsLogic = loadFunctions('lib/goal-points.ts', ['dailyHabitPointEvents'], { istFocusDateKey: focus.istFocusDateKey });
 const history = loadFunctions('components/goals/sg-goals-app.tsx', [
   'HABIT_TASKS', 'REMOVED_HABIT_TASKS', 'habitDefaultWeights', 'AUTO_HABIT_MISS_NOTE', 'normalizeTaskWeight', 'taskWeight',
-  'buildScopeCompletion', 'normalizeStrikeCode', 'isHabitTask', 'defaultHabitWeight',
+  'buildScopeCompletion', 'normalizeStrikeCode', 'habitBlock', 'isHabitTask', 'defaultHabitWeight',
   'defaultTaskWeightFromText', 'activityPoints', 'toISODate', 'emptyMustTaskFocusMinutes',
   'isAutoHabitMiss', 'completedFocusMinutes', 'buildPointHistory', 'MONTHLY_SUMMARY_NOTE_PREFIX', 'parseMonthlySummary'
 ], {
@@ -145,6 +145,10 @@ test('requested daily routines are independent active habits', () => {
   assert.equal(history.normalizeStrikeCode('O'), 'O', 'Historical O entries remain readable');
   assert.equal(history.REMOVED_HABIT_TASKS.includes('O'), true, 'The retired single O task is removed from today');
   assert.match(goalsComponentSource, /label: 'Eye care count'/, 'Eye care has a visible habit counter card');
+  assert.equal(history.habitBlock('Healthy drink morning'), 'morning');
+  assert.equal(history.habitBlock('Study'), 'afternoon');
+  assert.equal(history.habitBlock('No sugar'), 'evening');
+  assert.equal(history.habitBlock('Practise B'), 'afternoon');
 });
 
 const september7 = [
