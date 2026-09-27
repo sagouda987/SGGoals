@@ -5307,7 +5307,7 @@ export function SgGoalsApp() {
                     <p className="text-[11px] text-[#52527a]">{group.sub}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {scope === 'today' && group.id === 'habit' ? (
+                    {scope === 'today' && group.id === 'morning' ? (
                       <button onClick={resetHabitTasks} className="rounded-lg border border-[#00d97e40] px-2 py-1 text-[11px] font-bold text-[#00d97e]">
                         Reset habits
                       </button>
