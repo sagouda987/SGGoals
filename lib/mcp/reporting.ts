@@ -49,10 +49,10 @@ const activityMetaPattern = /\n?\[sg-activity-meta:([A-Za-z0-9+/_=-]+)\]\s*$/;
 const taskMetaPattern = /\n?\[sg-task-meta:[A-Za-z0-9+/_=-]+\]\s*$/;
 const subtaskMetaPattern = /\n?\[sg-subtasks:[A-Za-z0-9+/_=-]+\]\s*$/;
 const defaultHabitWeights: Record<string, number> = {
-  O: 1, O1: 1, O2: 1, O3: 1, L1: 2, L2: 2, L3: 2, M: 1, B: 1,
+  O: 1, O1: 1, O2: 1, O3: 1, L1: 2, L2: 2, L3: 2, M: 1, B: 1, PRACTISEB: 1,
   MEDITATION: 1, LANGUAGE: 1, GYM: 4, HEALTHYDRINKMORNING: 2, HEALTHYDRINKEVENING: 2,
   SKINCAREMORNING: 1, SKINCAREEVENING: 1, BOOK: 4, STUDY2: 5, OFFICEWORK2: 8,
-  SLEEP: 2, NOJUNK: 1, MANIFEST: 1, NOSOCIAL: 1, NOE: 1, EYECARE: 2, SALTGARGLE: 2
+  SLEEP: 2, NOJUNK: 1, NOSUGAR: 1, MANIFEST: 1, NOSOCIAL: 1, NOE: 1, EYECARE: 2, SALTGARGLE: 2
 };
 
 export function normalizeMcpCategory(value: string): GoalPriority {
@@ -69,7 +69,7 @@ export function normalizeHabitCode(text: string) {
     EVENINGSKINCARE: 'SKINCAREEVENING', SKINCAREEVENING: 'SKINCAREEVENING',
     BOOKREAD: 'BOOK', BOOKREADANDCOMMUNICATIONPRACTICE: 'BOOK', STUDY: 'STUDY2', STUDY2HOUR: 'STUDY2',
     OFFICEWORK: 'OFFICEWORK2', OFFICEWORK2HOUR: 'OFFICEWORK2', SLEEP11TO6: 'SLEEP', WAKEUPBEFORE8: 'SLEEP',
-    NOJUNKFOOD: 'NOJUNK', NOSOCIALMEDIA: 'NOSOCIAL', NOE: 'NOE', EYECARE: 'EYECARE',
+    NOJUNKFOOD: 'NOJUNK', NOSUGAR: 'NOSUGAR', PRACTISEB: 'PRACTISEB', PRACTICEB: 'PRACTISEB', NOSOCIALMEDIA: 'NOSOCIAL', NOE: 'NOE', EYECARE: 'EYECARE',
     SALTWATERGARGLE: 'SALTGARGLE', SALTGARGLE: 'SALTGARGLE', MANIFESTATION: 'MANIFEST', MANIFESTNATION: 'MANIFEST'
   };
   return aliases[compact] ?? null;

@@ -13,7 +13,7 @@ const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
-const ACTIVE_HABIT_CODES = new Set(['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'EYECARE', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'SLEEP', 'NOSOCIAL', 'MANIFEST']);
+const ACTIVE_HABIT_CODES = new Set(['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'EYECARE', 'BOOK', 'STUDY2', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -30,6 +30,7 @@ const habitLabels: Record<string, string> = {
   L3: 'L3',
   M: 'M',
   B: 'B',
+  PRACTISEB: 'Practise B',
   MEDITATION: 'Meditation',
   LANGUAGE: 'Language learn',
   GYM: 'Gym',
@@ -42,6 +43,7 @@ const habitLabels: Record<string, string> = {
   OFFICEWORK2: 'Office work',
   SLEEP: 'Sleep 11 to 6',
   NOJUNK: 'No junk food',
+  NOSUGAR: 'No sugar',
   MANIFEST: 'Manifestation',
   NOSOCIAL: 'No Social Media',
   NOE: 'No E',
@@ -59,6 +61,7 @@ const habitDefaultWeights: Record<string, number> = {
   L3: 2,
   M: 1,
   B: 1,
+  PRACTISEB: 1,
   MEDITATION: 1,
   LANGUAGE: 1,
   GYM: 4,
@@ -71,6 +74,7 @@ const habitDefaultWeights: Record<string, number> = {
   OFFICEWORK2: 8,
   SLEEP: 2,
   NOJUNK: 1,
+  NOSUGAR: 1,
   MANIFEST: 1,
   NOSOCIAL: 1,
   NOE: 1,
@@ -128,6 +132,7 @@ function normalizeHabitCode(text: string) {
   if (/^L[123]$/.test(compact)) return compact;
   if (compact === 'M') return 'M';
   if (compact === 'B') return 'B';
+  if (compact === 'PRACTISEB' || compact === 'PRACTICEB') return 'PRACTISEB';
   if (compact === 'MEDITATION') return 'MEDITATION';
   if (compact === 'LANGUAGELEARN' || compact === 'LANGUAGELEARNING') return 'LANGUAGE';
   if (compact === 'GYM') return 'GYM';
@@ -140,6 +145,7 @@ function normalizeHabitCode(text: string) {
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
   if (compact === 'SLEEP11TO6' || compact === 'WAKEUPBEFORE8') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
+  if (compact === 'NOSUGAR') return 'NOSUGAR';
   if (compact === 'NOSOCIALMEDIA') return 'NOSOCIAL';
   if (compact === 'NOE') return 'NOE';
   if (compact === 'EYECARE') return 'EYECARE';

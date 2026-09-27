@@ -130,7 +130,7 @@ test('missing and invalid points still use defaults, positive points are preserv
 });
 
 test('requested daily routines are independent active habits', () => {
-  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care'];
+  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'No junk food', 'No sugar', 'Practise B'];
   for (const task of expected) {
     assert.equal(history.HABIT_TASKS.includes(task), true, `${task} is a visible daily habit`);
     assert.equal(history.REMOVED_HABIT_TASKS.includes(task), false, `${task} is not removed`);

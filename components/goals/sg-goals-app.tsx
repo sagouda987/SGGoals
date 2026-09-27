@@ -43,8 +43,8 @@ type GoalTask = {
 };
 
 type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'focus-session' | 'focus-correction';
-type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
-type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
+type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
+type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 
 type GoalActivity = {
   id: string;
@@ -188,7 +188,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
   evening: { label: 'Evening', time: '6:00 PM - 12:00 AM' }
 };
 
-const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Language learn', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'Book read and communication practice', 'Study', 'Office work', 'Wake up before 8', 'No Social Media', 'Manifestation'];
+const HABIT_TASKS = ['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'Meditation', 'Language learn', 'Gym', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'Book read and communication practice', 'Study', 'Office work', 'Wake up before 8', 'No junk food', 'No sugar', 'Practise B', 'No Social Media', 'Manifestation'];
 const REMOVED_HABIT_TASKS = [
   'O',
   'Chess improvement',
@@ -196,7 +196,6 @@ const REMOVED_HABIT_TASKS = [
   'B',
   'Salt water gargle',
   'No E',
-  'No junk food'
 ];
 const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'EYECARE', 'NOSOCIAL', 'MANIFEST'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -212,6 +211,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   L3: 'L3',
   M: 'M',
   B: 'B',
+  PRACTISEB: 'Practise B',
   MEDITATION: 'Meditation',
   LANGUAGE: 'Language learn',
   GYM: 'Gym',
@@ -224,6 +224,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   OFFICEWORK2: 'Office work',
   SLEEP: 'Wake up before 8',
   NOJUNK: 'No junk food',
+  NOSUGAR: 'No sugar',
   MANIFEST: 'Manifestation',
   NOSOCIAL: 'No Social Media',
   NOE: 'No E',
@@ -240,6 +241,7 @@ const habitDefaultWeights: Partial<Record<StrikeCode, number>> = {
   L3: 2,
   M: 1,
   B: 1,
+  PRACTISEB: 1,
   MEDITATION: 1,
   LANGUAGE: 1,
   GYM: 4,
@@ -252,6 +254,7 @@ const habitDefaultWeights: Partial<Record<StrikeCode, number>> = {
   BOOK: 4,
   STUDY2: 5,
   NOJUNK: 1,
+  NOSUGAR: 1,
   OFFICEWORK2: 8,
   NOSOCIAL: 1,
   NOE: 1,
@@ -798,6 +801,7 @@ function normalizeStrikeCode(text: string) {
   if (/^L[123]$/.test(compact)) return compact as Extract<StrikeCode, 'L1' | 'L2' | 'L3'>;
   if (compact === 'M') return 'M';
   if (compact === 'B') return 'B';
+  if (compact === 'PRACTISEB' || compact === 'PRACTICEB') return 'PRACTISEB';
   if (compact === 'MEDITATION') return 'MEDITATION';
   if (compact === 'LANGUAGELEARN' || compact === 'LANGUAGELEARNING') return 'LANGUAGE';
   if (compact === 'GYM') return 'GYM';
@@ -810,6 +814,7 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
   if (compact === 'SLEEP11TO6' || compact === 'WAKEUPBEFORE8') return 'SLEEP';
   if (compact === 'NOJUNKFOOD') return 'NOJUNK';
+  if (compact === 'NOSUGAR') return 'NOSUGAR';
   if (compact === 'NOSOCIALMEDIA') return 'NOSOCIAL';
   if (compact === 'NOE') return 'NOE';
   if (compact === 'EYECARE') return 'EYECARE';
@@ -1112,7 +1117,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
   };
   const counterCycleStart = buildCounterCycleStart(todayKey);
   const counterResetAt = Math.max(new Date(`${counterCycleStart}T03:00:00+05:30`).getTime(), new Date(COUNTER_FORCE_RESET_AT).getTime());
-  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, B: counterResetAt, MEDITATION: counterResetAt, LANGUAGE: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, SKINCAREMORNING: counterResetAt, SKINCAREEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, NOE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
+  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, B: counterResetAt, PRACTISEB: counterResetAt, MEDITATION: counterResetAt, LANGUAGE: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, SKINCAREMORNING: counterResetAt, SKINCAREEVENING: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, NOSUGAR: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, NOE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
     if (code.startsWith('L')) return 'L';
