@@ -4560,6 +4560,7 @@ export function SgGoalsApp() {
           </details>
           <HistoryPointBreakdown events={activities} date={currentDateKey} habitCode={normalizeStrikeCode} points={activityPoints} />
         </div>
+        {renderMustTaskFocusTracker()}
         <div className="grid gap-3 md:grid-cols-[1.2fr,.8fr]">
           <div className="min-w-0 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
             <div className="flex items-start justify-between gap-3">
@@ -4936,7 +4937,6 @@ export function SgGoalsApp() {
             </button>
           </div>
         </div>
-        {renderMustTaskFocusTracker()}
       </section>
       ) : null}
 
