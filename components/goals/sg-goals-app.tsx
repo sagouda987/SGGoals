@@ -3929,6 +3929,75 @@ export function SgGoalsApp() {
     );
   }
 
+  function renderDailyFocusProgress() {
+    return (
+      <section className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Daily focus progress</p>
+            <p className="mt-1 text-xs text-[#8b8bb3]">Elapsed time recorded from completed focus periods</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFocusDailyGoalEditing((current) => !current)}
+            title="Edit daily focus goal"
+            aria-label="Edit daily focus goal"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#24243e] text-[#8b8bb3]"
+          >
+            <Edit3 className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-[1fr_1.4fr_1fr] items-center gap-2 text-center">
+          <div>
+            <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Yesterday</p>
+            <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{yesterdaySummary.focusMinutes}</p>
+            <p className="text-[10px] text-[#52527a]">minutes</p>
+          </div>
+
+          <div className="mx-auto flex h-36 w-36 items-center justify-center rounded-full p-3" style={{ background: `conic-gradient(#00d97e ${focusProgress * 3.6}deg, #1a1a30 0deg)` }}>
+            <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-[#24243e] bg-[#0f0f1d]">
+              <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Daily goal</p>
+              {focusDailyGoalEditing ? (
+                <label className="mt-2 flex items-center gap-1">
+                  <input
+                    autoFocus
+                    type="number"
+                    min="1"
+                    max="1440"
+                    inputMode="numeric"
+                    value={focusDailyGoalDraft}
+                    onChange={(event) => updateFocusDailyGoal(event.target.value)}
+                    onBlur={finishFocusDailyGoalEdit}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.currentTarget.blur();
+                    }}
+                    className="h-8 w-16 rounded-md border border-[#24243e] bg-[#07070f] px-2 text-right font-mono text-base font-bold text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                    aria-label="Daily focus goal minutes"
+                  />
+                  <span className="text-[10px] text-[#8b8bb3]">min</span>
+                </label>
+              ) : (
+                <p className="mt-1 text-xl font-bold text-[#e8e8f5]">{formatMinutes(focusDailyGoalMinutes)}</p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Streak</p>
+            <p className="mt-1 text-2xl font-bold text-[#ffd166]">{focusStreak}</p>
+            <p className="text-[10px] text-[#52527a]">days</p>
+          </div>
+        </div>
+
+        <div className="mt-5 text-center">
+          <p className="text-xs font-bold text-[#e8e8f5]">Completed focus time: {formatMinutes(todayFocus.focusMinutes) || '0m'}</p>
+          <p className="mt-1 text-[10px] text-[#8b8bb3]">{focusProgress}% of today&apos;s focus goal</p>
+        </div>
+      </section>
+    );
+  }
+
   function renderPointHistorySection(title: string, subtitle: string, history: ReturnType<typeof buildPointHistory>) {
     const chartDays = [...history].reverse();
     const maxPointValue = Math.max(1, ...chartDays.flatMap((day) => [day.completedPoints, day.failedPoints]));
@@ -4809,71 +4878,6 @@ export function SgGoalsApp() {
                     </div>
                   </section>
 
-                  <section className="rounded-xl border border-[#1a1a30] bg-[#13132a] p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Daily focus progress</p>
-                        <p className="mt-1 text-xs text-[#8b8bb3]">Elapsed time recorded from completed focus periods</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setFocusDailyGoalEditing((current) => !current)}
-                        title="Edit daily focus goal"
-                        aria-label="Edit daily focus goal"
-                        className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#24243e] text-[#8b8bb3]"
-                      >
-                        <Edit3 className="h-4 w-4" />
-                      </button>
-                    </div>
-
-                    <div className="mt-5 grid grid-cols-[1fr_1.4fr_1fr] items-center gap-2 text-center">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Yesterday</p>
-                        <p className="mt-1 text-2xl font-bold text-[#e8e8f5]">{yesterdaySummary.focusMinutes}</p>
-                        <p className="text-[10px] text-[#52527a]">minutes</p>
-                      </div>
-
-                      <div className="mx-auto flex h-36 w-36 items-center justify-center rounded-full p-3" style={{ background: `conic-gradient(#00d97e ${focusProgress * 3.6}deg, #1a1a30 0deg)` }}>
-                        <div className="flex h-full w-full flex-col items-center justify-center rounded-full border border-[#24243e] bg-[#0f0f1d]">
-                          <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Daily goal</p>
-                          {focusDailyGoalEditing ? (
-                            <label className="mt-2 flex items-center gap-1">
-                              <input
-                                autoFocus
-                                type="number"
-                                min="1"
-                                max="1440"
-                                inputMode="numeric"
-                                value={focusDailyGoalDraft}
-                                onChange={(event) => updateFocusDailyGoal(event.target.value)}
-                                onBlur={finishFocusDailyGoalEdit}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter') event.currentTarget.blur();
-                                }}
-                                className="h-8 w-16 rounded-md border border-[#24243e] bg-[#07070f] px-2 text-right font-mono text-base font-bold text-[#e8e8f5] outline-none focus:border-[#00d97e]"
-                                aria-label="Daily focus goal minutes"
-                              />
-                              <span className="text-[10px] text-[#8b8bb3]">min</span>
-                            </label>
-                          ) : (
-                            <p className="mt-1 text-xl font-bold text-[#e8e8f5]">{formatMinutes(focusDailyGoalMinutes)}</p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="text-[10px] uppercase tracking-[.14em] text-[#8b8bb3]">Streak</p>
-                        <p className="mt-1 text-2xl font-bold text-[#ffd166]">{focusStreak}</p>
-                        <p className="text-[10px] text-[#52527a]">days</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 text-center">
-                      <p className="text-xs font-bold text-[#e8e8f5]">Completed focus time: {formatMinutes(todayFocus.focusMinutes) || '0m'}</p>
-                      <p className="mt-1 text-[10px] text-[#8b8bb3]">{focusProgress}% of today&apos;s focus goal</p>
-                    </div>
-
-                  </section>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
@@ -4944,6 +4948,9 @@ export function SgGoalsApp() {
         <>
           {renderScopeCompletionCard('Weekly completion', 'Weighted progress for this week.', sectionCompletion.weekly)}
           {renderPeriodTimeTargets('weekly')}
+          <section className="mx-auto max-w-4xl px-5 pb-2">
+            {renderDailyFocusProgress()}
+          </section>
           <section className="mx-auto max-w-4xl px-5 pb-2">
             <div className="mb-4 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
               <div className="flex items-start justify-between gap-3">
