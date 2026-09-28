@@ -9,6 +9,7 @@ import { extraFocusMinutes } from '@/lib/extra-focus';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
+import { buildEndOfDayEncouragement, buildWeeklyPersonalBests, findMeaningfulGoal } from '@/lib/goals/motivation';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
@@ -42,7 +43,7 @@ type GoalTask = {
   updatedAt: string;
 };
 
-type ActivityKind = 'completion' | 'failure' | 'undo' | 'strike-reset' | 'monthly-summary' | 'weekly-summary' | 'focus-session' | 'focus-correction';
+type ActivityKind = 'completion' | 'failure' | 'undo' | 'rest' | 'strike-reset' | 'monthly-summary' | 'weekly-summary' | 'focus-session' | 'focus-correction';
 type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 
@@ -91,6 +92,8 @@ type WeeklyPlan = {
   workPlan: string;
   healthPlan: string;
   notes: string;
+  reward: string;
+  rewardTargetPoints: string;
   updatedAt: string;
 };
 type YearlyNotes = {
@@ -350,6 +353,8 @@ const emptyWeeklyPlan: WeeklyPlan = {
   workPlan: '',
   healthPlan: '',
   notes: '',
+  reward: '',
+  rewardTargetPoints: '',
   updatedAt: '1970-01-01T00:00:00.000Z'
 };
 
@@ -480,6 +485,8 @@ function buildPointHistory(activities: GoalActivity[], dates: Date[]) {
     }
     if (activity.kind === 'undo') {
       day.completedPoints = Math.max(0, day.completedPoints - points);
+      const completedIndex = day.completedTasks.map((task) => task.text).lastIndexOf(activity.taskText);
+      if (completedIndex >= 0) day.completedTasks.splice(completedIndex, 1);
     }
     if (activity.kind === 'failure') {
       const habitCode = normalizeStrikeCode(activity.taskText);
@@ -608,6 +615,8 @@ function isWeeklyPlan(value: unknown): value is WeeklyPlan {
     typeof candidate.workPlan === 'string' &&
     typeof candidate.healthPlan === 'string' &&
     typeof candidate.notes === 'string' &&
+    (candidate.reward === undefined || typeof candidate.reward === 'string') &&
+    (candidate.rewardTargetPoints === undefined || typeof candidate.rewardTargetPoints === 'string') &&
     typeof candidate.updatedAt === 'string'
   );
 }
@@ -618,7 +627,7 @@ function loadWeeklyPlan(): WeeklyPlan {
   if (!raw) return emptyWeeklyPlan;
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return isWeeklyPlan(parsed) ? parsed : emptyWeeklyPlan;
+    return isWeeklyPlan(parsed) ? { ...emptyWeeklyPlan, ...parsed } : emptyWeeklyPlan;
   } catch {
     return emptyWeeklyPlan;
   }
@@ -1676,7 +1685,7 @@ export function SgGoalsApp() {
           skipNextCloudSaveRef.current = JSON.stringify(cloudStore) === JSON.stringify(data.store);
           setStore(cloudStore);
           if (isWeeklyPlan(data.weeklyPlan)) {
-            setWeeklyPlan(data.weeklyPlan);
+            setWeeklyPlan({ ...emptyWeeklyPlan, ...data.weeklyPlan });
             window.localStorage.setItem(WEEKLY_PLAN_KEY, JSON.stringify(data.weeklyPlan));
           }
           if (isYearlyNotes(data.yearlyNotes)) {
@@ -1974,7 +1983,7 @@ export function SgGoalsApp() {
           storeRevisionRef.current = cloud.storeRevision ?? null;
           skipNextCloudSaveRef.current = !needsRetry;
           setStore(mergedStore);
-          if (isWeeklyPlan(cloud.weeklyPlan)) setWeeklyPlan(newerUpdatedValue(weeklyPlan, cloud.weeklyPlan));
+          if (isWeeklyPlan(cloud.weeklyPlan)) setWeeklyPlan(newerUpdatedValue(weeklyPlan, { ...emptyWeeklyPlan, ...cloud.weeklyPlan }));
           if (isYearlyNotes(cloud.yearlyNotes)) setYearlyNotes(newerUpdatedValue(yearlyNotes, normalizeYearlyNotes(cloud.yearlyNotes)));
           setSyncState(needsRetry ? 'saving' : 'saved');
           setTimerSyncState('saved');
@@ -2052,7 +2061,7 @@ export function SgGoalsApp() {
           storeRevisionRef.current = data.storeRevision ?? null;
           skipNextCloudSaveRef.current = !needsSave;
           setStore(mergedStore);
-          if (isWeeklyPlan(data.weeklyPlan)) setWeeklyPlan(newerUpdatedValue(weeklyPlan, data.weeklyPlan));
+          if (isWeeklyPlan(data.weeklyPlan)) setWeeklyPlan(newerUpdatedValue(weeklyPlan, { ...emptyWeeklyPlan, ...data.weeklyPlan }));
           if (isYearlyNotes(data.yearlyNotes)) setYearlyNotes(newerUpdatedValue(yearlyNotes, normalizeYearlyNotes(data.yearlyNotes)));
           setSyncState(needsSave ? 'saving' : 'saved');
           setLastSavedAt(new Date().toISOString());
@@ -2188,6 +2197,19 @@ export function SgGoalsApp() {
   }, [activities, todayKey]);
 
   const monthlyPointHistory = useMemo(() => buildPointHistory(activities, monthWindow), [activities, monthWindow]);
+  const personalBestWindow = useMemo(() => {
+    const days: Date[] = [];
+    const cursor = new Date(`${currentDateKey}T12:00:00Z`);
+    for (let index = 0; index < 371; index += 1) {
+      days.push(new Date(cursor));
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+    }
+    return days;
+  }, [currentDateKey]);
+  const weeklyPersonalBests = useMemo(
+    () => buildWeeklyPersonalBests(buildPointHistory(activities, personalBestWindow), currentDateKey),
+    [activities, currentDateKey, personalBestWindow]
+  );
   const monthlySummaries = useMemo(
     () => activities.map((activity) => parseMonthlySummary(activity, activities)).filter((summary): summary is MonthlySummary => Boolean(summary)).sort((a, b) => b.monthKey.localeCompare(a.monthKey)),
     [activities]
@@ -2304,6 +2326,34 @@ export function SgGoalsApp() {
   const istClockLabel = useMemo(() => (timerNow ? formatIstClock(timerNow) : '--:--:--'), [timerNow]);
 
   const mainGoal = targetTasks[0] || null;
+  const meaningfulGoal = useMemo(
+    () => findMeaningfulGoal(mainGoal, store.yearly, yearlyNotes.goalBreakdowns, weeklyPlan),
+    [mainGoal, store.yearly, weeklyPlan, yearlyNotes.goalBreakdowns]
+  );
+  const restedTaskTexts = useMemo(
+    () => new Set(activities.filter((activity) => activity.kind === 'rest' && istFocusDateKey(activity.createdAt) === todayKey).map((activity) => activity.taskText)),
+    [activities, todayKey]
+  );
+  const endOfDayEncouragement = useMemo(() => {
+    const todayEvents = [...activities]
+      .filter((activity) => activity.scope === 'today' && istFocusDateKey(activity.createdAt) === todayKey)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const activeCompletions: string[] = [];
+    todayEvents.forEach((activity) => {
+      if (activity.kind === 'completion') activeCompletions.push(activity.taskText);
+      if (activity.kind === 'undo') {
+        const index = activeCompletions.lastIndexOf(activity.taskText);
+        if (index >= 0) activeCompletions.splice(index, 1);
+      }
+    });
+    const pending = targetTasks.find((task) => !task.done) || store.today.find((task) => !task.done);
+    return buildEndOfDayEncouragement({
+      completedTasks: activeCompletions.reverse(),
+      focusMinutes: todayFocus.focusMinutes,
+      pendingTask: pending?.text,
+      rests: todayEvents.filter((activity) => activity.kind === 'rest').length
+    });
+  }, [activities, store.today, targetTasks, todayFocus.focusMinutes, todayKey]);
 
   const targetTimer = useMemo(() => {
     const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
@@ -3467,6 +3517,22 @@ export function SgGoalsApp() {
     await navigator.clipboard.writeText(report);
     setReportCopied(true);
     window.setTimeout(() => setReportCopied(false), 1800);
+  }
+
+  function logIntentionalRest(task: GoalTask) {
+    if (restedTaskTexts.has(task.text)) return;
+    const now = new Date().toISOString();
+    appendActivity({
+      id: cryptoSafeId(),
+      scope: 'today',
+      priority: task.priority,
+      taskText: task.text,
+      kind: 'rest',
+      reason: 'Intentional rest',
+      note: 'Planned recovery; task remains available to complete.',
+      points: 0,
+      createdAt: now
+    });
   }
 
   function chatGptPriorityReviewUrl(period: 'day' | 'week' | 'month') {
@@ -4652,6 +4718,14 @@ export function SgGoalsApp() {
                 <p className="mt-1 text-[9px] font-bold uppercase tracking-[.18em] text-[#8b8bb3]">IST</p>
               </div>
             </div>
+            {meaningfulGoal ? (
+              <div className="mb-3 rounded-xl border border-[#4f8ef740] bg-[#4f8ef70d] p-3">
+                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#4f8ef7]">Progress toward a meaningful goal</p>
+                <p className="mt-1 text-sm font-bold text-[#e8e8f5]">{meaningfulGoal.goal}</p>
+                {meaningfulGoal.weeklyAction ? <p className="mt-1 text-xs text-[#a8a8c7]">This week: {meaningfulGoal.weeklyAction}</p> : null}
+                {meaningfulGoal.monthlyMilestone ? <p className="mt-1 text-[11px] text-[#8b8bb3]">This month: {meaningfulGoal.monthlyMilestone}</p> : null}
+              </div>
+            ) : null}
             {targetTasks.length ? (
               <div className="mt-4">
                 <div className="mb-3 space-y-2">
@@ -4778,6 +4852,13 @@ export function SgGoalsApp() {
                           </button>
                           <button onClick={() => openFailure(task)} className="rounded-lg border border-[#f7a04f40] px-3 py-2 text-xs font-bold text-[#f7a04f]">
                             Log failure
+                          </button>
+                          <button
+                            onClick={() => logIntentionalRest(task)}
+                            disabled={restedTaskTexts.has(task.text)}
+                            className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {restedTaskTexts.has(task.text) ? 'Rested' : 'Rest'}
                           </button>
                         </div>
                       </div>
@@ -4947,6 +5028,30 @@ export function SgGoalsApp() {
       {scope === 'weekly' ? (
         <>
           {renderScopeCompletionCard('Weekly completion', 'Weighted progress for this week.', sectionCompletion.weekly)}
+          <section className="mx-auto max-w-4xl px-5 pb-4">
+            <div className="rounded-xl border border-[#ffd16640] bg-[#0f0f1d] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#ffd166]">Weekly personal bests</p>
+                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Compete with your own previous weeks</h2>
+                </div>
+                <TrendingUp className="h-5 w-5 text-[#ffd166]" />
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                {([
+                  ['Points', weeklyPersonalBests.current.points, weeklyPersonalBests.bestBeforeCurrent.points, weeklyPersonalBests.isBest.points],
+                  ['Focus', formatMinutes(weeklyPersonalBests.current.focusMinutes) || '0m', formatMinutes(weeklyPersonalBests.bestBeforeCurrent.focusMinutes) || '0m', weeklyPersonalBests.isBest.focusMinutes],
+                  ['Tasks', weeklyPersonalBests.current.completedTasks, weeklyPersonalBests.bestBeforeCurrent.completedTasks, weeklyPersonalBests.isBest.completedTasks]
+                ] as Array<[string, string | number, string | number, boolean]>).map(([label, current, best, isBest]) => (
+                  <div key={label} className="rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2"><p className="text-[10px] text-[#52527a]">{label}</p>{isBest ? <span className="text-[9px] font-bold uppercase text-[#00d97e]">New best</span> : null}</div>
+                    <p className="mt-1 text-lg font-bold text-[#e8e8f5]">{current}</p>
+                    <p className="text-[10px] text-[#8b8bb3]">Previous best {best}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
           {renderPeriodTimeTargets('weekly')}
           <section className="mx-auto max-w-4xl px-5 pb-2">
             {renderDailyFocusProgress()}
@@ -5014,6 +5119,21 @@ export function SgGoalsApp() {
                     className="mt-2 w-full resize-none rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]"
                   />
                 </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Weekly reward</span>
+                  <input value={weeklyPlan.reward || ''} onChange={(event) => updateWeeklyPlan('reward', event.target.value)} placeholder="Example: Movie night" className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#ffd166]" />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Points to unlock</span>
+                  <input type="number" min="0" value={weeklyPlan.rewardTargetPoints || ''} onChange={(event) => updateWeeklyPlan('rewardTargetPoints', event.target.value)} placeholder="Example: 50" className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#ffd166]" />
+                </label>
+                {weeklyPlan.reward && Number(weeklyPlan.rewardTargetPoints) > 0 ? (
+                  <div className="rounded-lg border border-[#ffd16640] bg-[#ffd1660d] p-3 md:col-span-2">
+                    <div className="flex items-center justify-between gap-3"><p className="text-sm font-bold text-[#ffd166]">{weeklyPlan.reward}</p><span className="text-xs font-bold text-[#e8e8f5]">{weeklyPersonalBests.current.points}/{Number(weeklyPlan.rewardTargetPoints)} pts</span></div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#1a1a30]"><div className="h-full rounded-full bg-[#ffd166]" style={{ width: `${Math.min(100, Math.round(weeklyPersonalBests.current.points / Number(weeklyPlan.rewardTargetPoints) * 100))}%` }} /></div>
+                    <p className="mt-2 text-[11px] text-[#a8a8c7]">{weeklyPersonalBests.current.points >= Number(weeklyPlan.rewardTargetPoints) ? 'Reward unlocked. Enjoy it without guilt.' : `${Math.max(0, Number(weeklyPlan.rewardTargetPoints) - weeklyPersonalBests.current.points)} points left to unlock.`}</p>
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
@@ -5312,6 +5432,17 @@ export function SgGoalsApp() {
         </>
       ) : null}
 
+      {scope === 'today' ? (
+        <section className="mx-auto max-w-4xl px-5 pb-4">
+          <div className="rounded-xl border border-[#00d97e40] bg-[#0f0f1d] p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#00d97e]">End-of-day encouragement</p>
+            <p className="mt-2 text-sm font-bold text-[#e8e8f5]">{endOfDayEncouragement.win}</p>
+            <p className="mt-2 text-xs text-[#a8a8c7]">{endOfDayEncouragement.next}</p>
+            <p className="mt-2 text-[10px] text-[#52527a]">Updates from today&apos;s real activity and focus history. No AI or paid API.</p>
+          </div>
+        </section>
+      ) : null}
+
       <section className="mx-auto grid max-w-4xl gap-4 px-5 md:grid-cols-[1fr,320px]">
         <div className="space-y-4">
           {taskGroups.map((group) => {
@@ -5365,6 +5496,7 @@ export function SgGoalsApp() {
                                     {noteInfo.dueTime ? <span style={{ color: '#00d97e' }}>By {noteInfo.dueTime}</span> : null}
                                     {noteInfo.note ? <span>{noteInfo.note}</span> : null}
                                     {habitMissWarning ? <span style={{ color: '#ff6b6b' }}>3-day miss streak</span> : null}
+                                    {scope === 'today' && restedTaskTexts.has(task.text) ? <span style={{ color: '#4f8ef7' }}>Intentional rest</span> : null}
                                     {subtasks.length ? (
                                       <span style={{ color: doneSubtasks === subtasks.length ? '#00d97e' : '#8b8bb3' }}>
                                         {doneSubtasks}/{subtasks.length} subtasks
@@ -5391,6 +5523,11 @@ export function SgGoalsApp() {
                                   className={`w-11 border-l border-[#1a1a30] ${targetTaskIds.includes(task.id) ? 'text-[#ffd166]' : 'text-[#52527a]'}`}
                                 >
                                   <Star className="mx-auto h-4 w-4" />
+                                </button>
+                              ) : null}
+                              {scope === 'today' ? (
+                                <button aria-label={restedTaskTexts.has(task.text) ? 'Intentional rest logged' : 'Log intentional rest'} disabled={restedTaskTexts.has(task.text)} onClick={() => logIntentionalRest(task)} className="w-11 border-l border-[#1a1a30] text-[#4f8ef7] disabled:cursor-not-allowed disabled:opacity-40">
+                                  <Pause className="mx-auto h-4 w-4" />
                                 </button>
                               ) : null}
                               <button aria-label="Log failure" onClick={() => openFailure(task)} className="w-11 border-l border-[#1a1a30] text-[#f7a04f]">

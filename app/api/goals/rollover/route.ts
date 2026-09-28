@@ -624,7 +624,7 @@ async function recordHabitMisses() {
   // use the activity log as the source of truth for the missed date.
   const handledHabitCodes = new Set(
     dayActivities
-      .filter((activity) => activity.kind === 'completion' || activity.kind === 'failure')
+      .filter((activity) => activity.kind === 'completion' || activity.kind === 'failure' || activity.kind === 'rest')
       .map((activity) => normalizeHabitCode(activity.taskText))
       .filter((code): code is string => Boolean(code))
   );

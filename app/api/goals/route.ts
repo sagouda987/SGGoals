@@ -31,6 +31,8 @@ type WeeklyPlanInput = {
   workPlan: string;
   healthPlan: string;
   notes: string;
+  reward: string;
+  rewardTargetPoints: string;
   updatedAt: string;
 };
 type YearlyNotesInput = {
@@ -159,6 +161,8 @@ function isWeeklyPlan(value: unknown): value is WeeklyPlanInput {
     typeof candidate.workPlan === 'string' &&
     typeof candidate.healthPlan === 'string' &&
     typeof candidate.notes === 'string' &&
+    (candidate.reward === undefined || typeof candidate.reward === 'string') &&
+    (candidate.rewardTargetPoints === undefined || typeof candidate.rewardTargetPoints === 'string') &&
     typeof candidate.updatedAt === 'string'
   );
 }
