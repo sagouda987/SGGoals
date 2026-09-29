@@ -3545,7 +3545,7 @@ export function SgGoalsApp() {
   const groupedToday = SCHEDULE_BLOCKS.map((block) => {
     const blockTasks = activeTasks.filter((task) => {
       const effectiveBlock = isHabitTask(task.text) ? habitBlock(task.text) : task.block;
-      return effectiveBlock === block;
+      return effectiveBlock === block && !restedTaskTexts.has(task.text);
     });
     return {
       id: block,
@@ -3558,7 +3558,21 @@ export function SgGoalsApp() {
     };
   });
 
-  const todayDisplayGroups = groupedToday;
+  const restedTasks = activeTasks.filter((task) => !task.done && restedTaskTexts.has(task.text));
+  const todayDisplayGroups = restedTasks.length
+    ? [
+        ...groupedToday,
+        {
+          id: 'intentional-rest',
+          title: 'Intentional Rest',
+          sub: 'Zero points · still available to complete today',
+          color: '#4f8ef7',
+          tasks: restedTasks,
+          done: 0,
+          total: restedTasks.length
+        }
+      ]
+    : groupedToday;
 
   const tomorrowTasks = store.tomorrow
     .map((task) => ({ task, noteInfo: splitTaskNote(task.note) }))
@@ -5459,7 +5473,9 @@ export function SgGoalsApp() {
                         Reset habits
                       </button>
                     ) : null}
-                    <span className="text-xs font-bold" style={{ color: group.color }}>{group.done}/{group.total}</span>
+                    <span className="text-xs font-bold" style={{ color: group.color }}>
+                      {group.id === 'intentional-rest' ? `${group.total} resting` : `${group.done}/${group.total}`}
+                    </span>
                   </div>
                 </div>
 
