@@ -43,6 +43,13 @@ export function buildDailyExpenseTotals(expenses: ExpenseEntry[], throughDateKey
   return days;
 }
 
+export function defaultExpenseDateKey(todayKey: string) {
+  const date = new Date(`${todayKey}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  const previous = date.toISOString().slice(0, 10);
+  return previous.slice(0, 7) === todayKey.slice(0, 7) ? previous : `${todayKey.slice(0, 7)}-01`;
+}
+
 export function parseExpenseNote(id: string, note: string | null | undefined, updatedAt: Date | string): ExpenseEntry | null {
   if (!id.startsWith('__expense__:') || !note) return null;
   try {

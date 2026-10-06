@@ -10,7 +10,7 @@ import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import { buildEndOfDayEncouragement, buildWeeklyPersonalBests, findMeaningfulGoal } from '@/lib/goals/motivation';
-import { amountToPaise, buildDailyExpenseTotals, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
+import { amountToPaise, buildDailyExpenseTotals, defaultExpenseDateKey, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
@@ -1402,7 +1402,10 @@ export function SgGoalsApp() {
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(emptyWeeklyPlan);
   const [yearlyNotes, setYearlyNotes] = useState<YearlyNotes>(emptyYearlyNotes);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
-  const [expenseDraft, setExpenseDraft] = useState({ id: '', dateKey: istCalendarDateKey(), amount: '', category: 'Food', note: '' });
+  const [expenseDraft, setExpenseDraft] = useState(() => {
+    const today = istCalendarDateKey();
+    return { id: '', dateKey: defaultExpenseDateKey(today), amount: '', category: 'Food', note: '' };
+  });
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [expenseMessage, setExpenseMessage] = useState('');
   const [ready, setReady] = useState(false);
@@ -3564,7 +3567,7 @@ export function SgGoalsApp() {
   }
 
   function resetExpenseDraft() {
-    setExpenseDraft({ id: '', dateKey: wakeDateKey, amount: '', category: 'Food', note: '' });
+    setExpenseDraft({ id: '', dateKey: defaultExpenseDateKey(wakeDateKey), amount: '', category: 'Food', note: '' });
     setExpenseMessage('');
   }
 
