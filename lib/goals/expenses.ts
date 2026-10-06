@@ -26,6 +26,23 @@ export function formatRupees(amountPaise: number) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amountPaise / 100);
 }
 
+export function buildDailyExpenseTotals(expenses: ExpenseEntry[], throughDateKey: string) {
+  const monthKey = throughDateKey.slice(0, 7);
+  const totals = new Map<string, number>();
+  expenses.forEach((expense) => {
+    if (expense.dateKey.startsWith(monthKey)) totals.set(expense.dateKey, (totals.get(expense.dateKey) || 0) + expense.amountPaise);
+  });
+  const days: Array<{ dateKey: string; amountPaise: number }> = [];
+  const cursor = new Date(`${monthKey}-01T12:00:00Z`);
+  const end = new Date(`${throughDateKey}T12:00:00Z`);
+  while (cursor <= end) {
+    const dateKey = cursor.toISOString().slice(0, 10);
+    days.push({ dateKey, amountPaise: totals.get(dateKey) || 0 });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return days;
+}
+
 export function parseExpenseNote(id: string, note: string | null | undefined, updatedAt: Date | string): ExpenseEntry | null {
   if (!id.startsWith('__expense__:') || !note) return null;
   try {

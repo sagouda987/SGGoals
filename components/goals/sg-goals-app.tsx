@@ -10,7 +10,7 @@ import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import { buildEndOfDayEncouragement, buildWeeklyPersonalBests, findMeaningfulGoal } from '@/lib/goals/motivation';
-import { amountToPaise, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
+import { amountToPaise, buildDailyExpenseTotals, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
@@ -2235,6 +2235,12 @@ export function SgGoalsApp() {
     () => currentMonthExpenses.reduce((total, expense) => total + expense.amountPaise, 0),
     [currentMonthExpenses]
   );
+  const dailyExpenseTotals = useMemo(() => buildDailyExpenseTotals(currentMonthExpenses, wakeDateKey), [currentMonthExpenses, wakeDateKey]);
+  const selectedDateExpenseTotal = useMemo(
+    () => currentMonthExpenses.filter((expense) => expense.dateKey === expenseDraft.dateKey).reduce((total, expense) => total + expense.amountPaise, 0),
+    [currentMonthExpenses, expenseDraft.dateKey]
+  );
+  const maximumDailyExpense = useMemo(() => Math.max(1, ...dailyExpenseTotals.map((day) => day.amountPaise)), [dailyExpenseTotals]);
   const personalBestWindow = useMemo(() => {
     const days: Date[] = [];
     const cursor = new Date(`${currentDateKey}T12:00:00Z`);
@@ -5370,6 +5376,38 @@ export function SgGoalsApp() {
                 <button type="button" disabled={expenseSaving} onClick={() => void saveExpense()} className="rounded-lg bg-[#00d97e] px-4 py-2 text-xs font-bold text-black disabled:opacity-50">{expenseSaving ? 'Saving…' : expenseDraft.id ? 'Update spending' : 'Save spending'}</button>
                 {expenseDraft.id ? <button type="button" onClick={resetExpenseDraft} className="rounded-lg border border-[#1a1a30] px-4 py-2 text-xs font-bold text-[#8b8bb3]">Cancel edit</button> : null}
                 {expenseMessage ? <span className="text-xs text-[#8b8bb3]">{expenseMessage}</span> : null}
+              </div>
+
+              <div className="mt-5 grid gap-3 md:grid-cols-[180px,1fr]">
+                <div className="rounded-xl border border-[#4f8ef740] bg-[#13132a] p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Selected date total</p>
+                  <p className="mt-2 text-xl font-bold text-[#4f8ef7]">{formatRupees(selectedDateExpenseTotal)}</p>
+                  <p className="mt-1 text-[11px] text-[#52527a]">{new Date(`${expenseDraft.dateKey}T12:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                </div>
+                <div className="min-w-0 rounded-xl border border-[#1a1a30] bg-[#13132a] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Daily spending graph</p>
+                      <p className="mt-1 text-[11px] text-[#52527a]">All saved expenses combined by date</p>
+                    </div>
+                    <BarChart3 className="h-4 w-4 text-[#00d97e]" />
+                  </div>
+                  <div className="mt-4 overflow-x-auto pb-1">
+                    <div className="flex h-40 min-w-max items-end gap-2 border-b border-[#292947] px-1" role="img" aria-label="Daily spending totals for the current month">
+                      {dailyExpenseTotals.map((day) => {
+                        const height = day.amountPaise ? Math.max(8, Math.round(day.amountPaise / maximumDailyExpense * 112)) : 2;
+                        const selected = day.dateKey === expenseDraft.dateKey;
+                        return (
+                          <button key={day.dateKey} type="button" onClick={() => setExpenseDraft((current) => ({ ...current, dateKey: day.dateKey }))} className="group flex w-9 shrink-0 flex-col items-center justify-end" title={`${day.dateKey}: ${formatRupees(day.amountPaise)}`}>
+                            <span className="mb-1 hidden max-w-20 whitespace-nowrap text-[9px] font-bold text-[#e8e8f5] group-hover:block">{formatRupees(day.amountPaise)}</span>
+                            <span className={`w-5 rounded-t transition-all ${selected ? 'bg-[#4f8ef7]' : day.amountPaise ? 'bg-[#00d97e]' : 'bg-[#292947]'}`} style={{ height: `${height}px` }} />
+                            <span className={`mt-1 text-[9px] font-bold ${selected ? 'text-[#4f8ef7]' : 'text-[#52527a]'}`}>{Number(day.dateKey.slice(-2))}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-5 space-y-2">
