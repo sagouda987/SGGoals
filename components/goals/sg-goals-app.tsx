@@ -10,6 +10,7 @@ import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import { buildEndOfDayEncouragement, buildWeeklyPersonalBests, findMeaningfulGoal } from '@/lib/goals/motivation';
+import { amountToPaise, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
@@ -123,6 +124,7 @@ const STORAGE_KEY = 'sg-goals-store-v1';
 const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const WEEKLY_PLAN_KEY = 'sg-goals-weekly-plan-v1';
 const YEARLY_NOTES_KEY = 'sg-goals-yearly-notes-v1';
+const EXPENSES_KEY = 'sg-goals-expenses-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
@@ -1399,6 +1401,10 @@ export function SgGoalsApp() {
   const activities = useMemo(() => applyFocusCorrections(activityRecords, normalizeStrikeCode), [activityRecords]);
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(emptyWeeklyPlan);
   const [yearlyNotes, setYearlyNotes] = useState<YearlyNotes>(emptyYearlyNotes);
+  const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+  const [expenseDraft, setExpenseDraft] = useState({ id: '', dateKey: istCalendarDateKey(), amount: '', category: 'Food', note: '' });
+  const [expenseSaving, setExpenseSaving] = useState(false);
+  const [expenseMessage, setExpenseMessage] = useState('');
   const [ready, setReady] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
   const [syncState, setSyncState] = useState<'loading' | 'local' | 'saving' | 'saved' | 'error'>('loading');
@@ -1841,6 +1847,30 @@ export function SgGoalsApp() {
   }, [ready, yearlyNotes]);
 
   useEffect(() => {
+    if (!ready) return;
+    const cached = window.localStorage.getItem(EXPENSES_KEY);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as ExpenseEntry[];
+        if (Array.isArray(parsed)) setExpenses(parsed);
+      } catch {
+        // Ignore damaged browser cache; the cloud response below replaces it.
+      }
+    }
+    void fetch('/api/goals/expenses', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Could not load spending entries.');
+        const data = (await response.json()) as { expenses?: ExpenseEntry[] };
+        if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+      })
+      .catch(() => setExpenseMessage('Cloud spending history is temporarily unavailable.'));
+  }, [ready]);
+
+  useEffect(() => {
+    if (ready) window.localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
+  }, [expenses, ready]);
+
+  useEffect(() => {
     if (ready) window.localStorage.setItem(MAIN_GOAL_KEY, mainGoalId);
   }, [mainGoalId, ready]);
 
@@ -2197,6 +2227,14 @@ export function SgGoalsApp() {
   }, [activities, todayKey]);
 
   const monthlyPointHistory = useMemo(() => buildPointHistory(activities, monthWindow), [activities, monthWindow]);
+  const currentMonthExpenses = useMemo(
+    () => expenses.filter((expense) => expense.dateKey.startsWith(wakeDateKey.slice(0, 7))).sort((a, b) => b.dateKey.localeCompare(a.dateKey) || b.updatedAt.localeCompare(a.updatedAt)),
+    [expenses, wakeDateKey]
+  );
+  const currentMonthExpenseTotal = useMemo(
+    () => currentMonthExpenses.reduce((total, expense) => total + expense.amountPaise, 0),
+    [currentMonthExpenses]
+  );
   const personalBestWindow = useMemo(() => {
     const days: Date[] = [];
     const cursor = new Date(`${currentDateKey}T12:00:00Z`);
@@ -3517,6 +3555,69 @@ export function SgGoalsApp() {
     await navigator.clipboard.writeText(report);
     setReportCopied(true);
     window.setTimeout(() => setReportCopied(false), 1800);
+  }
+
+  function resetExpenseDraft() {
+    setExpenseDraft({ id: '', dateKey: wakeDateKey, amount: '', category: 'Food', note: '' });
+    setExpenseMessage('');
+  }
+
+  function editExpense(expense: ExpenseEntry) {
+    setExpenseDraft({
+      id: expense.id,
+      dateKey: expense.dateKey,
+      amount: String(expense.amountPaise / 100),
+      category: expense.category,
+      note: expense.note
+    });
+    setExpenseMessage('Editing saved entry.');
+  }
+
+  async function saveExpense() {
+    const amountPaise = amountToPaise(expenseDraft.amount);
+    const monthStart = `${wakeDateKey.slice(0, 7)}-01`;
+    if (amountPaise === null || expenseDraft.dateKey < monthStart || expenseDraft.dateKey > wakeDateKey) {
+      setExpenseMessage('Choose today or an earlier date this month and enter an amount above zero.');
+      return;
+    }
+    setExpenseSaving(true);
+    setExpenseMessage('');
+    const id = expenseDraft.id || `__expense__:${cryptoSafeId()}`;
+    try {
+      const response = await fetch('/api/goals/expenses', {
+        method: expenseDraft.id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expense: { ...expenseDraft, id } })
+      });
+      const data = (await response.json()) as { expense?: ExpenseEntry; error?: string };
+      if (!response.ok || !data.expense) throw new Error(data.error || 'Could not save spending entry.');
+      setExpenses((current) => [data.expense!, ...current.filter((expense) => expense.id !== data.expense!.id)]);
+      resetExpenseDraft();
+      setExpenseMessage(expenseDraft.id ? 'Spending entry updated.' : 'Spending entry saved.');
+    } catch (error) {
+      setExpenseMessage(error instanceof Error ? error.message : 'Could not save spending entry.');
+    } finally {
+      setExpenseSaving(false);
+    }
+  }
+
+  async function deleteExpense(expense: ExpenseEntry) {
+    if (!window.confirm(`Delete ${formatRupees(expense.amountPaise)} from ${expense.dateKey}?`)) return;
+    setExpenseSaving(true);
+    try {
+      const response = await fetch(`/api/goals/expenses?id=${encodeURIComponent(expense.id)}`, { method: 'DELETE' });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        throw new Error(data.error || 'Could not delete spending entry.');
+      }
+      setExpenses((current) => current.filter((item) => item.id !== expense.id));
+      if (expenseDraft.id === expense.id) resetExpenseDraft();
+      setExpenseMessage('Spending entry deleted.');
+    } catch (error) {
+      setExpenseMessage(error instanceof Error ? error.message : 'Could not delete spending entry.');
+    } finally {
+      setExpenseSaving(false);
+    }
   }
 
   function logIntentionalRest(task: GoalTask) {
@@ -5234,6 +5335,59 @@ export function SgGoalsApp() {
         <>
           {renderScopeCompletionCard('Monthly completion', 'Weighted progress for this month.', sectionCompletion.monthly)}
           {renderPeriodTimeTargets('monthly')}
+          <section className="mx-auto max-w-4xl px-5 pb-4">
+            <div className="rounded-xl border border-[#00d97e40] bg-[#0f0f1d] p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#00d97e]">Monthly spending</p>
+                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Record spending for any completed date this month</h2>
+                  <p className="mt-1 text-xs text-[#8b8bb3]">Add past dates, then edit the amount, category, or note whenever needed.</p>
+                </div>
+                <div className="shrink-0 rounded-lg bg-[#00d97e15] px-3 py-2 text-sm font-bold text-[#00d97e]">{formatRupees(currentMonthExpenseTotal)}</div>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Date</span>
+                  <input type="date" min={`${wakeDateKey.slice(0, 7)}-01`} max={wakeDateKey} value={expenseDraft.dateKey} onChange={(event) => setExpenseDraft((current) => ({ ...current, dateKey: event.target.value }))} className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Amount (₹)</span>
+                  <input type="number" min="0.01" step="0.01" inputMode="decimal" value={expenseDraft.amount} onChange={(event) => setExpenseDraft((current) => ({ ...current, amount: event.target.value }))} placeholder="0.00" className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Category</span>
+                  <select value={expenseDraft.category} onChange={(event) => setExpenseDraft((current) => ({ ...current, category: event.target.value }))} className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]">
+                    {['Food', 'Travel', 'Shopping', 'Health', 'Bills', 'Education', 'Entertainment', 'Other'].map((category) => <option key={category} value={category}>{category}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Note</span>
+                  <input value={expenseDraft.note} maxLength={300} onChange={(event) => setExpenseDraft((current) => ({ ...current, note: event.target.value }))} placeholder="What did you spend on?" className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button type="button" disabled={expenseSaving} onClick={() => void saveExpense()} className="rounded-lg bg-[#00d97e] px-4 py-2 text-xs font-bold text-black disabled:opacity-50">{expenseSaving ? 'Saving…' : expenseDraft.id ? 'Update spending' : 'Save spending'}</button>
+                {expenseDraft.id ? <button type="button" onClick={resetExpenseDraft} className="rounded-lg border border-[#1a1a30] px-4 py-2 text-xs font-bold text-[#8b8bb3]">Cancel edit</button> : null}
+                {expenseMessage ? <span className="text-xs text-[#8b8bb3]">{expenseMessage}</span> : null}
+              </div>
+
+              <div className="mt-5 space-y-2">
+                {currentMonthExpenses.length ? currentMonthExpenses.map((expense) => (
+                  <div key={expense.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-3">
+                    <div className="min-w-0">
+                      <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[#e8e8f5]"><span>{formatRupees(expense.amountPaise)}</span><span className="rounded-full bg-[#4f8ef715] px-2 py-0.5 text-[10px] text-[#4f8ef7]">{expense.category}</span></p>
+                      <p className="mt-1 text-[11px] text-[#8b8bb3]">{new Date(`${expense.dateKey}T12:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}{expense.note ? ` · ${expense.note}` : ''}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => editExpense(expense)} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">Edit</button>
+                      <button type="button" onClick={() => void deleteExpense(expense)} className="rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b]">Delete</button>
+                    </div>
+                  </div>
+                )) : <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a]">No spending recorded for this month.</div>}
+              </div>
+            </div>
+          </section>
           {renderPointHistorySection('Date-wise progress history', 'Completed points, failed points, focus time, and daily must-target progress for the current month.', monthlyPointHistory)}
         </>
       ) : null}

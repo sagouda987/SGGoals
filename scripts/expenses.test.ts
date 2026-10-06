@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { amountToPaise, expenseDateIsAllowed, formatRupees, parseExpenseNote } from '../lib/goals/expenses';
+
+const now = new Date('2026-10-07T10:00:00+05:30');
+assert.equal(expenseDateIsAllowed('2026-10-01', now), true);
+assert.equal(expenseDateIsAllowed('2026-10-07', now), true);
+assert.equal(expenseDateIsAllowed('2026-10-08', now), false);
+assert.equal(expenseDateIsAllowed('2026-09-30', now), false);
+assert.equal(amountToPaise('12.50'), 1250);
+assert.equal(amountToPaise('0'), null);
+assert.match(formatRupees(123450), /1,234\.50/);
+assert.equal(parseExpenseNote('__expense__:1', JSON.stringify({ dateKey: '2026-10-01', amountPaise: 5000, category: 'Food', note: 'Lunch' }), now)?.amountPaise, 5000);
+assert.equal(parseExpenseNote('task', '{}', now), null);
+
+console.log('Expense tracker tests passed.');
