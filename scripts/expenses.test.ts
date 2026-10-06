@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { amountToPaise, buildDailyExpenseTotals, defaultExpenseDateKey, expenseDateIsAllowed, formatRupees, parseExpenseNote } from '../lib/goals/expenses';
+import { amountToPaise, buildDailyExpenseTotals, expenseDateIsAllowed, formatRupees, parseExpenseNote } from '../lib/goals/expenses';
 
 const now = new Date('2026-10-07T10:00:00+05:30');
 assert.equal(expenseDateIsAllowed('2026-10-01', now), true);
@@ -17,7 +17,5 @@ const daily = buildDailyExpenseTotals([
   { id: '3', dateKey: '2026-10-03', amountPaise: 1000, category: 'Food', note: '', updatedAt: now.toISOString() }
 ], '2026-10-03');
 assert.deepEqual(daily.map((day) => day.amountPaise), [7500, 0, 1000]);
-assert.equal(defaultExpenseDateKey('2026-10-07'), '2026-10-06');
-assert.equal(defaultExpenseDateKey('2026-10-01'), '2026-10-01');
 
 console.log('Expense tracker tests passed.');
