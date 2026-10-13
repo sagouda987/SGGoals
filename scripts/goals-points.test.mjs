@@ -149,7 +149,7 @@ test('Sunday weekly report covers the completed Sunday-to-Saturday week', () => 
 });
 
 test('requested daily routines are independent active habits', () => {
-  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Eye care', 'No junk food', 'No sugar', 'Practise B', 'Study for 4 hours', 'Study for 1 hour'];
+  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Eye care', 'No junk food', 'No sugar', 'Practise B', 'Study for 4 hours', 'Study for 1 hour'];
   for (const task of expected) {
     assert.equal(history.HABIT_TASKS.includes(task), true, `${task} is a visible daily habit`);
     assert.equal(history.REMOVED_HABIT_TASKS.includes(task), false, `${task} is not removed`);
@@ -173,7 +173,7 @@ test('requested daily routines are independent active habits', () => {
   const habits = Array.from(history.HABIT_TASKS);
   assert.deepEqual(habits.filter((task) => history.habitBlock(task) === 'morning'), [
     'O1', 'L1', 'Book read and communication practice', 'Manifestation', 'Eye care', 'Meditation',
-    'Healthy drink morning', 'Morning skin care', 'Wake up before 8', 'Study for 4 hours'
+    'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Wake up before 8', 'Study for 4 hours'
   ]);
   assert.deepEqual(habits.filter((task) => history.habitBlock(task) === 'afternoon'), [
     'O2', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening'

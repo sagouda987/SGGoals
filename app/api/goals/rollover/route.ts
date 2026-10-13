@@ -14,7 +14,7 @@ const WEEKLY_SUMMARY_NOTE_PREFIX = 'weekly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
-const ACTIVE_HABIT_CODES = new Set(['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'EYECARE', 'BOOK', 'STUDY4H', 'STUDY1H', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
+const ACTIVE_HABIT_CODES = new Set(['O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'YOUTUBEVIDEO', 'CHESSPRACTICE', 'EYECARE', 'BOOK', 'STUDY4H', 'STUDY1H', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -39,6 +39,9 @@ const habitLabels: Record<string, string> = {
   HEALTHYDRINKEVENING: 'Healthy drink evening',
   SKINCAREMORNING: 'Morning skin care',
   SKINCAREEVENING: 'Evening skin care',
+  ICESKINCARE: 'Ice skin care',
+  YOUTUBEVIDEO: 'YouTube video creation',
+  CHESSPRACTICE: 'Chess practice',
   BOOK: 'Book read and communication practice',
   STUDY2: 'Study',
   STUDY4H: 'Study for 4 hours',
@@ -72,6 +75,9 @@ const habitDefaultWeights: Record<string, number> = {
   HEALTHYDRINKEVENING: 2,
   SKINCAREMORNING: 1,
   SKINCAREEVENING: 1,
+  ICESKINCARE: 1,
+  YOUTUBEVIDEO: 1,
+  CHESSPRACTICE: 1,
   BOOK: 4,
   STUDY2: 5,
   STUDY4H: 4,
@@ -145,6 +151,9 @@ function normalizeHabitCode(text: string) {
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
   if (compact === 'MORNINGSKINCARE' || compact === 'SKINCAREMORNING') return 'SKINCAREMORNING';
   if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
+  if (compact === 'ICESKINCARE') return 'ICESKINCARE';
+  if (compact === 'YOUTUBEVIDEOCREATION' || compact === 'YOUTUBEVIDEO') return 'YOUTUBEVIDEO';
+  if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
   if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'STUDYFOR4HOURS' || compact === 'STUDY4HOURS') return 'STUDY4H';
