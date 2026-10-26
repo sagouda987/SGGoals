@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { amountToPaise, expenseDateIsAllowed, parseExpenseNote, type ExpenseEntry } from '@/lib/goals/expenses';
 import { isCurrentMonthDateKey } from '@/lib/goals/expense-purge';
 import { loadMonthlyExpenseTotals, purgeClosedExpenseMonthsInDb } from '@/lib/goals/expense-purge-prisma';
+import { loadExpenseBudget } from '@/lib/goals/expense-budget-prisma';
+import { defaultExpenseBudget } from '@/lib/goals/expense-budget';
 
 const OWNER_KEY = 'default';
 const EXPENSE_SCOPE = '__expense__';
@@ -48,7 +50,11 @@ export async function GET() {
       .map((row) => parseExpenseNote(row.id, row.note, row.updatedAt))
       .filter((expense): expense is ExpenseEntry => Boolean(expense) && isCurrentMonthDateKey(expense!.dateKey, now));
     const monthlyTotals = await loadMonthlyExpenseTotals();
-    return NextResponse.json({ expenses, monthlyTotals });
+    const budget = await loadExpenseBudget().catch((error) => {
+      console.error('Failed to load budget; using default', error);
+      return defaultExpenseBudget();
+    });
+    return NextResponse.json({ expenses, monthlyTotals, budget });
   } catch (error) {
     console.error('Failed to load expenses', error);
     return NextResponse.json({ error: 'Could not load spending entries.' }, { status: 503 });

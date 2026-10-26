@@ -12,6 +12,20 @@ import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import { buildEndOfDayEncouragement, buildWeeklyPersonalBests, findMeaningfulGoal } from '@/lib/goals/motivation';
 import { amountToPaise, buildDailyExpenseTotals, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
 import { sortMonthlyTotals, type MonthlyExpenseTotal } from '@/lib/goals/expense-purge';
+import {
+  BUDGET_WARNING_PERCENT,
+  budgetLimitFromRupees,
+  budgetMessage,
+  budgetNotificationText,
+  budgetNotificationToSend,
+  budgetStatus,
+  defaultExpenseBudget,
+  formatBudgetRupees,
+  markBudgetNotified,
+  parseExpenseBudgetNote,
+  type BudgetAlertLevel,
+  type ExpenseBudget
+} from '@/lib/goals/expense-budget';
 import { BOOK_SPEAKING_GENERIC_LABEL, LEGACY_BOOK_LABEL, bookSpeakingLabel, bookSpeakingTaskText, isBookSpeakingText } from '@/lib/goals/book-speaking';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
@@ -128,6 +142,8 @@ const WEEKLY_PLAN_KEY = 'sg-goals-weekly-plan-v1';
 const YEARLY_NOTES_KEY = 'sg-goals-yearly-notes-v1';
 const EXPENSES_KEY = 'sg-goals-expenses-v1';
 const EXPENSE_MONTH_TOTALS_KEY = 'sg-goals-expense-month-totals-v1';
+const EXPENSE_BUDGET_KEY = 'sg-goals-expense-budget-v1';
+const BUDGET_ALERTS_KEY = 'sg-goals-budget-alerts-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
@@ -1428,6 +1444,11 @@ export function SgGoalsApp() {
   const [yearlyNotes, setYearlyNotes] = useState<YearlyNotes>(emptyYearlyNotes);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
   const [monthlyExpenseTotals, setMonthlyExpenseTotals] = useState<MonthlyExpenseTotal[]>([]);
+  const [expenseBudget, setExpenseBudget] = useState<ExpenseBudget>(() => defaultExpenseBudget());
+  const [expensesSynced, setExpensesSynced] = useState(false);
+  const [budgetDraft, setBudgetDraft] = useState('');
+  const [budgetSaving, setBudgetSaving] = useState(false);
+  const [budgetEditMessage, setBudgetEditMessage] = useState('');
   const [expenseDraft, setExpenseDraft] = useState({ id: '', dateKey: istCalendarDateKey(), amount: '', category: 'Food', note: '' });
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [expenseMessage, setExpenseMessage] = useState('');
@@ -1883,6 +1904,8 @@ export function SgGoalsApp() {
         // Ignore damaged browser cache; the cloud response below replaces it.
       }
     }
+    const cachedBudget = window.localStorage.getItem(EXPENSE_BUDGET_KEY);
+    if (cachedBudget) setExpenseBudget(parseExpenseBudgetNote(cachedBudget));
     const cachedTotals = window.localStorage.getItem(EXPENSE_MONTH_TOTALS_KEY);
     if (cachedTotals) {
       try {
@@ -1895,9 +1918,11 @@ export function SgGoalsApp() {
     void fetch('/api/goals/expenses', { cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) throw new Error('Could not load spending entries.');
-        const data = (await response.json()) as { expenses?: ExpenseEntry[]; monthlyTotals?: MonthlyExpenseTotal[] };
+        const data = (await response.json()) as { expenses?: ExpenseEntry[]; monthlyTotals?: MonthlyExpenseTotal[]; budget?: ExpenseBudget };
         if (Array.isArray(data.expenses)) setExpenses(data.expenses);
         if (Array.isArray(data.monthlyTotals)) setMonthlyExpenseTotals(sortMonthlyTotals(data.monthlyTotals));
+        if (data.budget) setExpenseBudget(parseExpenseBudgetNote(JSON.stringify(data.budget)));
+        setExpensesSynced(true);
       })
       .catch(() => setExpenseMessage('Cloud spending history is temporarily unavailable.'));
   }, [ready]);
@@ -1907,6 +1932,10 @@ export function SgGoalsApp() {
     // Keep only this month's entries in the browser cache; older months live on as totals.
     window.localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses.filter((expense) => expense.dateKey.startsWith(wakeDateKey.slice(0, 7)))));
   }, [expenses, ready, wakeDateKey]);
+
+  useEffect(() => {
+    if (ready) window.localStorage.setItem(EXPENSE_BUDGET_KEY, JSON.stringify(expenseBudget));
+  }, [expenseBudget, ready]);
 
   useEffect(() => {
     if (ready) window.localStorage.setItem(EXPENSE_MONTH_TOTALS_KEY, JSON.stringify(monthlyExpenseTotals));
@@ -2278,6 +2307,42 @@ export function SgGoalsApp() {
     [currentMonthExpenses]
   );
   const dailyExpenseTotals = useMemo(() => buildDailyExpenseTotals(currentMonthExpenses, wakeDateKey), [currentMonthExpenses, wakeDateKey]);
+  const monthlyBudgetStatus = useMemo(
+    () => budgetStatus(currentMonthExpenseTotal, expenseBudget.limitPaise, expenseBudget.warningPercent),
+    [currentMonthExpenseTotal, expenseBudget.limitPaise, expenseBudget.warningPercent]
+  );
+  const budgetTone =
+    monthlyBudgetStatus.level === 'over'
+      ? { text: 'text-[#ff6b6b]', border: 'border-[#ff6b6b60]', bg: 'bg-[#ff6b6b15]', bar: 'bg-[#ff6b6b]' }
+      : monthlyBudgetStatus.level === 'warning'
+        ? { text: 'text-[#ffb547]', border: 'border-[#ffb54760]', bg: 'bg-[#ffb54715]', bar: 'bg-[#ffb547]' }
+        : { text: 'text-[#00d97e]', border: 'border-[#00d97e40]', bg: 'bg-[#00d97e15]', bar: 'bg-[#00d97e]' };
+
+  // One browser notification per threshold per month (80%, then 100%), only when permission was
+  // already granted. Dedup is kept on the server (shared across devices) and in this browser.
+  useEffect(() => {
+    if (!ready || !expensesSynced) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const monthKey = wakeDateKey.slice(0, 7);
+    let localAlerts: Record<string, BudgetAlertLevel> = {};
+    try {
+      localAlerts = parseExpenseBudgetNote(JSON.stringify({ notified: JSON.parse(window.localStorage.getItem(BUDGET_ALERTS_KEY) || '{}') })).notified;
+    } catch {
+      localAlerts = {};
+    }
+    const known = localAlerts[monthKey] ? markBudgetNotified(expenseBudget.notified, monthKey, localAlerts[monthKey]) : expenseBudget.notified;
+    const level = budgetNotificationToSend(monthlyBudgetStatus, monthKey, known);
+    if (!level) return;
+    const text = budgetNotificationText(level, monthlyBudgetStatus);
+    showGoalNotification(text.title, text.body, `sg-goals-budget-${monthKey}-${level}`);
+    window.localStorage.setItem(BUDGET_ALERTS_KEY, JSON.stringify(markBudgetNotified(localAlerts, monthKey, level)));
+    setExpenseBudget((current) => ({ ...current, notified: markBudgetNotified(current.notified, monthKey, level) }));
+    void fetch('/api/goals/expenses/budget', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notified: { monthKey, level } })
+    }).catch(() => undefined);
+  }, [expenseBudget.notified, expensesSynced, monthlyBudgetStatus, ready, showGoalNotification, wakeDateKey]);
   const selectedDateExpenseTotal = useMemo(
     () => currentMonthExpenses.filter((expense) => expense.dateKey === expenseDraft.dateKey).reduce((total, expense) => total + expense.amountPaise, 0),
     [currentMonthExpenses, expenseDraft.dateKey]
@@ -3621,6 +3686,32 @@ export function SgGoalsApp() {
     setExpenseMessage('Editing saved entry.');
   }
 
+  async function saveBudgetLimit() {
+    const limitPaise = budgetLimitFromRupees(budgetDraft);
+    if (limitPaise === null) {
+      setBudgetEditMessage('Enter a budget between ₹1,000 and ₹1,00,00,000.');
+      return;
+    }
+    setBudgetSaving(true);
+    setBudgetEditMessage('');
+    try {
+      const response = await fetch('/api/goals/expenses/budget', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ limitRupees: limitPaise / 100 })
+      });
+      const data = (await response.json()) as { budget?: ExpenseBudget; error?: string };
+      if (!response.ok || !data.budget) throw new Error(data.error || 'Could not save the budget.');
+      setExpenseBudget(parseExpenseBudgetNote(JSON.stringify(data.budget)));
+      setBudgetDraft('');
+      setBudgetEditMessage(`Budget set to ${formatBudgetRupees(limitPaise)}.`);
+    } catch (error) {
+      setBudgetEditMessage(error instanceof Error ? error.message : 'Could not save the budget.');
+    } finally {
+      setBudgetSaving(false);
+    }
+  }
+
   async function saveExpense() {
     const amountPaise = amountToPaise(expenseDraft.amount);
     const monthStart = `${wakeDateKey.slice(0, 7)}-01`;
@@ -4685,6 +4776,19 @@ export function SgGoalsApp() {
       </section>
 
       <section className="mx-auto max-w-4xl px-5 py-4">
+        {monthlyBudgetStatus.level !== 'ok' && scope !== 'monthly' ? (
+          <button
+            type="button"
+            onClick={() => {
+              setScope('monthly');
+              resetDraft();
+            }}
+            className={`mb-3 flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-xs font-bold ${budgetTone.border} ${budgetTone.bg} ${budgetTone.text}`}
+          >
+            <span>{monthlyBudgetStatus.level === 'over' ? '🔴' : '⚠️'} {budgetMessage(monthlyBudgetStatus)}</span>
+            <span className="shrink-0 underline">View spending</span>
+          </button>
+        ) : null}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           {(['today', 'weekly', 'weekend', 'monthly', 'yearly'] as Scope[]).map((item) => (
             <button
@@ -4698,6 +4802,14 @@ export function SgGoalsApp() {
               }`}
             >
               {item}
+              {item === 'monthly' && monthlyBudgetStatus.level !== 'ok' ? (
+                <span
+                  title={budgetMessage(monthlyBudgetStatus)}
+                  className={`ml-1 rounded-full px-1.5 py-0.5 text-[9px] text-white ${monthlyBudgetStatus.level === 'over' ? 'bg-[#ff6b6b]' : 'bg-[#e08a00]'}`}
+                >
+                  {monthlyBudgetStatus.percent}%
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -5394,6 +5506,46 @@ export function SgGoalsApp() {
                 <div className="shrink-0 rounded-lg bg-[#00d97e15] px-3 py-2 text-sm font-bold text-[#00d97e]">{formatRupees(currentMonthExpenseTotal)}</div>
               </div>
 
+              <div className={`mt-4 rounded-lg border p-3 ${budgetTone.border} ${budgetTone.bg}`}>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#8b8bb3]">Monthly budget</p>
+                  <p className={`text-sm font-bold ${budgetTone.text}`}>
+                    {formatBudgetRupees(monthlyBudgetStatus.spentPaise)} / {formatBudgetRupees(monthlyBudgetStatus.limitPaise)} · {monthlyBudgetStatus.percent}%
+                  </p>
+                </div>
+                <div className="relative mt-2 h-2.5 overflow-hidden rounded-full bg-[#1a1a30]" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={monthlyBudgetStatus.barPercent} aria-label="Monthly budget used">
+                  <div className={`h-full rounded-full ${budgetTone.bar}`} style={{ width: `${monthlyBudgetStatus.barPercent}%` }} />
+                  <div className="absolute top-0 h-full w-0.5 bg-[#e8e8f5aa]" style={{ left: `${BUDGET_WARNING_PERCENT}%` }} title={`Warning at ${formatBudgetRupees(monthlyBudgetStatus.warningAtPaise)}`} />
+                </div>
+                <div className="mt-2 flex flex-wrap justify-between gap-2 text-[11px] text-[#8b8bb3]">
+                  <span>{monthlyBudgetStatus.level === 'over' ? `Over by ${formatBudgetRupees(monthlyBudgetStatus.overPaise)}` : `${formatBudgetRupees(monthlyBudgetStatus.remainingPaise)} remaining`}</span>
+                  <span>Warning at {BUDGET_WARNING_PERCENT}% ({formatBudgetRupees(monthlyBudgetStatus.warningAtPaise)})</span>
+                </div>
+                {monthlyBudgetStatus.level !== 'ok' ? (
+                  <p className={`mt-3 rounded-md px-3 py-2 text-xs font-bold ${budgetTone.text} ${monthlyBudgetStatus.level === 'over' ? 'bg-[#ff6b6b20]' : 'bg-[#ffb54720]'}`}>
+                    {monthlyBudgetStatus.level === 'over' ? '🔴' : '⚠️'} {budgetMessage(monthlyBudgetStatus)}
+                  </p>
+                ) : null}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <label className="text-[11px] text-[#8b8bb3]" htmlFor="monthly-budget-limit">Budget limit (₹)</label>
+                  <input
+                    id="monthly-budget-limit"
+                    type="number"
+                    min="1000"
+                    step="1000"
+                    inputMode="numeric"
+                    value={budgetDraft}
+                    onChange={(event) => setBudgetDraft(event.target.value)}
+                    placeholder={String(expenseBudget.limitPaise / 100)}
+                    className="w-32 rounded-lg border border-[#1a1a30] bg-[#13132a] px-2 py-1 text-xs text-[#e8e8f5] outline-none focus:border-[#00d97e]"
+                  />
+                  <button type="button" disabled={budgetSaving || !budgetDraft} onClick={() => void saveBudgetLimit()} className="rounded-lg bg-[#00d97e] px-3 py-1 text-xs font-bold text-black disabled:opacity-40">
+                    {budgetSaving ? 'Saving...' : 'Save budget'}
+                  </button>
+                  {budgetEditMessage ? <span className="text-[11px] text-[#8b8bb3]">{budgetEditMessage}</span> : null}
+                </div>
+              </div>
+
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Date</span>
@@ -5475,7 +5627,7 @@ export function SgGoalsApp() {
                     {monthlyExpenseTotals.map((total) => (
                       <div key={total.monthKey} className="flex items-center justify-between rounded-lg bg-[#13132a] px-3 py-2 text-xs">
                         <span className="text-[#e8e8f5]">{new Date(`${total.monthKey}-15T12:00:00Z`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span>
-                        <span className="flex items-center gap-3"><span className="text-[#52527a]">{total.entryCount} {total.entryCount === 1 ? 'entry' : 'entries'}</span><span className="font-bold text-[#00d97e]">{formatRupees(total.totalPaise)}</span></span>
+                        <span className="flex items-center gap-3"><span className="text-[#52527a]">{total.entryCount} {total.entryCount === 1 ? 'entry' : 'entries'}</span><span className="font-bold text-[#00d97e]">{formatRupees(total.totalPaise)}</span><span className={total.totalPaise > expenseBudget.limitPaise ? 'text-[#ff6b6b]' : 'text-[#52527a]'}>{budgetStatus(total.totalPaise, expenseBudget.limitPaise).percent}% of budget</span></span>
                       </div>
                     ))}
                   </div>
