@@ -290,3 +290,14 @@ test('extra focus adds time without task points, and retrying a save cannot dupl
   assert.equal((await api.POST(resetRequest)).status, 200);
   assert.equal(rows.size, 2);
 });
+
+test('subtask completedAt is kept for done subtasks and dropped otherwise (older notes still parse)', () => {
+  const parsed = taskApi.parseSubtasks([
+    { id: 'a', text: 'Done', done: true, updatedAt: '2026-10-26T10:00:00Z', completedAt: '2026-10-26T10:00:00Z' },
+    { id: 'b', text: 'Pending', done: false, updatedAt: '2026-10-26T10:00:00Z', completedAt: '2026-10-26T09:00:00Z' },
+    { id: 'c', text: 'Legacy', done: true, updatedAt: '2026-10-20T10:00:00Z' }
+  ]);
+  assert.equal(parsed[0].completedAt, '2026-10-26T10:00:00Z');
+  assert.equal('completedAt' in parsed[1], false);
+  assert.equal('completedAt' in parsed[2], false);
+});

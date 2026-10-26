@@ -8,6 +8,7 @@ type GoalSubtaskInput = {
   text: string;
   done: boolean;
   updatedAt?: string;
+  completedAt?: string;
 };
 type GoalTaskInput = {
   id: string;
@@ -101,7 +102,8 @@ function isGoalStore(value: unknown): value is GoalsStoreInput {
                 typeof subtask.id === 'string' &&
                 typeof subtask.text === 'string' &&
                 typeof subtask.done === 'boolean' &&
-                (subtask.updatedAt === undefined || typeof subtask.updatedAt === 'string')
+                (subtask.updatedAt === undefined || typeof subtask.updatedAt === 'string') &&
+                (subtask.completedAt === undefined || typeof subtask.completedAt === 'string')
             ));
         return (
           typeof t.id === 'string' &&
@@ -244,7 +246,8 @@ function parseSubtasks(value: unknown): GoalSubtaskInput[] | undefined {
         id: subtask.id,
         text: subtask.text,
         done: subtask.done,
-        updatedAt: typeof subtask.updatedAt === 'string' ? subtask.updatedAt : undefined
+        updatedAt: typeof subtask.updatedAt === 'string' ? subtask.updatedAt : undefined,
+        ...(subtask.done && typeof subtask.completedAt === 'string' ? { completedAt: subtask.completedAt } : {})
       }))
     : undefined;
 }

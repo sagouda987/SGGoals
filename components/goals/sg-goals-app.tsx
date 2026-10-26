@@ -26,6 +26,7 @@ import {
   type BudgetAlertLevel,
   type ExpenseBudget
 } from '@/lib/goals/expense-budget';
+import { buildRecentSummary, formatIstTime, formatTrackedMinutes, type RecentWindowMode } from '@/lib/goals/recent-activity';
 import { BOOK_SPEAKING_GENERIC_LABEL, LEGACY_BOOK_LABEL, bookSpeakingLabel, bookSpeakingTaskText, isBookSpeakingText } from '@/lib/goals/book-speaking';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
@@ -42,6 +43,7 @@ type GoalSubtask = {
   text: string;
   done: boolean;
   updatedAt: string;
+  completedAt?: string;
 };
 
 type GoalTask = {
@@ -1459,6 +1461,7 @@ export function SgGoalsApp() {
   const [lastSavedAt, setLastSavedAt] = useState('');
   const [targetConflict, setTargetConflict] = useState<TargetState | null>(null);
   const [scope, setScope] = useState<Scope>('today');
+  const [recentMode, setRecentMode] = useState<RecentWindowMode>('1h');
   const [editing, setEditing] = useState<GoalTask | null>(null);
   const [timingTask, setTimingTask] = useState<GoalTask | null>(null);
   const [timingScope, setTimingScope] = useState<Scope>('today');
@@ -2307,6 +2310,35 @@ export function SgGoalsApp() {
     [currentMonthExpenses]
   );
   const dailyExpenseTotals = useMemo(() => buildDailyExpenseTotals(currentMonthExpenses, wakeDateKey), [currentMonthExpenses, wakeDateKey]);
+  // Recomputed every 30s from data already in memory (activities are refreshed by the existing cloud polling).
+  const recentTick = Math.floor((timerNow || 0) / 30000);
+  const recentSummary = useMemo(() => {
+    const nowMs = recentTick ? recentTick * 30000 : Date.now();
+    const dayKey = istFocusDateKey(nowMs);
+    const group = (taskText: string) => {
+      const code = normalizeStrikeCode(taskText);
+      return code ? { key: code, label: habitLabelForDay(code, dayKey) } : { key: taskText.trim().toLowerCase(), label: taskText.trim() };
+    };
+    const subtasks = (['today', 'weekly', 'weekend', 'monthly', 'yearly', 'tomorrow'] as Scope[]).flatMap((itemScope) =>
+      store[itemScope].flatMap((task) =>
+        (task.subtasks || []).map((subtask) => ({ taskText: task.text, scope: itemScope, text: subtask.text, done: subtask.done, completedAt: subtask.completedAt, updatedAt: subtask.updatedAt }))
+      )
+    );
+    const running = (Object.entries(mustTaskStopwatches) as Array<[keyof MustTaskFocusMinutes, MustTaskStopwatch | undefined]>)
+      .filter(([, stopwatch]) => stopwatch?.running && stopwatch.startedAt)
+      .map(([code, stopwatch]) => ({ taskText: habitLabelForDay(code, dayKey), startedAt: stopwatch!.startedAt }));
+    return buildRecentSummary({
+      mode: recentMode,
+      nowMs,
+      activities: activityRecords,
+      subtasks,
+      expenses,
+      wakeLog: wakeLog ? { wakeTime: wakeLog.wakeTime, loggedAt: wakeLog.loggedAt } : null,
+      running,
+      group
+    });
+  }, [activityRecords, expenses, mustTaskStopwatches, recentMode, recentTick, store, wakeLog]);
+
   const monthlyBudgetStatus = useMemo(
     () => budgetStatus(currentMonthExpenseTotal, expenseBudget.limitPaise, expenseBudget.warningPercent),
     [currentMonthExpenseTotal, expenseBudget.limitPaise, expenseBudget.warningPercent]
@@ -3545,7 +3577,14 @@ export function SgGoalsApp() {
           ? {
               ...task,
               subtasks: (task.subtasks || []).map((subtask) =>
-                subtask.id === subtaskId ? { ...subtask, done: !subtask.done, updatedAt: new Date().toISOString() } : subtask
+                subtask.id === subtaskId
+                  ? (() => {
+                      const changedAt = new Date().toISOString();
+                      return subtask.done
+                        ? { ...subtask, done: false, completedAt: undefined, updatedAt: changedAt }
+                        : { ...subtask, done: true, completedAt: changedAt, updatedAt: changedAt };
+                    })()
+                  : subtask
               ),
               updatedAt: new Date().toISOString()
             }
@@ -4939,6 +4978,61 @@ export function SgGoalsApp() {
 
       {scope === 'today' ? (
       <section className="mx-auto max-w-4xl px-5 pb-2">
+        <div className="mb-3 rounded-xl border border-[#4f8ef740] bg-[#0f0f1d] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#4f8ef7]">
+                {recentMode === '1h' ? 'Last 1 hour' : recentMode === '3h' ? 'Last 3 hours' : 'Today so far'}
+              </p>
+              <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">{recentSummary.headline}</h2>
+              <p className="mt-1 text-[11px] text-[#52527a]">
+                {formatIstTime(new Date(recentSummary.startMs).toISOString())} – {formatIstTime(new Date(recentSummary.endMs).toISOString())} IST · from your logs
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-1" role="group" aria-label="Summary window">
+              {([['1h', '1h'], ['3h', '3h'], ['today', 'Today']] as Array<[RecentWindowMode, string]>).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setRecentMode(mode)}
+                  aria-pressed={recentMode === mode}
+                  className={`rounded-md border px-2 py-1 text-[11px] font-bold ${recentMode === mode ? 'border-[#4f8ef7] bg-[#4f8ef7] text-black' : 'border-[#1a1a30] text-[#8b8bb3]'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {recentSummary.empty ? (
+            <p className="mt-3 rounded-lg border border-dashed border-[#1a1a30] px-3 py-4 text-center text-xs text-[#52527a]">
+              {recentSummary.headline}. Check off a task or start a stopwatch and it will show up here.
+            </p>
+          ) : (
+            <>
+              {recentSummary.tracked.length ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {recentSummary.tracked.map((entry) => (
+                    <span key={entry.key} className="rounded-full bg-[#4f8ef715] px-2.5 py-1 text-[11px] font-bold text-[#4f8ef7]">
+                      {entry.label} · {formatTrackedMinutes(entry.minutes)}{entry.running ? ' · running' : ''}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {recentSummary.items.length ? (
+                <ul className="mt-3 space-y-1">
+                  {recentSummary.items.slice(0, 12).map((item) => (
+                    <li key={item.id} className="flex items-baseline gap-2 rounded-lg bg-[#13132a] px-3 py-1.5 text-xs">
+                      <span className="w-16 shrink-0 text-[11px] text-[#52527a]">{formatIstTime(item.at)}</span>
+                      <span className="min-w-0 flex-1 text-[#e8e8f5]">{item.icon} {item.text}</span>
+                      {item.detail ? <span className="shrink-0 text-[11px] text-[#8b8bb3]">{item.detail}</span> : null}
+                    </li>
+                  ))}
+                  {recentSummary.items.length > 12 ? <li className="px-3 text-[11px] text-[#52527a]">+{recentSummary.items.length - 12} more</li> : null}
+                </ul>
+              ) : null}
+            </>
+          )}
+        </div>
         <div className="mb-3 rounded-xl border border-[#1a1a30] bg-[#0f0f1d] p-4">
           <div className="flex items-start justify-between gap-3">
             <div>

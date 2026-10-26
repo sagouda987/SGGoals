@@ -17,6 +17,7 @@
     "test:expense-purge": "tsx scripts/expense-purge.test.ts",
     "test:book-speaking": "tsx scripts/book-speaking.test.ts",
     "test:expense-budget": "tsx scripts/expense-budget.test.ts",
+    "test:recent-activity": "tsx scripts/recent-activity.test.ts",
     "lint": "next lint",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
