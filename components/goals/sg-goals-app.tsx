@@ -10,7 +10,21 @@ import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import { buildWeeklyPersonalBests } from '@/lib/goals/motivation';
-import { amountToPaise, buildDailyExpenseTotals, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
+import {
+  amountToPaise,
+  buildDailyExpenseTotals,
+  formatRupees,
+  isReceived,
+  isSpent,
+  latestSalary,
+  netAndRate,
+  normalizeMoneyEntries,
+  RECEIVED_CATEGORIES,
+  SPENT_CATEGORIES,
+  summarizeMoney,
+  type ExpenseEntry,
+  type MoneyKind
+} from '@/lib/goals/expenses';
 import { sortMonthlyTotals, type MonthlyExpenseTotal } from '@/lib/goals/expense-purge';
 import { expenseCycleKey, expenseCycleLabel, expenseCycleRuleText, isSameExpenseCycle } from '@/lib/goals/expense-cycle';
 import {
@@ -1452,7 +1466,7 @@ export function SgGoalsApp() {
   const [budgetDraft, setBudgetDraft] = useState('');
   const [budgetSaving, setBudgetSaving] = useState(false);
   const [budgetEditMessage, setBudgetEditMessage] = useState('');
-  const [expenseDraft, setExpenseDraft] = useState({ id: '', dateKey: istCalendarDateKey(), amount: '', category: 'Food', note: '' });
+  const [expenseDraft, setExpenseDraft] = useState<{ id: string; dateKey: string; amount: string; category: string; note: string; kind: MoneyKind }>({ id: '', dateKey: istCalendarDateKey(), amount: '', category: 'Food', note: '', kind: 'spent' });
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [expenseMessage, setExpenseMessage] = useState('');
   const [ready, setReady] = useState(false);
@@ -1902,8 +1916,8 @@ export function SgGoalsApp() {
     const cached = window.localStorage.getItem(EXPENSES_KEY);
     if (cached) {
       try {
-        const parsed = JSON.parse(cached) as ExpenseEntry[];
-        if (Array.isArray(parsed)) setExpenses(parsed);
+        const parsed: unknown = JSON.parse(cached);
+        if (Array.isArray(parsed)) setExpenses(normalizeMoneyEntries(parsed)); // old caches have no kind: spending
       } catch {
         // Ignore damaged browser cache; the cloud response below replaces it.
       }
@@ -1923,7 +1937,7 @@ export function SgGoalsApp() {
       .then(async (response) => {
         if (!response.ok) throw new Error('Could not load spending entries.');
         const data = (await response.json()) as { expenses?: ExpenseEntry[]; monthlyTotals?: MonthlyExpenseTotal[]; budget?: ExpenseBudget };
-        if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+        if (Array.isArray(data.expenses)) setExpenses(normalizeMoneyEntries(data.expenses));
         if (Array.isArray(data.monthlyTotals)) setMonthlyExpenseTotals(sortMonthlyTotals(data.monthlyTotals));
         if (data.budget) setExpenseBudget(parseExpenseBudgetNote(JSON.stringify(data.budget)));
         setExpensesSynced(true);
@@ -2309,10 +2323,11 @@ export function SgGoalsApp() {
   // Spending "month" = cycle from the 30th (IST) to the 29th; see lib/goals/expense-cycle.ts.
   const expenseCycleStart = useMemo(() => expenseCycleKey(wakeDateKey), [wakeDateKey]);
   const expenseCycleName = useMemo(() => expenseCycleLabel(expenseCycleStart), [expenseCycleStart]);
-  const currentMonthExpenseTotal = useMemo(
-    () => currentMonthExpenses.reduce((total, expense) => total + expense.amountPaise, 0),
-    [currentMonthExpenses]
-  );
+  // currentMonthExpenses holds both spending and income ("Received") for this cycle.
+  const currentMonthMoney = useMemo(() => summarizeMoney(currentMonthExpenses), [currentMonthExpenses]);
+  const currentMonthSalary = useMemo(() => latestSalary(currentMonthExpenses), [currentMonthExpenses]);
+  // Spending only: drives the header total, daily graph and the budget % / alerts.
+  const currentMonthExpenseTotal = currentMonthMoney.spentPaise;
   const dailyExpenseTotals = useMemo(() => buildDailyExpenseTotals(currentMonthExpenses, wakeDateKey), [currentMonthExpenses, wakeDateKey]);
   // Recomputed every 30s from data already in memory (activities are refreshed by the existing cloud polling).
   const recentTick = Math.floor((timerNow || 0) / 30000);
@@ -2380,7 +2395,7 @@ export function SgGoalsApp() {
     }).catch(() => undefined);
   }, [expenseBudget.notified, expensesSynced, monthlyBudgetStatus, ready, showGoalNotification, wakeDateKey]);
   const selectedDateExpenseTotal = useMemo(
-    () => currentMonthExpenses.filter((expense) => expense.dateKey === expenseDraft.dateKey).reduce((total, expense) => total + expense.amountPaise, 0),
+    () => currentMonthExpenses.filter((expense) => isSpent(expense) && expense.dateKey === expenseDraft.dateKey).reduce((total, expense) => total + expense.amountPaise, 0),
     [currentMonthExpenses, expenseDraft.dateKey]
   );
   const maximumDailyExpense = useMemo(() => Math.max(1, ...dailyExpenseTotals.map((day) => day.amountPaise)), [dailyExpenseTotals]);
@@ -3689,8 +3704,8 @@ export function SgGoalsApp() {
     window.setTimeout(() => setReportCopied(false), 1800);
   }
 
-  function resetExpenseDraft() {
-    setExpenseDraft({ id: '', dateKey: wakeDateKey, amount: '', category: 'Food', note: '' });
+  function resetExpenseDraft(kind: MoneyKind = expenseDraft.kind) {
+    setExpenseDraft({ id: '', dateKey: wakeDateKey, amount: '', category: kind === 'received' ? 'Salary' : 'Food', note: '', kind });
     setExpenseMessage('');
   }
 
@@ -3700,9 +3715,10 @@ export function SgGoalsApp() {
       dateKey: expense.dateKey,
       amount: String(expense.amountPaise / 100),
       category: expense.category,
-      note: expense.note
+      note: expense.note,
+      kind: expense.kind === 'received' ? 'received' : 'spent'
     });
-    setExpenseMessage('Editing saved entry.');
+    setExpenseMessage(isReceived(expense) ? 'Editing saved income entry.' : 'Editing saved entry.');
   }
 
   async function saveBudgetLimit() {
@@ -3751,7 +3767,8 @@ export function SgGoalsApp() {
       if (!response.ok || !data.expense) throw new Error(data.error || 'Could not save spending entry.');
       setExpenses((current) => [data.expense!, ...current.filter((expense) => expense.id !== data.expense!.id)]);
       resetExpenseDraft();
-      setExpenseMessage(expenseDraft.id ? 'Spending entry updated.' : 'Spending entry saved.');
+      const label = expenseDraft.kind === 'received' ? 'Income entry' : 'Spending entry';
+      setExpenseMessage(expenseDraft.id ? `${label} updated.` : `${label} saved.`);
     } catch (error) {
       setExpenseMessage(error instanceof Error ? error.message : 'Could not save spending entry.');
     } finally {
@@ -3760,7 +3777,7 @@ export function SgGoalsApp() {
   }
 
   async function deleteExpense(expense: ExpenseEntry) {
-    if (!window.confirm(`Delete ${formatRupees(expense.amountPaise)} from ${expense.dateKey}?`)) return;
+    if (!window.confirm(`Delete ${isReceived(expense) ? 'received ' : ''}${formatRupees(expense.amountPaise)} from ${expense.dateKey}?`)) return;
     setExpenseSaving(true);
     try {
       const response = await fetch(`/api/goals/expenses?id=${encodeURIComponent(expense.id)}`, { method: 'DELETE' });
@@ -3770,7 +3787,7 @@ export function SgGoalsApp() {
       }
       setExpenses((current) => current.filter((item) => item.id !== expense.id));
       if (expenseDraft.id === expense.id) resetExpenseDraft();
-      setExpenseMessage('Spending entry deleted.');
+      setExpenseMessage(isReceived(expense) ? 'Income entry deleted.' : 'Spending entry deleted.');
     } catch (error) {
       setExpenseMessage(error instanceof Error ? error.message : 'Could not delete spending entry.');
     } finally {
@@ -5566,12 +5583,38 @@ export function SgGoalsApp() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#00d97e]">Monthly spending</p>
-                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Record spending for any completed date this month</h2>
+                  <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Record spending and money received for any completed date this month</h2>
                   <p className="mt-1 text-[11px] font-bold text-[#00d97e]">{expenseCycleName}</p>
                   <p className="mt-1 text-xs text-[#8b8bb3]">Your spending month runs from {expenseCycleRuleText()}. Add past dates, then edit the amount, category, or note whenever needed.</p>
                 </div>
                 <div className="shrink-0 rounded-lg bg-[#00d97e15] px-3 py-2 text-sm font-bold text-[#00d97e]">{formatRupees(currentMonthExpenseTotal)}</div>
               </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4" aria-label="This month: received, spent and saved">
+                <div className="rounded-lg border border-[#00d97e40] bg-[#13132a] p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">💰 Received</p>
+                  <p className="mt-1 text-lg font-bold text-[#00d97e]">{formatBudgetRupees(currentMonthMoney.receivedPaise)}</p>
+                  <p className="text-[10px] text-[#52527a]">{currentMonthMoney.receivedCount} {currentMonthMoney.receivedCount === 1 ? 'entry' : 'entries'}</p>
+                </div>
+                <div className="rounded-lg border border-[#4f8ef740] bg-[#13132a] p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">💸 Spent</p>
+                  <p className="mt-1 text-lg font-bold text-[#e8e8f5]">{formatBudgetRupees(currentMonthMoney.spentPaise)}</p>
+                  <p className="text-[10px] text-[#52527a]">{currentMonthMoney.spentCount} {currentMonthMoney.spentCount === 1 ? 'entry' : 'entries'}</p>
+                </div>
+                <div className={`rounded-lg border bg-[#13132a] p-3 ${currentMonthMoney.netPaise >= 0 ? 'border-[#00d97e40]' : 'border-[#ff6b6b60]'}`}>
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">{currentMonthMoney.netPaise >= 0 ? 'Left / Saved' : 'Overspent'}</p>
+                  <p className={`mt-1 text-lg font-bold ${currentMonthMoney.netPaise >= 0 ? 'text-[#00d97e]' : 'text-[#ff6b6b]'}`}>{currentMonthMoney.netPaise < 0 ? '−' : ''}{formatBudgetRupees(Math.abs(currentMonthMoney.netPaise))}</p>
+                  <p className="text-[10px] text-[#52527a]">Received − spent</p>
+                </div>
+                <div className="rounded-lg border border-[#1a1a30] bg-[#13132a] p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Savings rate</p>
+                  <p className={`mt-1 text-lg font-bold ${currentMonthMoney.savingsRatePercent === null ? 'text-[#52527a]' : currentMonthMoney.savingsRatePercent >= 0 ? 'text-[#00d97e]' : 'text-[#ff6b6b]'}`}>{currentMonthMoney.savingsRatePercent === null ? '—' : `${currentMonthMoney.savingsRatePercent}%`}</p>
+                  <p className="text-[10px] text-[#52527a]">{currentMonthMoney.savingsRatePercent === null ? 'Add money received to see this' : 'of money received kept'}</p>
+                </div>
+              </div>
+              {currentMonthSalary ? (
+                <p className="mt-2 text-[11px] font-bold text-[#00d97e]">💼 Salary received on {new Date(`${currentMonthSalary.dateKey}T12:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} · {formatRupees(currentMonthSalary.amountPaise)}</p>
+              ) : null}
 
               <div className={`mt-4 rounded-lg border p-3 ${budgetTone.border} ${budgetTone.bg}`}>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -5613,7 +5656,21 @@ export function SgGoalsApp() {
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="mt-4 flex gap-2" role="group" aria-label="Entry type">
+                {(['spent', 'received'] as MoneyKind[]).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-pressed={expenseDraft.kind === kind}
+                    disabled={Boolean(expenseDraft.id) && expenseDraft.kind !== kind}
+                    onClick={() => expenseDraft.kind !== kind && setExpenseDraft((current) => ({ ...current, kind, category: kind === 'received' ? 'Salary' : 'Food' }))}
+                    className={`rounded-lg border px-4 py-2 text-xs font-bold disabled:opacity-40 ${expenseDraft.kind === kind ? 'border-[#00d97e] bg-[#00d97e15] text-[#00d97e]' : 'border-[#1a1a30] text-[#8b8bb3]'}`}
+                  >
+                    {kind === 'spent' ? '💸 Spent' : '💰 Received'}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Date</span>
                   <input type="date" min={expenseCycleStart} max={wakeDateKey} value={expenseDraft.dateKey} onChange={(event) => setExpenseDraft((current) => ({ ...current, dateKey: event.target.value }))} className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
@@ -5623,19 +5680,19 @@ export function SgGoalsApp() {
                   <input type="number" min="0.01" step="0.01" inputMode="decimal" value={expenseDraft.amount} onChange={(event) => setExpenseDraft((current) => ({ ...current, amount: event.target.value }))} placeholder="0.00" className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
                 </label>
                 <label className="block">
-                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Category</span>
+                  <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">{expenseDraft.kind === 'received' ? 'Source' : 'Category'}</span>
                   <select value={expenseDraft.category} onChange={(event) => setExpenseDraft((current) => ({ ...current, category: event.target.value }))} className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]">
-                    {['Food', 'Travel', 'Shopping', 'Health', 'Bills', 'Education', 'Entertainment', 'Other'].map((category) => <option key={category} value={category}>{category}</option>)}
+                    {(expenseDraft.kind === 'received' ? RECEIVED_CATEGORIES : SPENT_CATEGORIES).map((category) => <option key={category} value={category}>{category}</option>)}
                   </select>
                 </label>
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Note</span>
-                  <input value={expenseDraft.note} maxLength={300} onChange={(event) => setExpenseDraft((current) => ({ ...current, note: event.target.value }))} placeholder="What did you spend on?" className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
+                  <input value={expenseDraft.note} maxLength={300} onChange={(event) => setExpenseDraft((current) => ({ ...current, note: event.target.value }))} placeholder={expenseDraft.kind === 'received' ? 'Where did it come from? (optional)' : 'What did you spend on?'} className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
                 </label>
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button type="button" disabled={expenseSaving} onClick={() => void saveExpense()} className="rounded-lg bg-[#00d97e] px-4 py-2 text-xs font-bold text-black disabled:opacity-50">{expenseSaving ? 'Saving…' : expenseDraft.id ? 'Update spending' : 'Save spending'}</button>
-                {expenseDraft.id ? <button type="button" onClick={resetExpenseDraft} className="rounded-lg border border-[#1a1a30] px-4 py-2 text-xs font-bold text-[#8b8bb3]">Cancel edit</button> : null}
+                <button type="button" disabled={expenseSaving} onClick={() => void saveExpense()} className="rounded-lg bg-[#00d97e] px-4 py-2 text-xs font-bold text-black disabled:opacity-50">{expenseSaving ? 'Saving…' : expenseDraft.kind === 'received' ? (expenseDraft.id ? 'Update received' : 'Save received') : expenseDraft.id ? 'Update spending' : 'Save spending'}</button>
+                {expenseDraft.id ? <button type="button" onClick={() => resetExpenseDraft()} className="rounded-lg border border-[#1a1a30] px-4 py-2 text-xs font-bold text-[#8b8bb3]">Cancel edit</button> : null}
                 {expenseMessage ? <span className="text-xs text-[#8b8bb3]">{expenseMessage}</span> : null}
               </div>
 
@@ -5675,7 +5732,7 @@ export function SgGoalsApp() {
                 {currentMonthExpenses.length ? currentMonthExpenses.map((expense) => (
                   <div key={expense.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-3">
                     <div className="min-w-0">
-                      <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[#e8e8f5]"><span>{formatRupees(expense.amountPaise)}</span><span className="rounded-full bg-[#4f8ef715] px-2 py-0.5 text-[10px] text-[#4f8ef7]">{expense.category}</span></p>
+                      <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[#e8e8f5]">{isReceived(expense) ? <span className="text-[#00d97e]">+{formatRupees(expense.amountPaise)}</span> : <span>{formatRupees(expense.amountPaise)}</span>}<span className={`rounded-full px-2 py-0.5 text-[10px] ${isReceived(expense) ? 'bg-[#00d97e15] text-[#00d97e]' : 'bg-[#4f8ef715] text-[#4f8ef7]'}`}>{isReceived(expense) ? `Received · ${expense.category}` : expense.category}</span></p>
                       <p className="mt-1 text-[11px] text-[#8b8bb3]">{new Date(`${expense.dateKey}T12:00:00Z`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}{expense.note ? ` · ${expense.note}` : ''}</p>
                     </div>
                     <div className="flex gap-2">
@@ -5683,20 +5740,28 @@ export function SgGoalsApp() {
                       <button type="button" onClick={() => void deleteExpense(expense)} className="rounded-lg border border-[#ff6b6b44] px-3 py-2 text-xs font-bold text-[#ff6b6b]">Delete</button>
                     </div>
                   </div>
-                )) : <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a]">No spending recorded for this month.</div>}
+                )) : <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a]">No spending or money received recorded for this month.</div>}
               </div>
 
               {monthlyExpenseTotals.length ? (
                 <div className="mt-5 border-t border-[#1a1a30] pt-4">
                   <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#8b8bb3]">Past months</p>
-                  <p className="mt-1 text-[11px] text-[#52527a]">Entries are cleared after each spending month ends; only the total is kept.</p>
+                  <p className="mt-1 text-[11px] text-[#52527a]">Entries are cleared after each month ends; only the received and spent totals are kept.</p>
                   <div className="mt-3 space-y-1">
-                    {monthlyExpenseTotals.map((total) => (
-                      <div key={total.monthKey} className="flex items-center justify-between rounded-lg bg-[#13132a] px-3 py-2 text-xs">
-                        <span className="text-[#e8e8f5]">{expenseCycleLabel(total.monthKey)}</span>
-                        <span className="flex items-center gap-3"><span className="text-[#52527a]">{total.entryCount} {total.entryCount === 1 ? 'entry' : 'entries'}</span><span className="font-bold text-[#00d97e]">{formatRupees(total.totalPaise)}</span><span className={total.totalPaise > expenseBudget.limitPaise ? 'text-[#ff6b6b]' : 'text-[#52527a]'}>{budgetStatus(total.totalPaise, expenseBudget.limitPaise).percent}% of budget</span></span>
-                      </div>
-                    ))}
+                    {monthlyExpenseTotals.map((total) => {
+                      const receivedPaise = total.receivedPaise ?? 0; // older records were spending-only
+                      const { netPaise } = netAndRate(receivedPaise, total.totalPaise);
+                      return (
+                        <div key={total.monthKey} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#13132a] px-3 py-2 text-xs">
+                          <span className="text-[#e8e8f5]">{expenseCycleLabel(total.monthKey)}</span>
+                          <span className="flex flex-wrap items-center gap-3">
+                            <span className="text-[#8b8bb3]">Received <span className="font-bold text-[#00d97e]">{formatBudgetRupees(receivedPaise)}</span></span>
+                            <span className="text-[#8b8bb3]">Spent <span className="font-bold text-[#e8e8f5]">{formatBudgetRupees(total.totalPaise)}</span> <span className={total.totalPaise > expenseBudget.limitPaise ? 'text-[#ff6b6b]' : 'text-[#52527a]'}>({budgetStatus(total.totalPaise, expenseBudget.limitPaise).percent}% of budget)</span></span>
+                            <span className="text-[#8b8bb3]">{netPaise >= 0 ? 'Saved' : 'Overspent'} <span className={`font-bold ${netPaise >= 0 ? 'text-[#00d97e]' : 'text-[#ff6b6b]'}`}>{formatBudgetRupees(Math.abs(netPaise))}</span></span>
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ) : null}

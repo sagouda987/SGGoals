@@ -108,12 +108,45 @@ async function main() {
 
   // --- old calendar-month totals (if any) stay readable and are never overwritten ---
   const legacy = { monthKey: '2026-08', totalPaise: 1234, entryCount: 2, purgedAt: '2026-09-01T00:00:00.000Z' };
-  assert.deepEqual(parseMonthlyTotalNote(JSON.stringify(legacy)), legacy);
+  // spending-only records (before income existed) read with received = 0
+  assert.deepEqual(parseMonthlyTotalNote(JSON.stringify(legacy)), { ...legacy, receivedPaise: 0, receivedCount: 0 });
   assert.equal(monthlyTotalId('2026-09-30'), '__expense_month__:2026-09-30');
   const withLegacy = planExpensePurge([expenseRow('g', '2026-09-01', 500)], [{ id: monthlyTotalId('2026-08'), note: JSON.stringify(legacy), updatedAt: new Date() }], now);
   assert.deepEqual(withLegacy.summaries.map((s) => [s.monthKey, s.totalPaise]), [['2026-08-30', 500]]);
 
+  // --- income: purge keeps BOTH received and spent totals per cycle ---
+  const incomeRow = (id: string, dateKey: string, amountPaise: number, category = 'Salary'): StoredRow => ({
+    id: `__expense__:${id}`,
+    note: JSON.stringify({ dateKey, amountPaise, category, note: '', kind: 'received' }),
+    updatedAt: new Date('2026-10-01T00:00:00Z')
+  });
+  const mixed = new MemoryStore([
+    expenseRow('s1', '2026-10-05', 30000),
+    expenseRow('s2', '2026-10-20', 20000),
+    incomeRow('i1', '2026-10-01', 9000000),
+    incomeRow('i2', '2026-10-15', 150000, 'YouTube'),
+    incomeRow('i3', '2026-10-30', 5000000) // next cycle: kept
+  ]);
+  const mixedResult = await purgeClosedExpenseMonths(mixed, now);
+  assert.equal(mixedResult.deleted, 4);
+  assert.deepEqual(
+    (({ totalPaise, entryCount, receivedPaise, receivedCount }) => ({ totalPaise, entryCount, receivedPaise, receivedCount }))(mixed.total('2026-09-30')!),
+    { totalPaise: 50000, entryCount: 2, receivedPaise: 9150000, receivedCount: 2 }
+  );
+  assert.deepEqual(mixed.expenses.map((r) => r.id), ['__expense__:i3']);
+  // a late income entry is added to the existing record (received grows, spent unchanged)
+  mixed.expenses.push(incomeRow('late-income', '2026-10-25', 1000, 'Refund/Cashback'));
+  await purgeClosedExpenseMonths(mixed, now);
+  assert.equal(mixed.total('2026-09-30')?.receivedPaise, 9151000);
+  assert.equal(mixed.total('2026-09-30')?.receivedCount, 3);
+  assert.equal(mixed.total('2026-09-30')?.totalPaise, 50000);
+  // a spending-only stored record gets received added on top of 0
+  const oldRecord = new MemoryStore([incomeRow('x1', '2026-10-02', 700)], new Map([['2026-09-30', { id: monthlyTotalId('2026-09-30'), note: JSON.stringify({ monthKey: '2026-09-30', totalPaise: 100, entryCount: 1, purgedAt: 'x' }), updatedAt: new Date() }]]));
+  await purgeClosedExpenseMonths(oldRecord, now);
+  assert.deepEqual([oldRecord.total('2026-09-30')?.totalPaise, oldRecord.total('2026-09-30')?.receivedPaise, oldRecord.total('2026-09-30')?.receivedCount], [100, 700, 1]);
+
   // --- bad summary notes are ignored ---
+  assert.equal(parseMonthlyTotalNote('{"monthKey":"2026-10","totalPaise":1,"entryCount":0,"receivedPaise":-5,"purgedAt":"x"}'), null);
   assert.equal(parseMonthlyTotalNote('{"monthKey":"2026-10","totalPaise":-1,"entryCount":0,"purgedAt":"x"}'), null);
   assert.equal(parseMonthlyTotalNote('{"monthKey":"2026-1","totalPaise":1,"entryCount":0,"purgedAt":"x"}'), null);
 

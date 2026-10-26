@@ -18,7 +18,8 @@ export type RecentActivityInput = {
   createdAt: string;
 };
 export type RecentSubtaskInput = { taskText: string; scope: string; text: string; done: boolean; completedAt?: string; updatedAt?: string };
-export type RecentExpenseInput = { amountPaise: number; updatedAt: string };
+/** kind 'received' = income; anything else (or missing) = spending. */
+export type RecentExpenseInput = { amountPaise: number; updatedAt: string; kind?: string };
 export type RecentRunningSession = { taskText: string; startedAt: string };
 export type RecentWakeInput = { wakeTime: string; loggedAt: string } | null;
 
@@ -28,7 +29,7 @@ export type RecentItem = {
   icon: string;
   text: string;
   detail?: string;
-  kind: 'task' | 'subtask' | 'focus' | 'expense' | 'wake' | 'running';
+  kind: 'task' | 'subtask' | 'focus' | 'expense' | 'income' | 'wake' | 'running';
 };
 export type RecentTracked = { key: string; label: string; minutes: number; running: boolean };
 export type RecentSummary = {
@@ -42,6 +43,8 @@ export type RecentSummary = {
   trackedMinutes: number;
   expenseCount: number;
   expensePaise: number;
+  incomeCount: number;
+  incomePaise: number;
   empty: boolean;
   headline: string;
 };
@@ -210,11 +213,19 @@ export function buildRecentSummary(input: {
     items.push({ id: `subtask:${subtask.taskText}:${subtask.text}:${at}`, at, icon: '☑️', text: subtask.text, detail: `in ${subtask.taskText}`, kind: 'subtask' });
   }
 
-  const expenses = (input.expenses ?? []).filter((expense) => inWindow(time(expense.updatedAt), startMs, endMs));
+  const moneyInWindow = (input.expenses ?? []).filter((expense) => inWindow(time(expense.updatedAt), startMs, endMs));
+  // Income is shown on its own line and never counted as spending.
+  const expenses = moneyInWindow.filter((expense) => expense.kind !== 'received');
+  const income = moneyInWindow.filter((expense) => expense.kind === 'received');
+  const incomePaise = income.reduce((sum, entry) => sum + entry.amountPaise, 0);
   const expensePaise = expenses.reduce((sum, expense) => sum + expense.amountPaise, 0);
   if (expenses.length) {
     const latest = expenses.map((expense) => expense.updatedAt).sort().at(-1)!;
     items.push({ id: 'expenses', at: latest, icon: '💸', text: `Logged ${expenses.length} ${expenses.length === 1 ? 'expense' : 'expenses'} · ${formatWholeRupees(expensePaise)}`, kind: 'expense' });
+  }
+  if (income.length) {
+    const latest = income.map((entry) => entry.updatedAt).sort().at(-1)!;
+    items.push({ id: 'income', at: latest, icon: '💰', text: `Received ${formatWholeRupees(incomePaise)}`, detail: income.length > 1 ? `${income.length} entries` : undefined, kind: 'income' });
   }
 
   if (input.wakeLog && inWindow(time(input.wakeLog.loggedAt), startMs, endMs)) {
@@ -232,7 +243,8 @@ export function buildRecentSummary(input: {
     tasksDone ? `${tasksDone} ${tasksDone === 1 ? 'task' : 'tasks'} done` : '',
     subtasksDone ? `${subtasksDone} ${subtasksDone === 1 ? 'subtask' : 'subtasks'}` : '',
     trackedMinutes ? `${formatTrackedMinutes(trackedMinutes)} tracked` : '',
-    expenses.length ? `${formatWholeRupees(expensePaise)} spent` : ''
+    expenses.length ? `${formatWholeRupees(expensePaise)} spent` : '',
+    income.length ? `${formatWholeRupees(incomePaise)} received` : ''
   ].filter(Boolean);
   const empty = !items.length && !tracked.length;
   const windowLabel = mode === '1h' ? 'in the last hour' : mode === '3h' ? 'in the last 3 hours' : 'today';
@@ -247,6 +259,8 @@ export function buildRecentSummary(input: {
     trackedMinutes,
     expenseCount: expenses.length,
     expensePaise,
+    incomeCount: income.length,
+    incomePaise,
     empty,
     headline: empty ? `Nothing logged ${windowLabel}` : parts.join(' · ') || `Activity logged ${windowLabel}`
   };

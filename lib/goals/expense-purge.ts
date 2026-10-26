@@ -10,8 +10,13 @@ export const EXPENSE_MONTH_ID_PREFIX = '__expense_month__:';
 export type MonthlyExpenseTotal = {
   /** Cycle start date YYYY-MM-DD. Older rows may hold a calendar month YYYY-MM; both are accepted. */
   monthKey: string;
+  /** Spent in the cycle (field name kept from the spending-only version). */
   totalPaise: number;
+  /** Number of spending entries. */
   entryCount: number;
+  /** Income received in the cycle. Older spending-only records read as 0. */
+  receivedPaise: number;
+  receivedCount: number;
   purgedAt: string;
 };
 
@@ -41,7 +46,13 @@ export function parseMonthlyTotalNote(note: string | null | undefined): MonthlyE
       typeof value.entryCount !== 'number' || !Number.isInteger(value.entryCount) || value.entryCount < 0 ||
       typeof value.purgedAt !== 'string'
     ) return null;
-    return { monthKey: value.monthKey, totalPaise: value.totalPaise, entryCount: value.entryCount, purgedAt: value.purgedAt };
+    const receivedPaise = value.receivedPaise ?? 0;
+    const receivedCount = value.receivedCount ?? 0;
+    if (
+      typeof receivedPaise !== 'number' || !Number.isInteger(receivedPaise) || receivedPaise < 0 ||
+      typeof receivedCount !== 'number' || !Number.isInteger(receivedCount) || receivedCount < 0
+    ) return null;
+    return { monthKey: value.monthKey, totalPaise: value.totalPaise, entryCount: value.entryCount, receivedPaise, receivedCount, purgedAt: value.purgedAt };
   } catch {
     return null;
   }
@@ -62,7 +73,7 @@ export function planExpensePurge(expenseRows: StoredRow[], summaryRows: StoredRo
     if (parsed) existing.set(parsed.monthKey, parsed);
   });
 
-  const additions = new Map<string, { totalPaise: number; entryCount: number }>();
+  const additions = new Map<string, { totalPaise: number; entryCount: number; receivedPaise: number; receivedCount: number }>();
   const deleteIds: string[] = [];
   expenseRows.forEach((row) => {
     const expense = parseExpenseNote(row.id, row.note, row.updatedAt);
@@ -70,9 +81,14 @@ export function planExpensePurge(expenseRows: StoredRow[], summaryRows: StoredRo
     if (!isExpenseCycleKey(expense.dateKey)) return;
     const monthKey = expenseCycleKey(expense.dateKey);
     if (monthKey >= currentCycleKey) return; // never purge the current cycle
-    const sum = additions.get(monthKey) ?? { totalPaise: 0, entryCount: 0 };
-    sum.totalPaise += expense.amountPaise;
-    sum.entryCount += 1;
+    const sum = additions.get(monthKey) ?? { totalPaise: 0, entryCount: 0, receivedPaise: 0, receivedCount: 0 };
+    if (expense.kind === 'received') {
+      sum.receivedPaise += expense.amountPaise;
+      sum.receivedCount += 1;
+    } else {
+      sum.totalPaise += expense.amountPaise;
+      sum.entryCount += 1;
+    }
     additions.set(monthKey, sum);
     deleteIds.push(row.id);
   });
@@ -86,6 +102,8 @@ export function planExpensePurge(expenseRows: StoredRow[], summaryRows: StoredRo
         monthKey,
         totalPaise: (prior?.totalPaise ?? 0) + sum.totalPaise,
         entryCount: (prior?.entryCount ?? 0) + sum.entryCount,
+        receivedPaise: (prior?.receivedPaise ?? 0) + sum.receivedPaise,
+        receivedCount: (prior?.receivedCount ?? 0) + sum.receivedCount,
         purgedAt
       };
     });

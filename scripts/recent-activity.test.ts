@@ -62,7 +62,15 @@ const summary = buildRecentSummary({
     { taskText: 'Trip plan', scope: 'today', text: 'Old style', done: true, updatedAt: iso('2026-10-26T15:16:00') },
     { taskText: 'Trip plan', scope: 'today', text: 'Not done', done: false, updatedAt: iso('2026-10-26T15:17:00') }
   ],
-  expenses: [{ amountPaise: 30000, updatedAt: iso('2026-10-26T15:02:00') }, { amountPaise: 15000, updatedAt: iso('2026-10-26T15:03:00') }, { amountPaise: 99900, updatedAt: iso('2026-10-26T12:00:00') }],
+  expenses: [
+    { amountPaise: 30000, updatedAt: iso('2026-10-26T15:02:00') },
+    { amountPaise: 15000, updatedAt: iso('2026-10-26T15:03:00'), kind: 'spent' },
+    { amountPaise: 99900, updatedAt: iso('2026-10-26T12:00:00') },
+    // income in the window: its own line, never counted as spending
+    { amountPaise: 9000000, updatedAt: iso('2026-10-26T15:04:00'), kind: 'received' },
+    { amountPaise: 50000, updatedAt: iso('2026-10-26T15:05:00'), kind: 'received' },
+    { amountPaise: 777700, updatedAt: iso('2026-10-26T11:00:00'), kind: 'received' } // outside the window
+  ],
   wakeLog: { wakeTime: '07:15', loggedAt: iso('2026-10-26T07:20:00') },
   running: [{ taskText: 'Gym', startedAt: iso('2026-10-26T15:20:00') }]
 });
@@ -73,6 +81,8 @@ assert.ok(!texts.some((text) => text.includes('Undone task')), 'undone completio
 assert.equal(texts.filter((text) => text.includes('Grt check')).length, 1, 'repeat check-offs show once');
 assert.ok(!texts.some((text) => text.includes('No sugar')), 'misses are not completions');
 assert.ok(texts.includes('3:03 PM · 💸 Logged 2 expenses · ₹450'));
+assert.ok(texts.includes('3:05 PM · 💰 Received ₹90,500'), 'income shown separately');
+assert.equal(texts.filter((text) => text.includes('Logged 2 expenses · ₹450')).length, 1, 'spending total excludes income');
 assert.ok(!texts.some((text) => text.includes('wake')), 'wake log outside the window is hidden');
 assert.equal(summary.tasksDone, 5); // Gym, Edge task, Grt check, Weekly review, Book
 assert.equal(summary.subtasksDone, 2);
@@ -84,7 +94,11 @@ assert.equal(minutes.BOOK, 20, 'overlapping stopwatch and timed completion are n
 assert.equal(minutes.study, 10);
 assert.equal(minutes['office work'], 10);
 assert.equal(summary.trackedMinutes, 78);
-assert.equal(summary.headline, '5 tasks done · 2 subtasks · 1h 18m tracked · ₹450 spent');
+assert.equal(summary.headline, '5 tasks done · 2 subtasks · 1h 18m tracked · ₹450 spent · ₹90,500 received');
+assert.equal(summary.expensePaise, 45000, 'income never counted as spending');
+assert.equal(summary.expenseCount, 2);
+assert.equal(summary.incomePaise, 9050000);
+assert.equal(summary.incomeCount, 2);
 assert.equal(summary.items[0].at >= summary.items[summary.items.length - 1].at, true, 'newest first');
 
 // 3 AM IST app-day boundary: at 03:20 the last hour reaches back into the previous app-day.
