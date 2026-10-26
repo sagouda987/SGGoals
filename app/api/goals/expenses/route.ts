@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { amountToPaise, expenseDateIsAllowed, parseExpenseNote } from '@/lib/goals/expenses';
+import { amountToPaise, expenseDateIsAllowed, parseExpenseNote, type ExpenseEntry } from '@/lib/goals/expenses';
+import { isCurrentMonthDateKey } from '@/lib/goals/expense-purge';
+import { loadMonthlyExpenseTotals, purgeClosedExpenseMonthsInDb } from '@/lib/goals/expense-purge-prisma';
 
 const OWNER_KEY = 'default';
 const EXPENSE_SCOPE = '__expense__';
@@ -31,11 +33,22 @@ function storedNote(value: { dateKey: string; amountPaise: number; category: str
 
 export async function GET() {
   try {
+    const now = new Date();
+    // Safety net in case the nightly rollover did not run: idempotent, never touches the current month.
+    try {
+      await purgeClosedExpenseMonthsInDb(now);
+    } catch (error) {
+      console.error('Expense month purge failed; showing current month only', error);
+    }
     const rows = await prisma.goalTask.findMany({
       where: { ownerKey: OWNER_KEY, scope: EXPENSE_SCOPE },
       orderBy: [{ startedAt: 'desc' }, { updatedAt: 'desc' }]
     });
-    return NextResponse.json({ expenses: rows.map((row) => parseExpenseNote(row.id, row.note, row.updatedAt)).filter(Boolean) });
+    const expenses = rows
+      .map((row) => parseExpenseNote(row.id, row.note, row.updatedAt))
+      .filter((expense): expense is ExpenseEntry => Boolean(expense) && isCurrentMonthDateKey(expense!.dateKey, now));
+    const monthlyTotals = await loadMonthlyExpenseTotals();
+    return NextResponse.json({ expenses, monthlyTotals });
   } catch (error) {
     console.error('Failed to load expenses', error);
     return NextResponse.json({ error: 'Could not load spending entries.' }, { status: 503 });

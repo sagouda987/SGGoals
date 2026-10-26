@@ -11,6 +11,7 @@ import { scoreGoalCategory } from '@/lib/goals/category-score';
 import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import { buildEndOfDayEncouragement, buildWeeklyPersonalBests, findMeaningfulGoal } from '@/lib/goals/motivation';
 import { amountToPaise, buildDailyExpenseTotals, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
+import { sortMonthlyTotals, type MonthlyExpenseTotal } from '@/lib/goals/expense-purge';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
@@ -125,6 +126,7 @@ const ACTIVITY_KEY = 'sg-goals-activities-v1';
 const WEEKLY_PLAN_KEY = 'sg-goals-weekly-plan-v1';
 const YEARLY_NOTES_KEY = 'sg-goals-yearly-notes-v1';
 const EXPENSES_KEY = 'sg-goals-expenses-v1';
+const EXPENSE_MONTH_TOTALS_KEY = 'sg-goals-expense-month-totals-v1';
 const MAIN_GOAL_KEY = 'sg-goals-main-goal-v1';
 const NOTIFICATION_LAST_KEY = 'sg-goals-last-notification-v1';
 const TARGET_TASKS_KEY = 'sg-goals-target-tasks-v1';
@@ -1414,6 +1416,7 @@ export function SgGoalsApp() {
   const [weeklyPlan, setWeeklyPlan] = useState<WeeklyPlan>(emptyWeeklyPlan);
   const [yearlyNotes, setYearlyNotes] = useState<YearlyNotes>(emptyYearlyNotes);
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([]);
+  const [monthlyExpenseTotals, setMonthlyExpenseTotals] = useState<MonthlyExpenseTotal[]>([]);
   const [expenseDraft, setExpenseDraft] = useState({ id: '', dateKey: istCalendarDateKey(), amount: '', category: 'Food', note: '' });
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [expenseMessage, setExpenseMessage] = useState('');
@@ -1869,18 +1872,34 @@ export function SgGoalsApp() {
         // Ignore damaged browser cache; the cloud response below replaces it.
       }
     }
+    const cachedTotals = window.localStorage.getItem(EXPENSE_MONTH_TOTALS_KEY);
+    if (cachedTotals) {
+      try {
+        const parsed = JSON.parse(cachedTotals) as MonthlyExpenseTotal[];
+        if (Array.isArray(parsed)) setMonthlyExpenseTotals(sortMonthlyTotals(parsed));
+      } catch {
+        // Ignore damaged browser cache.
+      }
+    }
     void fetch('/api/goals/expenses', { cache: 'no-store' })
       .then(async (response) => {
         if (!response.ok) throw new Error('Could not load spending entries.');
-        const data = (await response.json()) as { expenses?: ExpenseEntry[] };
+        const data = (await response.json()) as { expenses?: ExpenseEntry[]; monthlyTotals?: MonthlyExpenseTotal[] };
         if (Array.isArray(data.expenses)) setExpenses(data.expenses);
+        if (Array.isArray(data.monthlyTotals)) setMonthlyExpenseTotals(sortMonthlyTotals(data.monthlyTotals));
       })
       .catch(() => setExpenseMessage('Cloud spending history is temporarily unavailable.'));
   }, [ready]);
 
   useEffect(() => {
-    if (ready) window.localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses));
-  }, [expenses, ready]);
+    if (!ready) return;
+    // Keep only this month's entries in the browser cache; older months live on as totals.
+    window.localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses.filter((expense) => expense.dateKey.startsWith(wakeDateKey.slice(0, 7)))));
+  }, [expenses, ready, wakeDateKey]);
+
+  useEffect(() => {
+    if (ready) window.localStorage.setItem(EXPENSE_MONTH_TOTALS_KEY, JSON.stringify(monthlyExpenseTotals));
+  }, [monthlyExpenseTotals, ready]);
 
   useEffect(() => {
     if (ready) window.localStorage.setItem(MAIN_GOAL_KEY, mainGoalId);
@@ -5436,6 +5455,21 @@ export function SgGoalsApp() {
                   </div>
                 )) : <div className="rounded-lg border border-dashed border-[#1a1a30] px-3 py-5 text-center text-xs text-[#52527a]">No spending recorded for this month.</div>}
               </div>
+
+              {monthlyExpenseTotals.length ? (
+                <div className="mt-5 border-t border-[#1a1a30] pt-4">
+                  <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#8b8bb3]">Past months</p>
+                  <p className="mt-1 text-[11px] text-[#52527a]">Entries are cleared after each month ends; only the total is kept.</p>
+                  <div className="mt-3 space-y-1">
+                    {monthlyExpenseTotals.map((total) => (
+                      <div key={total.monthKey} className="flex items-center justify-between rounded-lg bg-[#13132a] px-3 py-2 text-xs">
+                        <span className="text-[#e8e8f5]">{new Date(`${total.monthKey}-15T12:00:00Z`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span>
+                        <span className="flex items-center gap-3"><span className="text-[#52527a]">{total.entryCount} {total.entryCount === 1 ? 'entry' : 'entries'}</span><span className="font-bold text-[#00d97e]">{formatRupees(total.totalPaise)}</span></span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </section>
           {renderPointHistorySection('Date-wise progress history', 'Completed points, failed points, focus time, and daily must-target progress for the current month.', monthlyPointHistory)}

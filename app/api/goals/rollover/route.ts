@@ -4,6 +4,7 @@ import { dailyHabitPointEvents } from '@/lib/goal-points';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { buildMustFocusDayProgress, istFocusDateKey } from '@/lib/must-focus-targets';
 import { generateAndStoreDailyReview } from '@/lib/ai/daily-review-store';
+import { purgeClosedExpenseMonthsInDb } from '@/lib/goals/expense-purge-prisma';
 
 const ownerKey = 'default';
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -677,8 +678,13 @@ async function runRollover() {
     const monthlySummary = await archiveMonthlySummary();
     const weeklySummary = await archiveWeeklySummary();
     const result = await recordHabitMisses();
+    // Month-end spending purge: saves each closed month's total, then deletes its entries (one transaction).
+    const expensePurge = await purgeClosedExpenseMonthsInDb().catch((error) => {
+      console.error('Failed to purge closed expense months', error);
+      return { error: 'Expense purge failed; will retry on next run.' };
+    });
     const dailyReview = await generateAndStoreDailyReview();
-    return NextResponse.json({ ok: true, monthlySummary, weeklySummary, dailyReview: { dateKey: dailyReview.review.dateKey, created: dailyReview.created }, ...result });
+    return NextResponse.json({ ok: true, monthlySummary, weeklySummary, dailyReview: { dateKey: dailyReview.review.dateKey, created: dailyReview.created }, expensePurge, ...result });
   } catch (error) {
     console.error('Failed to roll over habit misses', error);
     return NextResponse.json({ error: 'Could not record habit misses.' }, { status: 503 });

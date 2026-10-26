@@ -151,7 +151,7 @@ export class HttpSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
 export class PrismaSgGoalsMcpDataSource implements SgGoalsMcpDataSource {
   async getTasks() {
     return prisma.goalTask.findMany({
-      where: { ownerKey: OWNER_KEY, scope: { notIn: ['__connection__', '__expense__'] } },
+      where: { ownerKey: OWNER_KEY, scope: { notIn: ['__connection__', '__expense__', '__expense_month__'] } },
       orderBy: [{ scope: 'asc' }, { position: 'asc' }],
       select: { id: true, scope: true, text: true, priority: true, block: true, done: true, note: true, investedMinutes: true }
     });
