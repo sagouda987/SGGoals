@@ -9,7 +9,7 @@ import { extraFocusMinutes } from '@/lib/extra-focus';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
-import { buildEndOfDayEncouragement, buildWeeklyPersonalBests, findMeaningfulGoal } from '@/lib/goals/motivation';
+import { buildWeeklyPersonalBests } from '@/lib/goals/motivation';
 import { amountToPaise, buildDailyExpenseTotals, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
 import { sortMonthlyTotals, type MonthlyExpenseTotal } from '@/lib/goals/expense-purge';
 import {
@@ -2509,34 +2509,10 @@ export function SgGoalsApp() {
   const istClockLabel = useMemo(() => (timerNow ? formatIstClock(timerNow) : '--:--:--'), [timerNow]);
 
   const mainGoal = targetTasks[0] || null;
-  const meaningfulGoal = useMemo(
-    () => findMeaningfulGoal(mainGoal, store.yearly, yearlyNotes.goalBreakdowns, weeklyPlan),
-    [mainGoal, store.yearly, weeklyPlan, yearlyNotes.goalBreakdowns]
-  );
   const restedTaskTexts = useMemo(
     () => new Set(activities.filter((activity) => activity.kind === 'rest' && istFocusDateKey(activity.createdAt) === todayKey).map((activity) => activity.taskText)),
     [activities, todayKey]
   );
-  const endOfDayEncouragement = useMemo(() => {
-    const todayEvents = [...activities]
-      .filter((activity) => activity.scope === 'today' && istFocusDateKey(activity.createdAt) === todayKey)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-    const activeCompletions: string[] = [];
-    todayEvents.forEach((activity) => {
-      if (activity.kind === 'completion') activeCompletions.push(activity.taskText);
-      if (activity.kind === 'undo') {
-        const index = activeCompletions.lastIndexOf(activity.taskText);
-        if (index >= 0) activeCompletions.splice(index, 1);
-      }
-    });
-    const pending = targetTasks.find((task) => !task.done) || store.today.find((task) => !task.done);
-    return buildEndOfDayEncouragement({
-      completedTasks: activeCompletions.reverse(),
-      focusMinutes: todayFocus.focusMinutes,
-      pendingTask: pending?.text,
-      rests: todayEvents.filter((activity) => activity.kind === 'rest').length
-    });
-  }, [activities, store.today, targetTasks, todayFocus.focusMinutes, todayKey]);
 
   const targetTimer = useMemo(() => {
     const endTime = targetEndAt ? new Date(targetEndAt).getTime() : 0;
@@ -5087,14 +5063,6 @@ export function SgGoalsApp() {
                 <p className="mt-1 text-[9px] font-bold uppercase tracking-[.18em] text-[#8b8bb3]">IST</p>
               </div>
             </div>
-            {meaningfulGoal ? (
-              <div className="mb-3 rounded-xl border border-[#4f8ef740] bg-[#4f8ef70d] p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#4f8ef7]">Progress toward a meaningful goal</p>
-                <p className="mt-1 text-sm font-bold text-[#e8e8f5]">{meaningfulGoal.goal}</p>
-                {meaningfulGoal.weeklyAction ? <p className="mt-1 text-xs text-[#a8a8c7]">This week: {meaningfulGoal.weeklyAction}</p> : null}
-                {meaningfulGoal.monthlyMilestone ? <p className="mt-1 text-[11px] text-[#8b8bb3]">This month: {meaningfulGoal.monthlyMilestone}</p> : null}
-              </div>
-            ) : null}
             {targetTasks.length ? (
               <div className="mt-4">
                 <div className="mb-3 space-y-2">
@@ -5939,17 +5907,6 @@ export function SgGoalsApp() {
           </div>
         </section>
         </>
-      ) : null}
-
-      {scope === 'today' ? (
-        <section className="mx-auto max-w-4xl px-5 pb-4">
-          <div className="rounded-xl border border-[#00d97e40] bg-[#0f0f1d] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#00d97e]">End-of-day encouragement</p>
-            <p className="mt-2 text-sm font-bold text-[#e8e8f5]">{endOfDayEncouragement.win}</p>
-            <p className="mt-2 text-xs text-[#a8a8c7]">{endOfDayEncouragement.next}</p>
-            <p className="mt-2 text-[10px] text-[#52527a]">Updates from today&apos;s real activity and focus history. No AI or paid API.</p>
-          </div>
-        </section>
       ) : null}
 
       <section className="mx-auto grid max-w-4xl gap-4 px-5 md:grid-cols-[1fr,320px]">
