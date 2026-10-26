@@ -1,6 +1,8 @@
 // Monthly spending budget. Stored as one settings row (scope __expense_budget__) in the
 // existing goalTask table, like the monthly expense totals, so no schema change is needed.
-// Spending always means the current IST calendar month, the same month the purge keeps.
+// Spending always means the current spending cycle (30th to 29th, IST; see expense-cycle.ts),
+// the same cycle the purge keeps.
+import { isExpenseCycleKey, isLegacyExpenseMonthKey, legacyMonthToCycleKey } from '@/lib/goals/expense-cycle';
 
 export const EXPENSE_BUDGET_SCOPE = '__expense_budget__';
 export const EXPENSE_BUDGET_ID = '__expense_budget__:default';
@@ -15,7 +17,7 @@ export type BudgetAlertLevel = 80 | 100;
 export type ExpenseBudget = {
   limitPaise: number;
   warningPercent: number;
-  /** monthKey (YYYY-MM) -> highest alert already sent that month. Old months are pruned. */
+  /** cycle key (cycle start YYYY-MM-DD) -> highest alert already sent in that cycle. Old cycles are pruned. */
   notified: Record<string, BudgetAlertLevel>;
   updatedAt: string;
 };
@@ -58,8 +60,12 @@ export function parseExpenseBudgetNote(note: string | null | undefined): Expense
         : fallback.limitPaise;
     const notified: Record<string, BudgetAlertLevel> = {};
     if (value.notified && typeof value.notified === 'object') {
-      Object.entries(value.notified).forEach(([monthKey, level]) => {
-        if (/^\d{4}-\d{2}$/.test(monthKey) && isAlertLevel(level)) notified[monthKey] = level;
+      Object.entries(value.notified).forEach(([key, level]) => {
+        if (!isAlertLevel(level)) return;
+        // Old calendar-month records (YYYY-MM) move to the cycle holding that month's 1st,
+        // e.g. "2026-10" -> "2026-09-30", so an alert already sent is not sent again.
+        const cycleKey = isExpenseCycleKey(key) ? key : isLegacyExpenseMonthKey(key) ? legacyMonthToCycleKey(key) : null;
+        if (cycleKey) notified[cycleKey] = Math.max(level, notified[cycleKey] ?? 0) as BudgetAlertLevel;
       });
     }
     return {
@@ -96,8 +102,8 @@ export function budgetAlertLevel(status: BudgetStatus): BudgetAlertLevel | null 
 }
 
 /**
- * Which notification (if any) to send now. One per threshold per month: 80% once, 100% once.
- * Jumping straight past 100% sends only the over-budget alert. A new month starts clean.
+ * Which notification (if any) to send now. One per threshold per cycle: 80% once, 100% once.
+ * Jumping straight past 100% sends only the over-budget alert. A new cycle starts clean.
  */
 export function budgetNotificationToSend(status: BudgetStatus, monthKey: string, notified: Record<string, BudgetAlertLevel>): BudgetAlertLevel | null {
   const level = budgetAlertLevel(status);
@@ -106,7 +112,7 @@ export function budgetNotificationToSend(status: BudgetStatus, monthKey: string,
   return level > already ? level : null;
 }
 
-/** Records an alert and keeps only the current and previous few months. */
+/** Records an alert and keeps only the current and previous few cycles. */
 export function markBudgetNotified(notified: Record<string, BudgetAlertLevel>, monthKey: string, level: BudgetAlertLevel) {
   const next: Record<string, BudgetAlertLevel> = { ...notified, [monthKey]: Math.max(level, notified[monthKey] ?? 0) as BudgetAlertLevel };
   Object.keys(next).sort().slice(0, -3).forEach((key) => delete next[key]);

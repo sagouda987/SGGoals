@@ -1,14 +1,15 @@
-import { istCalendarDateKey } from '@/lib/wake-timer';
 import { parseExpenseNote } from '@/lib/goals/expenses';
+import { currentExpenseCycleKey, expenseCycleKey, isExpenseCycleKey, isInCurrentExpenseCycle, isLegacyExpenseMonthKey } from '@/lib/goals/expense-cycle';
 
-// Months use the IST calendar (midnight IST), the same rule the expense form
-// and API already use to decide which dates belong to "this month".
+// A spending "month" is a cycle (see expense-cycle.ts: 30th to 29th, IST midnight), the same
+// rule the expense form, API and budget use to decide which dates belong to "this month".
 export const EXPENSE_SCOPE = '__expense__';
 export const EXPENSE_MONTH_SCOPE = '__expense_month__';
 export const EXPENSE_MONTH_ID_PREFIX = '__expense_month__:';
 
 export type MonthlyExpenseTotal = {
-  monthKey: string; // YYYY-MM (IST calendar month)
+  /** Cycle start date YYYY-MM-DD. Older rows may hold a calendar month YYYY-MM; both are accepted. */
+  monthKey: string;
   totalPaise: number;
   entryCount: number;
   purgedAt: string;
@@ -17,21 +18,17 @@ export type MonthlyExpenseTotal = {
 export type StoredRow = { id: string; note: string | null; updatedAt: Date | string };
 
 export type ExpensePurgePlan = {
-  currentMonthKey: string;
+  currentCycleKey: string;
   summaries: MonthlyExpenseTotal[]; // final values to write (existing total + newly purged)
   deleteIds: string[];
 };
-
-export function istMonthKey(now: Date | number | string = new Date()) {
-  return istCalendarDateKey(now).slice(0, 7);
-}
 
 export function monthlyTotalId(monthKey: string) {
   return `${EXPENSE_MONTH_ID_PREFIX}${monthKey}`;
 }
 
-export function isCurrentMonthDateKey(dateKey: string, now: Date | number | string = new Date()) {
-  return dateKey.slice(0, 7) === istMonthKey(now);
+export function isCurrentCycleDateKey(dateKey: string, now: Date | number | string = new Date()) {
+  return isInCurrentExpenseCycle(dateKey, now);
 }
 
 export function parseMonthlyTotalNote(note: string | null | undefined): MonthlyExpenseTotal | null {
@@ -39,7 +36,7 @@ export function parseMonthlyTotalNote(note: string | null | undefined): MonthlyE
   try {
     const value = JSON.parse(note) as Partial<MonthlyExpenseTotal>;
     if (
-      typeof value.monthKey !== 'string' || !/^\d{4}-\d{2}$/.test(value.monthKey) ||
+      typeof value.monthKey !== 'string' || !(isExpenseCycleKey(value.monthKey) || isLegacyExpenseMonthKey(value.monthKey)) ||
       typeof value.totalPaise !== 'number' || !Number.isInteger(value.totalPaise) || value.totalPaise < 0 ||
       typeof value.entryCount !== 'number' || !Number.isInteger(value.entryCount) || value.entryCount < 0 ||
       typeof value.purgedAt !== 'string'
@@ -51,14 +48,14 @@ export function parseMonthlyTotalNote(note: string | null | undefined): MonthlyE
 }
 
 /**
- * Pure planning step. Every parsed expense dated before the current IST month is
- * rolled into its month's total and marked for deletion. Entries from the current
- * month (or later), and rows whose note cannot be parsed, are never touched.
- * If a total for that month already exists (e.g. a late write after a previous purge),
+ * Pure planning step. Every parsed expense dated before the current spending cycle is
+ * rolled into its cycle's total and marked for deletion. Entries from the current
+ * cycle (or later), and rows whose note cannot be parsed, are never touched.
+ * If a total for that cycle already exists (e.g. a late write after a previous purge),
  * the new entries are added to it rather than replacing it.
  */
 export function planExpensePurge(expenseRows: StoredRow[], summaryRows: StoredRow[], now: Date = new Date()): ExpensePurgePlan {
-  const currentMonthKey = istMonthKey(now);
+  const currentCycleKey = currentExpenseCycleKey(now);
   const existing = new Map<string, MonthlyExpenseTotal>();
   summaryRows.forEach((row) => {
     const parsed = parseMonthlyTotalNote(row.note);
@@ -70,8 +67,9 @@ export function planExpensePurge(expenseRows: StoredRow[], summaryRows: StoredRo
   expenseRows.forEach((row) => {
     const expense = parseExpenseNote(row.id, row.note, row.updatedAt);
     if (!expense) return;
-    const monthKey = expense.dateKey.slice(0, 7);
-    if (monthKey >= currentMonthKey) return; // never purge the current month
+    if (!isExpenseCycleKey(expense.dateKey)) return;
+    const monthKey = expenseCycleKey(expense.dateKey);
+    if (monthKey >= currentCycleKey) return; // never purge the current cycle
     const sum = additions.get(monthKey) ?? { totalPaise: 0, entryCount: 0 };
     sum.totalPaise += expense.amountPaise;
     sum.entryCount += 1;
@@ -92,7 +90,7 @@ export function planExpensePurge(expenseRows: StoredRow[], summaryRows: StoredRo
       };
     });
 
-  return { currentMonthKey, summaries, deleteIds };
+  return { currentCycleKey, summaries, deleteIds };
 }
 
 /** Minimal storage interface so the purge can run against Prisma or an in-memory fake. */
@@ -104,17 +102,17 @@ export interface ExpensePurgeStore {
 }
 
 /**
- * Saves each closed month's total FIRST, then deletes that month's entries.
+ * Saves each closed cycle's total FIRST, then deletes that cycle's entries.
  * Callers should run this inside one DB transaction (see expense-purge-prisma.ts).
- * Idempotent: a second run finds no closed-month entries and does nothing.
+ * Idempotent: a second run finds no closed-cycle entries and does nothing.
  */
 export async function purgeClosedExpenseMonths(store: ExpensePurgeStore, now: Date = new Date()) {
   const plan = planExpensePurge(await store.listExpenseRows(), await store.listMonthlyTotalRows(), now);
   for (const summary of plan.summaries) await store.upsertMonthlyTotal(summary);
   const deleted = plan.deleteIds.length ? await store.deleteExpenseRows(plan.deleteIds) : 0;
   return {
-    currentMonthKey: plan.currentMonthKey,
-    purgedMonths: plan.summaries.map((summary) => summary.monthKey),
+    currentCycleKey: plan.currentCycleKey,
+    purgedCycles: plan.summaries.map((summary) => summary.monthKey),
     deleted
   };
 }

@@ -680,7 +680,7 @@ async function runRollover() {
     const monthlySummary = await archiveMonthlySummary();
     const weeklySummary = await archiveWeeklySummary();
     const result = await recordHabitMisses();
-    // Month-end spending purge: saves each closed month's total, then deletes its entries (one transaction).
+    // Spending-cycle purge (cycles run 30th–29th IST): on the 30th at 03:00 IST this saves each closed cycle's total, then deletes its entries (one transaction).
     const expensePurge = await purgeClosedExpenseMonthsInDb().catch((error) => {
       console.error('Failed to purge closed expense months', error);
       return { error: 'Expense purge failed; will retry on next run.' };

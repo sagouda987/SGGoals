@@ -12,6 +12,7 @@ import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import { buildWeeklyPersonalBests } from '@/lib/goals/motivation';
 import { amountToPaise, buildDailyExpenseTotals, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
 import { sortMonthlyTotals, type MonthlyExpenseTotal } from '@/lib/goals/expense-purge';
+import { expenseCycleKey, expenseCycleLabel, expenseCycleRuleText, isSameExpenseCycle } from '@/lib/goals/expense-cycle';
 import {
   BUDGET_WARNING_PERCENT,
   budgetLimitFromRupees,
@@ -1932,8 +1933,8 @@ export function SgGoalsApp() {
 
   useEffect(() => {
     if (!ready) return;
-    // Keep only this month's entries in the browser cache; older months live on as totals.
-    window.localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses.filter((expense) => expense.dateKey.startsWith(wakeDateKey.slice(0, 7)))));
+    // Keep only this spending cycle's entries in the browser cache; older cycles live on as totals.
+    window.localStorage.setItem(EXPENSES_KEY, JSON.stringify(expenses.filter((expense) => isSameExpenseCycle(expense.dateKey, wakeDateKey))));
   }, [expenses, ready, wakeDateKey]);
 
   useEffect(() => {
@@ -2302,9 +2303,12 @@ export function SgGoalsApp() {
 
   const monthlyPointHistory = useMemo(() => buildPointHistory(activities, monthWindow), [activities, monthWindow]);
   const currentMonthExpenses = useMemo(
-    () => expenses.filter((expense) => expense.dateKey.startsWith(wakeDateKey.slice(0, 7))).sort((a, b) => b.dateKey.localeCompare(a.dateKey) || b.updatedAt.localeCompare(a.updatedAt)),
+    () => expenses.filter((expense) => isSameExpenseCycle(expense.dateKey, wakeDateKey)).sort((a, b) => b.dateKey.localeCompare(a.dateKey) || b.updatedAt.localeCompare(a.updatedAt)),
     [expenses, wakeDateKey]
   );
+  // Spending "month" = cycle from the 30th (IST) to the 29th; see lib/goals/expense-cycle.ts.
+  const expenseCycleStart = useMemo(() => expenseCycleKey(wakeDateKey), [wakeDateKey]);
+  const expenseCycleName = useMemo(() => expenseCycleLabel(expenseCycleStart), [expenseCycleStart]);
   const currentMonthExpenseTotal = useMemo(
     () => currentMonthExpenses.reduce((total, expense) => total + expense.amountPaise, 0),
     [currentMonthExpenses]
@@ -2355,7 +2359,7 @@ export function SgGoalsApp() {
   useEffect(() => {
     if (!ready || !expensesSynced) return;
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const monthKey = wakeDateKey.slice(0, 7);
+    const monthKey = expenseCycleKey(wakeDateKey); // one 80% and one 100% alert per spending cycle
     let localAlerts: Record<string, BudgetAlertLevel> = {};
     try {
       localAlerts = parseExpenseBudgetNote(JSON.stringify({ notified: JSON.parse(window.localStorage.getItem(BUDGET_ALERTS_KEY) || '{}') })).notified;
@@ -3729,9 +3733,9 @@ export function SgGoalsApp() {
 
   async function saveExpense() {
     const amountPaise = amountToPaise(expenseDraft.amount);
-    const monthStart = `${wakeDateKey.slice(0, 7)}-01`;
+    const monthStart = expenseCycleKey(wakeDateKey);
     if (amountPaise === null || expenseDraft.dateKey < monthStart || expenseDraft.dateKey > wakeDateKey) {
-      setExpenseMessage('Choose today or an earlier date this month and enter an amount above zero.');
+      setExpenseMessage(`Choose today or an earlier date in this spending month (${expenseCycleLabel(monthStart)}) and enter an amount above zero.`);
       return;
     }
     setExpenseSaving(true);
@@ -5563,7 +5567,8 @@ export function SgGoalsApp() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#00d97e]">Monthly spending</p>
                   <h2 className="mt-1 text-sm font-bold text-[#e8e8f5]">Record spending for any completed date this month</h2>
-                  <p className="mt-1 text-xs text-[#8b8bb3]">Add past dates, then edit the amount, category, or note whenever needed.</p>
+                  <p className="mt-1 text-[11px] font-bold text-[#00d97e]">{expenseCycleName}</p>
+                  <p className="mt-1 text-xs text-[#8b8bb3]">Your spending month runs from {expenseCycleRuleText()}. Add past dates, then edit the amount, category, or note whenever needed.</p>
                 </div>
                 <div className="shrink-0 rounded-lg bg-[#00d97e15] px-3 py-2 text-sm font-bold text-[#00d97e]">{formatRupees(currentMonthExpenseTotal)}</div>
               </div>
@@ -5611,7 +5616,7 @@ export function SgGoalsApp() {
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Date</span>
-                  <input type="date" min={`${wakeDateKey.slice(0, 7)}-01`} max={wakeDateKey} value={expenseDraft.dateKey} onChange={(event) => setExpenseDraft((current) => ({ ...current, dateKey: event.target.value }))} className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
+                  <input type="date" min={expenseCycleStart} max={wakeDateKey} value={expenseDraft.dateKey} onChange={(event) => setExpenseDraft((current) => ({ ...current, dateKey: event.target.value }))} className="mt-2 w-full rounded-lg border border-[#1a1a30] bg-[#13132a] px-3 py-2 text-sm text-[#e8e8f5] outline-none focus:border-[#00d97e]" />
                 </label>
                 <label className="block">
                   <span className="text-[10px] font-bold uppercase tracking-[.16em] text-[#8b8bb3]">Amount (₹)</span>
@@ -5684,11 +5689,11 @@ export function SgGoalsApp() {
               {monthlyExpenseTotals.length ? (
                 <div className="mt-5 border-t border-[#1a1a30] pt-4">
                   <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#8b8bb3]">Past months</p>
-                  <p className="mt-1 text-[11px] text-[#52527a]">Entries are cleared after each month ends; only the total is kept.</p>
+                  <p className="mt-1 text-[11px] text-[#52527a]">Entries are cleared after each spending month ends; only the total is kept.</p>
                   <div className="mt-3 space-y-1">
                     {monthlyExpenseTotals.map((total) => (
                       <div key={total.monthKey} className="flex items-center justify-between rounded-lg bg-[#13132a] px-3 py-2 text-xs">
-                        <span className="text-[#e8e8f5]">{new Date(`${total.monthKey}-15T12:00:00Z`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}</span>
+                        <span className="text-[#e8e8f5]">{expenseCycleLabel(total.monthKey)}</span>
                         <span className="flex items-center gap-3"><span className="text-[#52527a]">{total.entryCount} {total.entryCount === 1 ? 'entry' : 'entries'}</span><span className="font-bold text-[#00d97e]">{formatRupees(total.totalPaise)}</span><span className={total.totalPaise > expenseBudget.limitPaise ? 'text-[#ff6b6b]' : 'text-[#52527a]'}>{budgetStatus(total.totalPaise, expenseBudget.limitPaise).percent}% of budget</span></span>
                       </div>
                     ))}

@@ -11,7 +11,7 @@ import {
   parseExpenseBudgetNote,
   type BudgetAlertLevel
 } from '../lib/goals/expense-budget';
-import { istMonthKey } from '../lib/goals/expense-purge';
+import { currentExpenseCycleKey } from '../lib/goals/expense-cycle';
 
 const rupees = (value: number) => Math.round(value * 100);
 
@@ -59,33 +59,42 @@ assert.equal(budgetLimitFromRupees(100000001), null);
 assert.equal(parseExpenseBudgetNote(JSON.stringify({ limitPaise: 5 })).limitPaise, DEFAULT_BUDGET_PAISE, 'invalid stored limit falls back');
 assert.equal(parseExpenseBudgetNote('not json').limitPaise, DEFAULT_BUDGET_PAISE);
 
-// Notification dedup: 80% once, 100% once, per month.
+// Notification dedup: 80% once, 100% once, per spending cycle (keyed by cycle start).
 let notified: Record<string, BudgetAlertLevel> = {};
 const ok = budgetStatus(rupees(10000), DEFAULT_BUDGET_PAISE);
-assert.equal(budgetNotificationToSend(ok, '2026-11', notified), null);
-assert.equal(budgetNotificationToSend(warning, '2026-11', notified), 80);
-notified = markBudgetNotified(notified, '2026-11', 80);
-assert.equal(budgetNotificationToSend(warning, '2026-11', notified), null, '80% does not repeat');
-assert.equal(budgetNotificationToSend(october, '2026-11', notified), 100);
-notified = markBudgetNotified(notified, '2026-11', 100);
-assert.equal(budgetNotificationToSend(october, '2026-11', notified), null, '100% does not repeat');
-assert.equal(budgetNotificationToSend(warning, '2026-11', notified), null, 'dropping back (e.g. raised limit) does not re-alert 80%');
-assert.equal(markBudgetNotified(notified, '2026-11', 80)['2026-11'], 100, 'never downgrades');
+assert.equal(budgetNotificationToSend(ok, '2026-10-30', notified), null);
+assert.equal(budgetNotificationToSend(warning, '2026-10-30', notified), 80);
+notified = markBudgetNotified(notified, '2026-10-30', 80);
+assert.equal(budgetNotificationToSend(warning, '2026-10-30', notified), null, '80% does not repeat');
+assert.equal(budgetNotificationToSend(october, '2026-10-30', notified), 100);
+notified = markBudgetNotified(notified, '2026-10-30', 100);
+assert.equal(budgetNotificationToSend(october, '2026-10-30', notified), null, '100% does not repeat');
+assert.equal(budgetNotificationToSend(warning, '2026-10-30', notified), null, 'dropping back (e.g. raised limit) does not re-alert 80%');
+assert.equal(markBudgetNotified(notified, '2026-10-30', 80)['2026-10-30'], 100, 'never downgrades');
 // Jumping straight past 100% sends just the over-budget alert.
-assert.equal(budgetNotificationToSend(october, '2026-10', {}), 100);
+assert.equal(budgetNotificationToSend(october, '2026-09-30', {}), 100);
 assert.deepEqual(budgetNotificationText(100, october).title, 'Monthly budget exceeded');
 
-// Month rollover resets: a new month key starts clean; old months are pruned.
-assert.equal(budgetNotificationToSend(warning, '2026-12', notified), 80);
+// A new cycle starts clean; old cycles are pruned.
+assert.equal(budgetNotificationToSend(warning, '2026-11-30', notified), 80);
 let many: Record<string, BudgetAlertLevel> = {};
-for (const month of ['2026-08', '2026-09', '2026-10', '2026-11', '2026-12']) many = markBudgetNotified(many, month, 100);
-assert.deepEqual(Object.keys(many).sort(), ['2026-10', '2026-11', '2026-12']);
-// The month key flips at midnight IST (calendar month, same as the purge).
-assert.equal(istMonthKey(new Date('2026-10-31T23:59:00+05:30')), '2026-10');
-assert.equal(istMonthKey(new Date('2026-11-01T00:00:00+05:30')), '2026-11');
+for (const cycle of ['2026-07-30', '2026-08-30', '2026-09-30', '2026-10-30', '2026-11-30']) many = markBudgetNotified(many, cycle, 100);
+assert.deepEqual(Object.keys(many).sort(), ['2026-09-30', '2026-10-30', '2026-11-30']);
+// The cycle key flips at 30th 00:00 IST.
+assert.equal(currentExpenseCycleKey(new Date('2026-10-29T23:59:00+05:30')), '2026-09-30');
+assert.equal(currentExpenseCycleKey(new Date('2026-10-30T00:00:00+05:30')), '2026-10-30');
+// Budget % uses only the current cycle's spend: Oct 1-26 (current cycle) counts, 30 Oct starts at 0.
 // Stored dedup survives a round trip; junk entries are dropped.
-const stored = parseExpenseBudgetNote(JSON.stringify({ limitPaise: rupees(90000), notified: { '2026-10': 100, bad: 80, '2026-11': 50 } }));
+const stored = parseExpenseBudgetNote(JSON.stringify({ limitPaise: rupees(90000), notified: { '2026-10-30': 100, bad: 80, '2026-11-30': 50 } }));
 assert.equal(stored.limitPaise, rupees(90000));
-assert.deepEqual(stored.notified, { '2026-10': 100 });
+assert.deepEqual(stored.notified, { '2026-10-30': 100 });
+// Migration: the live record { "2026-10": 100 } (calendar October) becomes the current cycle 30 Sep – 29 Oct,
+// so the 100% alert already sent this cycle is not sent again, and 30 Oct starts clean.
+const migrated = parseExpenseBudgetNote(JSON.stringify({ limitPaise: rupees(80000), notified: { '2026-10': 100 } }));
+assert.deepEqual(migrated.notified, { '2026-09-30': 100 });
+assert.equal(budgetNotificationToSend(october, currentExpenseCycleKey(new Date('2026-10-26T15:00:00+05:30')), migrated.notified), null);
+assert.equal(budgetNotificationToSend(october, currentExpenseCycleKey(new Date('2026-10-30T00:00:00+05:30')), migrated.notified), 100);
+// Old and new keys for the same cycle merge to the higher level.
+assert.deepEqual(parseExpenseBudgetNote(JSON.stringify({ notified: { '2026-10': 80, '2026-09-30': 100 } })).notified, { '2026-09-30': 100 });
 
 console.log('Expense budget tests passed.');

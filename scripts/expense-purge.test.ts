@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  isCurrentMonthDateKey,
-  istMonthKey,
+  isCurrentCycleDateKey,
   monthlyTotalId,
   parseMonthlyTotalNote,
   planExpensePurge,
@@ -34,76 +33,91 @@ class MemoryStore implements ExpensePurgeStore {
 }
 
 async function main() {
-  // --- IST month boundary ---
-  assert.equal(istMonthKey(new Date('2026-10-31T23:59:00+05:30')), '2026-10');
-  assert.equal(istMonthKey(new Date('2026-11-01T00:00:00+05:30')), '2026-11'); // = 2026-10-31T18:30Z
-  assert.equal(istMonthKey(new Date('2026-10-31T18:29:59Z')), '2026-10');
-  assert.equal(istMonthKey(new Date('2026-10-31T18:30:00Z')), '2026-11');
-  assert.equal(istMonthKey(new Date('2026-12-31T19:00:00Z')), '2027-01'); // year rollover
+  // Cycles run 30th -> 29th (IST midnight). Real data today: 128 entries dated 1-26 Oct 2026,
+  // all in the cycle 30 Sep – 29 Oct 2026, so nothing purges until 30 Oct 03:00 IST.
 
-  // --- current-month filter ---
-  const now = new Date('2026-11-01T03:00:00+05:30'); // nightly cron time on the 1st
-  assert.equal(isCurrentMonthDateKey('2026-11-01', now), true);
-  assert.equal(isCurrentMonthDateKey('2026-10-31', now), false);
-  assert.equal(isCurrentMonthDateKey('2025-11-05', now), false);
+  // --- current-cycle filter ---
+  const oct26 = new Date('2026-10-26T15:00:00+05:30');
+  assert.equal(isCurrentCycleDateKey('2026-10-01', oct26), true);
+  assert.equal(isCurrentCycleDateKey('2026-09-30', oct26), true);
+  assert.equal(isCurrentCycleDateKey('2026-09-29', oct26), false);
+  assert.equal(isCurrentCycleDateKey('2025-10-05', oct26), false);
 
-  // --- plan: keeps current month, sums past months, skips unparseable rows ---
+  // --- today's real situation: nothing to purge ---
+  const octEntries = Array.from({ length: 26 }, (_, index) => expenseRow(`oct${index}`, `2026-10-${String(index + 1).padStart(2, '0')}`, 1000));
+  const today = planExpensePurge(octEntries, [], oct26);
+  assert.equal(today.currentCycleKey, '2026-09-30');
+  assert.deepEqual(today.deleteIds, []);
+  // ...still nothing at 29 Oct 23:59 IST, and nothing on 1 Nov would have been the old rule; new rule purges on 30 Oct.
+  assert.deepEqual(planExpensePurge(octEntries, [], new Date('2026-10-29T23:59:59+05:30')).deleteIds, []);
+  const firstPurge = planExpensePurge(octEntries, [], new Date('2026-10-30T03:00:00+05:30')); // nightly cron on the 30th
+  assert.equal(firstPurge.currentCycleKey, '2026-10-30');
+  assert.equal(firstPurge.deleteIds.length, 26);
+  assert.deepEqual(firstPurge.summaries.map((s) => [s.monthKey, s.totalPaise, s.entryCount]), [['2026-09-30', 26000, 26]]);
+
+  // --- plan: keeps current cycle, sums closed cycles, skips unparseable rows ---
+  const now = new Date('2026-10-30T03:00:00+05:30');
   const rows = [
     expenseRow('a', '2026-10-01', 5000),
-    expenseRow('b', '2026-10-31', 2550),
-    expenseRow('c', '2026-09-15', 10000),
-    expenseRow('d', '2026-11-01', 999),
+    expenseRow('b', '2026-10-29', 2550),
+    expenseRow('c', '2026-09-15', 10000), // cycle 30 Aug – 29 Sep
+    expenseRow('d', '2026-10-30', 999), // new cycle: kept
+    expenseRow('e', '2026-09-30', 450), // first day of the closed cycle
     { id: '__expense__:broken', note: 'not json', updatedAt: new Date() }
   ];
   const plan = planExpensePurge(rows, [], now);
-  assert.equal(plan.currentMonthKey, '2026-11');
-  assert.deepEqual(plan.summaries.map((s) => [s.monthKey, s.totalPaise, s.entryCount]), [['2026-09', 10000, 1], ['2026-10', 7550, 2]]);
-  assert.deepEqual(plan.deleteIds.sort(), ['__expense__:a', '__expense__:b', '__expense__:c']);
+  assert.deepEqual(plan.summaries.map((s) => [s.monthKey, s.totalPaise, s.entryCount]), [['2026-08-30', 10000, 1], ['2026-09-30', 8000, 3]]);
+  assert.deepEqual(plan.deleteIds.sort(), ['__expense__:a', '__expense__:b', '__expense__:c', '__expense__:e']);
 
-  // --- rollover purge: total saved BEFORE delete, correct total, current month kept ---
+  // --- rollover purge: total saved BEFORE delete, correct total, current cycle kept ---
   const store = new MemoryStore(rows);
   const result = await purgeClosedExpenseMonths(store, now);
-  assert.deepEqual(result.purgedMonths, ['2026-09', '2026-10']);
-  assert.equal(result.deleted, 3);
-  assert.deepEqual(store.log, ['upsert:2026-09', 'upsert:2026-10', 'delete:3']);
-  assert.equal(store.total('2026-10')?.totalPaise, 7550);
-  assert.equal(store.total('2026-10')?.entryCount, 2);
-  assert.equal(store.total('2026-09')?.totalPaise, 10000);
+  assert.deepEqual(result.purgedCycles, ['2026-08-30', '2026-09-30']);
+  assert.equal(result.deleted, 4);
+  assert.deepEqual(store.log, ['upsert:2026-08-30', 'upsert:2026-09-30', 'delete:4']);
+  assert.equal(store.total('2026-09-30')?.totalPaise, 8000);
+  assert.equal(store.total('2026-09-30')?.entryCount, 3);
   assert.deepEqual(store.expenses.map((r) => r.id).sort(), ['__expense__:broken', '__expense__:d']);
-  assert.equal(store.total('2026-11'), null);
+  assert.equal(store.total('2026-10-30'), null);
 
   // --- idempotency: second run changes nothing ---
   const again = await purgeClosedExpenseMonths(store, now);
   assert.equal(again.deleted, 0);
-  assert.deepEqual(again.purgedMonths, []);
-  assert.equal(store.total('2026-10')?.totalPaise, 7550);
-  assert.deepEqual(store.log, ['upsert:2026-09', 'upsert:2026-10', 'delete:3']);
+  assert.deepEqual(again.purgedCycles, []);
+  assert.deepEqual(store.log, ['upsert:2026-08-30', 'upsert:2026-09-30', 'delete:4']);
 
-  // --- late entry for an already-purged month is ADDED to the stored total, not overwritten ---
+  // --- late entry for an already-purged cycle is ADDED to the stored total ---
   store.expenses.push(expenseRow('late', '2026-10-20', 450));
   await purgeClosedExpenseMonths(store, now);
-  assert.equal(store.total('2026-10')?.totalPaise, 8000);
-  assert.equal(store.total('2026-10')?.entryCount, 3);
+  assert.equal(store.total('2026-09-30')?.totalPaise, 8450);
+  assert.equal(store.total('2026-09-30')?.entryCount, 4);
 
-  // --- never purge the current month, even on its last minute ---
-  const lastMinute = new Date('2026-11-30T23:59:00+05:30');
-  const current = new MemoryStore([expenseRow('x', '2026-11-30', 100), expenseRow('y', '2026-11-01', 200)]);
-  const none = await purgeClosedExpenseMonths(current, lastMinute);
-  assert.equal(none.deleted, 0);
-  assert.equal(current.expenses.length, 2);
-  // ...and one IST minute later (Dec 1, 00:00 IST = Nov 30 18:30 UTC) November is closed
-  const closed = await purgeClosedExpenseMonths(current, new Date('2026-11-30T18:30:00Z'));
+  // --- year end: 30 Dec – 29 Jan closes at 30 Jan 00:00 IST ---
+  const yearEnd = new MemoryStore([expenseRow('x', '2026-12-30', 100), expenseRow('y', '2027-01-29', 200)]);
+  assert.equal((await purgeClosedExpenseMonths(yearEnd, new Date('2027-01-29T23:59:00+05:30'))).deleted, 0);
+  assert.equal((await purgeClosedExpenseMonths(yearEnd, new Date('2027-01-29T18:29:59Z'))).deleted, 0);
+  const closed = await purgeClosedExpenseMonths(yearEnd, new Date('2027-01-29T18:30:00Z')); // 30 Jan 00:00 IST
   assert.equal(closed.deleted, 2);
-  assert.equal(current.total('2026-11')?.totalPaise, 300);
+  assert.equal(yearEnd.total('2026-12-30')?.totalPaise, 300);
 
-  // --- before the IST month ends (Nov 30 18:29 UTC), nothing goes even though UTC/other zones might differ ---
-  const edge = new MemoryStore([expenseRow('z', '2026-11-30', 100)]);
-  assert.equal((await purgeClosedExpenseMonths(edge, new Date('2026-11-30T18:29:59Z'))).deleted, 0);
+  // --- February: 30 Jan – 27 Feb 2027 closes on 28 Feb ---
+  const feb = new MemoryStore([expenseRow('f1', '2027-02-27', 100), expenseRow('f2', '2027-02-28', 200)]);
+  const febResult = await purgeClosedExpenseMonths(feb, new Date('2027-02-28T03:00:00+05:30'));
+  assert.deepEqual(febResult.purgedCycles, ['2027-01-30']);
+  assert.deepEqual(feb.expenses.map((r) => r.id), ['__expense__:f2']);
+
+  // --- old calendar-month totals (if any) stay readable and are never overwritten ---
+  const legacy = { monthKey: '2026-08', totalPaise: 1234, entryCount: 2, purgedAt: '2026-09-01T00:00:00.000Z' };
+  assert.deepEqual(parseMonthlyTotalNote(JSON.stringify(legacy)), legacy);
+  assert.equal(monthlyTotalId('2026-09-30'), '__expense_month__:2026-09-30');
+  const withLegacy = planExpensePurge([expenseRow('g', '2026-09-01', 500)], [{ id: monthlyTotalId('2026-08'), note: JSON.stringify(legacy), updatedAt: new Date() }], now);
+  assert.deepEqual(withLegacy.summaries.map((s) => [s.monthKey, s.totalPaise]), [['2026-08-30', 500]]);
 
   // --- bad summary notes are ignored ---
   assert.equal(parseMonthlyTotalNote('{"monthKey":"2026-10","totalPaise":-1,"entryCount":0,"purgedAt":"x"}'), null);
+  assert.equal(parseMonthlyTotalNote('{"monthKey":"2026-1","totalPaise":1,"entryCount":0,"purgedAt":"x"}'), null);
 
-  console.log('Expense month purge tests passed.');
+  console.log('Expense cycle purge tests passed.');
 }
 
 void main().catch((error) => {

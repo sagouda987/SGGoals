@@ -8,6 +8,7 @@ import {
   sortMonthlyTotals,
   type MonthlyExpenseTotal
 } from '@/lib/goals/expense-purge';
+import { expenseCycleLabel } from '@/lib/goals/expense-cycle';
 
 const OWNER_KEY = 'default';
 
@@ -15,7 +16,7 @@ const OWNER_KEY = 'default';
 export async function purgeClosedExpenseMonthsInDb(now: Date = new Date()) {
   return prisma.$transaction(
     async (tx) => {
-      // Serialise concurrent purges (cron + page load) so a month is never double-counted.
+      // Serialise concurrent purges (cron + page load) so a cycle is never double-counted.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'expense-purge:' + OWNER_KEY}))`;
       return purgeClosedExpenseMonths(
         {
@@ -24,7 +25,7 @@ export async function purgeClosedExpenseMonthsInDb(now: Date = new Date()) {
           upsertMonthlyTotal: async (total) => {
             const id = monthlyTotalId(total.monthKey);
             const note = JSON.stringify(total);
-            const text = `Spending total ${total.monthKey}`;
+            const text = `Spending total ${expenseCycleLabel(total.monthKey)}`;
             await tx.goalTask.upsert({
               where: { id },
               create: { id, ownerKey: OWNER_KEY, scope: EXPENSE_MONTH_SCOPE, text, note, priority: 'other', position: 0, done: true },

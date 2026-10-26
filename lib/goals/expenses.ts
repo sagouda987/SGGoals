@@ -1,4 +1,5 @@
 import { istCalendarDateKey } from '@/lib/wake-timer';
+import { expenseCycleKey } from '@/lib/goals/expense-cycle';
 
 export type ExpenseEntry = {
   id: string;
@@ -12,7 +13,8 @@ export type ExpenseEntry = {
 export function expenseDateIsAllowed(dateKey: string, now: Date = new Date()) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return false;
   const today = istCalendarDateKey(now);
-  return dateKey.slice(0, 7) === today.slice(0, 7) && dateKey <= today;
+  // Any date from the start of the current spending cycle (30th, IST) up to today.
+  return dateKey >= expenseCycleKey(today) && dateKey <= today;
 }
 
 export function amountToPaise(value: unknown) {
@@ -27,13 +29,13 @@ export function formatRupees(amountPaise: number) {
 }
 
 export function buildDailyExpenseTotals(expenses: ExpenseEntry[], throughDateKey: string) {
-  const monthKey = throughDateKey.slice(0, 7);
+  const cycleStart = expenseCycleKey(throughDateKey);
   const totals = new Map<string, number>();
   expenses.forEach((expense) => {
-    if (expense.dateKey.startsWith(monthKey)) totals.set(expense.dateKey, (totals.get(expense.dateKey) || 0) + expense.amountPaise);
+    if (expense.dateKey >= cycleStart && expense.dateKey <= throughDateKey) totals.set(expense.dateKey, (totals.get(expense.dateKey) || 0) + expense.amountPaise);
   });
   const days: Array<{ dateKey: string; amountPaise: number }> = [];
-  const cursor = new Date(`${monthKey}-01T12:00:00Z`);
+  const cursor = new Date(`${cycleStart}T12:00:00Z`);
   const end = new Date(`${throughDateKey}T12:00:00Z`);
   while (cursor <= end) {
     const dateKey = cursor.toISOString().slice(0, 10);

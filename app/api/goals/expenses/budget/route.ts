@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { budgetLimitFromRupees, MAX_BUDGET_RUPEES, MIN_BUDGET_RUPEES } from '@/lib/goals/expense-budget';
-import { istMonthKey } from '@/lib/goals/expense-purge';
+import { currentExpenseCycleKey } from '@/lib/goals/expense-cycle';
 import { loadExpenseBudget, recordExpenseBudgetNotified, saveExpenseBudgetLimit } from '@/lib/goals/expense-budget-prisma';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +20,7 @@ export async function PUT(req: NextRequest) {
     const body = (await req.json()) as { limitRupees?: unknown; notified?: { monthKey?: unknown; level?: unknown } };
     if (body.notified) {
       const { monthKey, level } = body.notified;
-      if (monthKey !== istMonthKey() || (level !== 80 && level !== 100)) {
+      if (monthKey !== currentExpenseCycleKey() || (level !== 80 && level !== 100)) {
         return NextResponse.json({ error: 'Invalid budget alert.' }, { status: 400 });
       }
       return NextResponse.json({ budget: await recordExpenseBudgetNotified(monthKey, level) });

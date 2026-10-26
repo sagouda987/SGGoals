@@ -5,7 +5,8 @@ const now = new Date('2026-10-07T10:00:00+05:30');
 assert.equal(expenseDateIsAllowed('2026-10-01', now), true);
 assert.equal(expenseDateIsAllowed('2026-10-07', now), true);
 assert.equal(expenseDateIsAllowed('2026-10-08', now), false);
-assert.equal(expenseDateIsAllowed('2026-09-30', now), false);
+assert.equal(expenseDateIsAllowed('2026-09-30', now), true); // spending cycle starts on the 30th
+assert.equal(expenseDateIsAllowed('2026-09-29', now), false);
 assert.equal(amountToPaise('12.50'), 1250);
 assert.equal(amountToPaise('0'), null);
 assert.match(formatRupees(123450), /1,234\.50/);
@@ -16,6 +17,7 @@ const daily = buildDailyExpenseTotals([
   { id: '2', dateKey: '2026-10-01', amountPaise: 2500, category: 'Travel', note: '', updatedAt: now.toISOString() },
   { id: '3', dateKey: '2026-10-03', amountPaise: 1000, category: 'Food', note: '', updatedAt: now.toISOString() }
 ], '2026-10-03');
-assert.deepEqual(daily.map((day) => day.amountPaise), [7500, 0, 1000]);
+assert.deepEqual(daily.map((day) => day.dateKey), ['2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03']);
+assert.deepEqual(daily.map((day) => day.amountPaise), [0, 7500, 0, 1000]);
 
 console.log('Expense tracker tests passed.');

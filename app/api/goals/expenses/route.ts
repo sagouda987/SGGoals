@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { amountToPaise, expenseDateIsAllowed, parseExpenseNote, type ExpenseEntry } from '@/lib/goals/expenses';
-import { isCurrentMonthDateKey } from '@/lib/goals/expense-purge';
+import { isCurrentCycleDateKey } from '@/lib/goals/expense-purge';
 import { loadMonthlyExpenseTotals, purgeClosedExpenseMonthsInDb } from '@/lib/goals/expense-purge-prisma';
 import { loadExpenseBudget } from '@/lib/goals/expense-budget-prisma';
 import { defaultExpenseBudget } from '@/lib/goals/expense-budget';
@@ -36,11 +36,11 @@ function storedNote(value: { dateKey: string; amountPaise: number; category: str
 export async function GET() {
   try {
     const now = new Date();
-    // Safety net in case the nightly rollover did not run: idempotent, never touches the current month.
+    // Safety net in case the nightly rollover did not run: idempotent, never touches the current cycle.
     try {
       await purgeClosedExpenseMonthsInDb(now);
     } catch (error) {
-      console.error('Expense month purge failed; showing current month only', error);
+      console.error('Expense month purge failed; showing current cycle only', error);
     }
     const rows = await prisma.goalTask.findMany({
       where: { ownerKey: OWNER_KEY, scope: EXPENSE_SCOPE },
@@ -48,7 +48,7 @@ export async function GET() {
     });
     const expenses = rows
       .map((row) => parseExpenseNote(row.id, row.note, row.updatedAt))
-      .filter((expense): expense is ExpenseEntry => Boolean(expense) && isCurrentMonthDateKey(expense!.dateKey, now));
+      .filter((expense): expense is ExpenseEntry => Boolean(expense) && isCurrentCycleDateKey(expense!.dateKey, now));
     const monthlyTotals = await loadMonthlyExpenseTotals();
     const budget = await loadExpenseBudget().catch((error) => {
       console.error('Failed to load budget; using default', error);
@@ -64,7 +64,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const value = expensePayload((await req.json()).expense);
-    if (!value) return NextResponse.json({ error: 'Enter a valid current-month date and amount.' }, { status: 400 });
+    if (!value) return NextResponse.json({ error: 'Enter a valid date in the current spending month (from the 30th) and an amount.' }, { status: 400 });
     const date = new Date(`${value.dateKey}T12:00:00+05:30`);
     const row = await prisma.goalTask.create({
       data: {
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const value = expensePayload((await req.json()).expense);
-    if (!value) return NextResponse.json({ error: 'Enter a valid current-month date and amount.' }, { status: 400 });
+    if (!value) return NextResponse.json({ error: 'Enter a valid date in the current spending month (from the 30th) and an amount.' }, { status: 400 });
     const existing = await prisma.goalTask.findFirst({ where: { id: value.id, ownerKey: OWNER_KEY, scope: EXPENSE_SCOPE } });
     if (!existing) return NextResponse.json({ error: 'Spending entry not found.' }, { status: 404 });
     const row = await prisma.goalTask.update({
