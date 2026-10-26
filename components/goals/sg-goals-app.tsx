@@ -12,6 +12,7 @@ import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
 import { buildEndOfDayEncouragement, buildWeeklyPersonalBests, findMeaningfulGoal } from '@/lib/goals/motivation';
 import { amountToPaise, buildDailyExpenseTotals, formatRupees, type ExpenseEntry } from '@/lib/goals/expenses';
 import { sortMonthlyTotals, type MonthlyExpenseTotal } from '@/lib/goals/expense-purge';
+import { BOOK_SPEAKING_GENERIC_LABEL, LEGACY_BOOK_LABEL, bookSpeakingLabel, bookSpeakingTaskText, isBookSpeakingText } from '@/lib/goals/book-speaking';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
@@ -196,7 +197,11 @@ const blocks: Record<Block, { label: string; time: string }> = {
 };
 const SCHEDULE_BLOCKS = ['morning', 'afternoon', 'evening'] as const;
 
-const HABIT_TASKS = ['O1', 'L1', 'Book read and communication practice', 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Wake up before 8', 'Study for 4 hours', 'O2', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening', 'Gym', 'O3', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
+const HABIT_TASKS = ['O1', 'L1', LEGACY_BOOK_LABEL, 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Wake up before 8', 'Study for 4 hours', 'O2', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening', 'Gym', 'O3', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
+function habitTasksFor(dateKey: string) {
+  return HABIT_TASKS.map((text) => (text === LEGACY_BOOK_LABEL ? bookSpeakingTaskText(dateKey) : text));
+}
+
 const REMOVED_HABIT_TASKS = [
   'O',
   'Chess improvement',
@@ -231,7 +236,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   ICESKINCARE: 'Ice skin care',
   YOUTUBEVIDEO: 'YouTube video creation',
   CHESSPRACTICE: 'Chess practice',
-  BOOK: 'Book read and communication practice',
+  BOOK: BOOK_SPEAKING_GENERIC_LABEL,
   STUDY2: 'Study',
   STUDY4H: 'Study for 4 hours',
   STUDY1H: 'Study for 1 hour',
@@ -822,6 +827,7 @@ function formatIstClock(timestamp: number) {
 }
 
 function normalizeStrikeCode(text: string) {
+  if (isBookSpeakingText(text)) return 'BOOK';
   const compact = text.trim().toUpperCase().replace(/\s+/g, '');
   if (compact === 'O') return 'O';
   if (/^O[123]$/.test(compact)) return compact as Extract<StrikeCode, 'O1' | 'O2' | 'O3'>;
@@ -853,6 +859,10 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'SALTWATERGARGLE' || compact === 'SALTGARGLE') return 'SALTGARGLE';
   if (compact === 'MANIFESTATION' || compact === 'MANIFESTNATION') return 'MANIFEST';
   return null;
+}
+
+function habitLabelForDay(code: StrikeCode, dateKey: string) {
+  return code === 'BOOK' ? bookSpeakingLabel(dateKey) : habitLabels[code] || code;
 }
 
 function habitBlock(text: string): Exclude<Block, 'habit'> {
@@ -1077,7 +1087,8 @@ function isRemovedHabitTask(text: string) {
 }
 
 function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = [], todayKey = toIstDateKey()): GoalsStore {
-  const canonicalHabitText = new Map(HABIT_TASKS.map((text) => [normalizeStrikeCode(text), text]));
+  const dayHabitTasks = habitTasksFor(todayKey);
+  const canonicalHabitText = new Map(dayHabitTasks.map((text) => [normalizeStrikeCode(text), text]));
   const failedHabitCodesToday = new Set(
     activities
       .filter((activity) => activity.scope === 'today' && activity.kind === 'failure' && dateKeyFromValue(activity.createdAt) === todayKey)
@@ -1126,7 +1137,7 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
       .filter((task) => isHabitTask(task.text))
       .map((task) => normalizeStrikeCode(task.text))
   );
-  const missingHabits = HABIT_TASKS.filter((text) => {
+  const missingHabits = dayHabitTasks.filter((text) => {
     const code = normalizeStrikeCode(text);
     return code && !existingHabits.has(code) && !failedHabitCodesToday.has(code);
   });
@@ -2513,7 +2524,7 @@ export function SgGoalsApp() {
     return {
       code,
       task,
-      label: habitLabels[code] || code,
+      label: habitLabelForDay(code, currentDateKey),
       color: DAILY_PRIORITY_FOCUS_COLORS[code],
       minutes,
       isActive,
@@ -2996,7 +3007,7 @@ export function SgGoalsApp() {
       id: activityId(),
       scope: 'today',
       priority: task.priority,
-      taskText: habitLabels[code] || task.text,
+      taskText: habitLabelForDay(code, toIstDateKey(completedAt)),
       kind: 'focus-session',
       note: 'Completed must-task stopwatch session',
       minutes: focusMinutes,
@@ -3025,7 +3036,7 @@ export function SgGoalsApp() {
     }
     const activity = extraFocusPendingRef.current ?? {
       id: activityId(), scope: 'today', priority: 'other',
-      taskText: habitLabels[extraFocusCode] || extraFocusCode,
+      taskText: habitLabelForDay(extraFocusCode, toIstDateKey()),
       kind: 'focus-session', note: 'Additional focus time entered manually',
       points: 0, minutes, focusMinutes: minutes, createdAt: new Date().toISOString()
     } as GoalActivity;
@@ -3061,7 +3072,7 @@ export function SgGoalsApp() {
     }
     const now = new Date().toISOString();
     const activity: GoalActivity = focusResetPendingRef.current ?? {
-      id: activityId(), scope: 'today', priority: 'other', taskText: habitLabels[code] || code,
+      id: activityId(), scope: 'today', priority: 'other', taskText: habitLabelForDay(code, toIstDateKey(new Date(now))),
       kind: 'focus-correction', createdAt: now,
       note: JSON.stringify({ dateKey: istFocusDateKey(now), through: now, minutes: 0, reason: 'Daily task time reset by user' })
     };
@@ -3302,7 +3313,7 @@ export function SgGoalsApp() {
           .filter((task) => isHabitTask(task.text))
           .map((task) => [normalizeStrikeCode(task.text), task])
       );
-      const freshHabits = HABIT_TASKS.map((text) => {
+      const freshHabits = habitTasksFor(currentDateKey).map((text) => {
         const existing = existingHabits.get(normalizeStrikeCode(text));
         return existing
           ? {
@@ -3567,7 +3578,7 @@ export function SgGoalsApp() {
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
       `Weekly plan: Main=${weeklyPlan.mainGoal || 'Not set'}; Study=${weeklyPlan.studyPlan || 'Not set'}; Work=${weeklyPlan.workPlan || 'Not set'}; Health=${weeklyPlan.healthPlan || 'Not set'}; Notes=${weeklyPlan.notes || 'None'}`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Language learn=${strikeCounts.language}, Gym=${strikeCounts.gym}, Book read and communication practice=${strikeCounts.book}, Study=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Language learn=${strikeCounts.language}, Gym=${strikeCounts.gym}, Book reading / Speaking practice (alternating daily; today: ${bookSpeakingLabel(currentDateKey)})=${strikeCounts.book}, Study=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
       `Next target (${formatMinutes(targetDurationMinutes)} timer): ${
         targetTasks.length
           ? targetTasks.map((task) => `${task.text}${targetTaskMinutes[task.id] ? ` (${targetTaskMinutes[task.id]}m)` : ''}`).join(', ')
@@ -4033,10 +4044,10 @@ export function SgGoalsApp() {
               <p className="text-[10px] font-bold text-[#8b8bb3]">{targetDay.percent}% complete</p>
             </div>
           </div>
-          <p className="mt-3 text-[10px] text-[#8b8bb3]">Book + communication / Gym / Study · saved focus</p>
+          <p className="mt-3 text-[10px] text-[#8b8bb3]">Book or speaking / Gym / Study · saved focus</p>
           <div className="mt-3 grid grid-cols-[repeat(14,minmax(0,1fr))] gap-1" role="img" aria-label="Last 14 days of daily time-target progress">
             {mustFocusProgress.history.map((day) => {
-              const summary = `${day.dateKey}: ${day.tracked ? `${day.met}/3 targets met, ${day.percent}% time complete, ${day.completedMinutes}/${day.targetMinutes} minutes recorded. ${MUST_FOCUS_TARGET_CODES.map((code) => `${habitLabels[code]} ${day.minutes[code]}/${day.targets[code]} minutes`).join('; ')}` : 'Before target tracking began'}`;
+              const summary = `${day.dateKey}: ${day.tracked ? `${day.met}/3 targets met, ${day.percent}% time complete, ${day.completedMinutes}/${day.targetMinutes} minutes recorded. ${MUST_FOCUS_TARGET_CODES.map((code) => `${habitLabelForDay(code, day.dateKey)} ${day.minutes[code]}/${day.targets[code]} minutes`).join('; ')}` : 'Before target tracking began'}`;
               return (
                 <div key={day.dateKey} title={summary} aria-label={summary} className="min-w-0">
                   <div className={`relative h-20 overflow-hidden rounded-sm border ${day.dateKey === focusTargetDateKey ? 'border-[#8b8bb3]' : 'border-[#24243e]'} ${day.tracked ? 'bg-[#1a1a30]' : 'bg-transparent'}`}>
@@ -4410,7 +4421,7 @@ export function SgGoalsApp() {
                   <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-2.5 py-2 text-[10px] font-bold">
                     {DAILY_PRIORITY_STRIKE_KEYS.map((code) => (
                       <span key={`${day.dateKey}-${code}-focus`} style={{ color: DAILY_PRIORITY_FOCUS_COLORS[code] }}>
-                        {habitLabels[code]} {formatMinutes(day.mustTaskFocusMinutes[code]) || '0m'}{(MUST_FOCUS_TARGET_CODES as readonly string[]).includes(code) && day.targetProgress.tracked ? ` / ${formatMinutes(day.targetProgress.targets[code as MustFocusTargetCode])}` : ''}
+                        {habitLabelForDay(code, day.dateKey)} {formatMinutes(day.mustTaskFocusMinutes[code]) || '0m'}{(MUST_FOCUS_TARGET_CODES as readonly string[]).includes(code) && day.targetProgress.tracked ? ` / ${formatMinutes(day.targetProgress.targets[code as MustFocusTargetCode])}` : ''}
                       </span>
                     ))}
                   </div>
@@ -4528,7 +4539,7 @@ export function SgGoalsApp() {
             {[
               { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Daily priority - Office work complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
               { key: 'STUDY2' as const, label: 'Study count', rule: 'Daily priority - Study complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
-              { key: 'BOOK' as const, label: 'Book + comm count', rule: 'Daily priority - Book read and communication practice complete', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
+              { key: 'BOOK' as const, label: 'Book / speaking count', rule: `Daily priority - ${bookSpeakingLabel(currentDateKey)} complete (alternates daily)`, color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
               { key: 'GYM' as const, label: 'Gym count', rule: 'Daily priority - Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
               { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
               { key: 'L' as const, label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },

@@ -44,11 +44,17 @@ const taskApi = loadFunctions('app/api/goals/route.ts', [
   'parseSubtasks', 'composeStoredTaskNote', 'splitStoredTaskNote'
 ]);
 const focus = loadFunctions('lib/must-focus-targets.ts', ['istFocusDateKey']);
+const bookSpeaking = loadFunctions('lib/goals/book-speaking.ts', ['isBookSpeakingText']);
+const bookSpeakingGlobals = {
+  LEGACY_BOOK_LABEL: 'Book read and communication practice',
+  BOOK_SPEAKING_GENERIC_LABEL: 'Book reading / Speaking practice',
+  isBookSpeakingText: bookSpeaking.isBookSpeakingText
+};
 const rollover = loadFunctions('app/api/goals/rollover/route.ts', [
   'taskMetaNotePattern', 'activityMetaNotePattern', 'AUTO_HABIT_MISS_NOTE',
   'ACTIVE_HABIT_CODES', 'habitLabels', 'habitDefaultWeights', 'normalizeHabitCode', 'normalizeTaskWeight',
   'taskWeightFromNote', 'composeAutoMissNote', 'activityPointsFromNote', 'toISODate', 'istDateKeyToUtcDate', 'shiftDateKey', 'completedWeekWindow'
-], { istFocusDateKey: focus.istFocusDateKey });
+], { istFocusDateKey: focus.istFocusDateKey, ...bookSpeakingGlobals });
 const pointsLogic = loadFunctions('lib/goal-points.ts', ['dailyHabitPointEvents'], { istFocusDateKey: focus.istFocusDateKey });
 const history = loadFunctions('components/goals/sg-goals-app.tsx', [
   'HABIT_TASKS', 'REMOVED_HABIT_TASKS', 'habitDefaultWeights', 'AUTO_HABIT_MISS_NOTE', 'normalizeTaskWeight', 'taskWeight',
@@ -58,6 +64,7 @@ const history = loadFunctions('components/goals/sg-goals-app.tsx', [
 ], {
   dailyHabitPointEvents: pointsLogic.dailyHabitPointEvents,
   istFocusDateKey: focus.istFocusDateKey,
+  ...bookSpeakingGlobals,
   // Target-time presentation is unrelated to weighted points.
   buildMustFocusDayProgress: () => ({})
 });
@@ -216,6 +223,21 @@ test('habit aliases share credit; other scopes and ordinary tasks remain indepen
   assert.equal(day([book, alias]).completedPoints, 4);
   assert.equal(day([book, { ...alias, scope: 'weekly' }]).completedPoints, 8);
   assert.equal(day([book, alias].map((item) => ({ ...item, taskText: 'Ordinary task' }))).completedPoints, 8);
+});
+
+test('alternating book / speaking labels share the BOOK habit credit with the old combined task', () => {
+  for (const text of ['📖 Book reading (30m)', '🗣️ Speaking practice (45m)', 'Book reading', 'Speaking practice', 'Book reading / Speaking practice']) {
+    assert.equal(history.normalizeStrikeCode(text), 'BOOK', text);
+    assert.equal(rollover.normalizeHabitCode(text), 'BOOK', text);
+    assert.equal(history.defaultHabitWeight(text), 4, text);
+    assert.equal(history.habitBlock(text), 'morning', text);
+  }
+  const legacy = { ...event('completion', '09', 4), taskText: 'Book read and communication practice' };
+  const reading = { ...event('completion', '10', 4), taskText: '📖 Book reading (30m)' };
+  const speaking = { ...event('completion', '11', 4), taskText: '🗣️ Speaking practice (30m)' };
+  assert.equal(day([legacy, reading, speaking]).completedPoints, 4);
+  assert.equal(day([speaking]).completedPoints, 4);
+  assert.equal(history.normalizeStrikeCode('Book club notes'), null);
 });
 
 test('habits are credited separately across the 03:00 IST reporting boundary', () => {

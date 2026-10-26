@@ -5,6 +5,7 @@ import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { buildMustFocusDayProgress, istFocusDateKey } from '@/lib/must-focus-targets';
 import { generateAndStoreDailyReview } from '@/lib/ai/daily-review-store';
 import { purgeClosedExpenseMonthsInDb } from '@/lib/goals/expense-purge-prisma';
+import { BOOK_SPEAKING_GENERIC_LABEL, bookSpeakingLabel, bookSpeakingTaskTextVariants, isBookSpeakingText } from '@/lib/goals/book-speaking';
 
 const ownerKey = 'default';
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -43,7 +44,7 @@ const habitLabels: Record<string, string> = {
   ICESKINCARE: 'Ice skin care',
   YOUTUBEVIDEO: 'YouTube video creation',
   CHESSPRACTICE: 'Chess practice',
-  BOOK: 'Book read and communication practice',
+  BOOK: BOOK_SPEAKING_GENERIC_LABEL,
   STUDY2: 'Study',
   STUDY4H: 'Study for 4 hours',
   STUDY1H: 'Study for 1 hour',
@@ -155,6 +156,7 @@ function normalizeHabitCode(text: string) {
   if (compact === 'ICESKINCARE') return 'ICESKINCARE';
   if (compact === 'YOUTUBEVIDEOCREATION' || compact === 'YOUTUBEVIDEO') return 'YOUTUBEVIDEO';
   if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
+  if (isBookSpeakingText(text)) return 'BOOK';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
   if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'STUDYFOR4HOURS' || compact === 'STUDY4HOURS') return 'STUDY4H';
@@ -599,7 +601,7 @@ async function recordHabitMisses() {
     where: {
       ownerKey,
       scope: 'today',
-      OR: [{ block: 'habit' }, { text: { in: Object.values(habitLabels) } }]
+      OR: [{ block: 'habit' }, { text: { in: [...Object.values(habitLabels), ...bookSpeakingTaskTextVariants()] } }]
     }
   });
   const existingMisses = await prisma.goalActivity.findMany({
@@ -646,7 +648,7 @@ async function recordHabitMisses() {
       const code = normalizeHabitCode(task.text);
       if (!code || !ACTIVE_HABIT_CODES.has(code) || plannedCodes.has(code) || handledHabitCodes.has(code)) return [];
       const id = `habit-miss-${missedDateKey}-${code}`;
-      const taskText = habitLabels[code] || task.text;
+      const taskText = code === 'BOOK' ? bookSpeakingLabel(missedDateKey) : habitLabels[code] || task.text;
       const points = taskWeightFromNote(task.note, habitDefaultWeights[code] ?? 1);
       if (existingKeys.has(id) || existingKeys.has(taskText)) return [];
       plannedCodes.add(code);

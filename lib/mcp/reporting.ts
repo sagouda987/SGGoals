@@ -1,3 +1,4 @@
+import { isBookSpeakingText } from '@/lib/goals/book-speaking';
 import { buildAIContextFromRecords, type AIContextTask } from '@/lib/ai/context';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { dailyHabitPointEvents } from '@/lib/goal-points';
@@ -60,6 +61,7 @@ export function normalizeMcpCategory(value: string): GoalPriority {
 }
 
 export function normalizeHabitCode(text: string) {
+  if (isBookSpeakingText(text)) return 'BOOK';
   const compact = text.trim().toUpperCase().replace(/\s+/g, '');
   if (compact === 'O' || /^O[123]$/.test(compact) || /^L[123]$/.test(compact) || compact === 'M' || compact === 'B') return compact;
   const aliases: Record<string, string> = {
