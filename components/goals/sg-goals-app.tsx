@@ -230,13 +230,15 @@ const blocks: Record<Block, { label: string; time: string }> = {
 };
 const SCHEDULE_BLOCKS = ['morning', 'afternoon', 'evening'] as const;
 
-const HABIT_TASKS = ['O1', 'L1', LEGACY_BOOK_LABEL, 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Wake up before 8', 'Study for 4 hours', 'O2', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening', 'Gym', 'O3', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
+const HABIT_TASKS = ['O', 'L1', LEGACY_BOOK_LABEL, 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Wake up before 8', 'Study for 4 hours', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening', 'Gym', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
 function habitTasksFor(dateKey: string) {
   return HABIT_TASKS.map((text) => (text === LEGACY_BOOK_LABEL ? bookSpeakingTaskText(dateKey) : text));
 }
 
 const REMOVED_HABIT_TASKS = [
-  'O',
+  'O1',
+  'O2',
+  'O3',
   'Chess improvement',
   'Office course',
   'B',
@@ -900,8 +902,8 @@ function habitLabelForDay(code: StrikeCode, dateKey: string) {
 
 function habitBlock(text: string): Exclude<Block, 'habit'> {
   const code = normalizeStrikeCode(text);
-  if (['O2', 'L2', 'LANGUAGE', 'STUDY1H', 'OFFICEWORK2', 'HEALTHYDRINKEVENING'].includes(code ?? '')) return 'afternoon';
-  if (['GYM', 'O3', 'SKINCAREEVENING', 'NOJUNK', 'NOSUGAR', 'NOSOCIAL', 'L3', 'M', 'PRACTISEB'].includes(code ?? '')) return 'evening';
+  if (['L2', 'LANGUAGE', 'STUDY1H', 'OFFICEWORK2', 'HEALTHYDRINKEVENING'].includes(code ?? '')) return 'afternoon';
+  if (['GYM', 'SKINCAREEVENING', 'NOJUNK', 'NOSUGAR', 'NOSOCIAL', 'L3', 'M', 'PRACTISEB'].includes(code ?? '')) return 'evening';
   return 'morning';
 }
 
