@@ -9,6 +9,7 @@ import { extraFocusMinutes } from '@/lib/extra-focus';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { scoreGoalCategory } from '@/lib/goals/category-score';
 import { mergeGoalStores, newerUpdatedValue } from '@/lib/goals/store-sync';
+import { useBuildGuard } from '@/hooks/use-build-guard';
 import { buildWeeklyPersonalBests } from '@/lib/goals/motivation';
 import {
   amountToPaise,
@@ -612,11 +613,16 @@ function parseMonthlySummary(activity: GoalActivity, sourceActivities?: GoalActi
   }
 }
 
-function parseStartDate(timeValue: string) {
+function parseStartDate(timeValue: string, now = new Date()) {
   if (!timeValue) return null;
-  const now = new Date();
   const [hours, minutes] = timeValue.split(':').map(Number);
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, 0, 0);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  // Typed times belong to the current reporting day (03:00 IST -> 02:59 IST next day),
+  // so 01:30 typed after midnight stays on today's report instead of jumping to yesterday.
+  const reportingKey = istFocusDateKey(now.getTime());
+  const [y, m, d] = reportingKey.split('-').map(Number);
+  const dayOffset = hours < 3 ? 1 : 0;
+  const start = new Date(Date.UTC(y, m - 1, d + dayOffset, hours, minutes, 0, 0) - 330 * 60000);
   return Number.isNaN(start.getTime()) ? null : start;
 }
 
@@ -1513,6 +1519,7 @@ export function SgGoalsApp() {
   const [scoreOpen, setScoreOpen] = useState(false);
   const [pushAlarmStatus, setPushAlarmStatus] = useState<'unknown' | 'unsupported' | 'off' | 'saving' | 'on' | 'error'>('unknown');
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
+  useBuildGuard();
   const [currentDateKey, setCurrentDateKey] = useState(() => toIstDateKey());
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: false, weight: '1' });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });

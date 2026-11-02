@@ -1,3 +1,4 @@
+import { rejectStaleBuild } from '@/lib/goals/build-version';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { latestTaskRevision, storeRevisionConflicts } from '@/lib/goals/store-sync';
@@ -374,6 +375,8 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  const stale = rejectStaleBuild(req);
+  if (stale) return stale;
   try {
     const body = (await req.json()) as { store?: unknown; targetState?: unknown; weeklyPlan?: unknown; yearlyNotes?: unknown; expectedRevision?: unknown };
     if (!isGoalStore(body.store)) {

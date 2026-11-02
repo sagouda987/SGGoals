@@ -30,3 +30,17 @@ assert.equal(storeRevisionConflicts('2026-09-22T03:00:00.000Z', '2026-09-22T02:0
 assert.equal(storeRevisionConflicts('2026-09-22T03:00:00.000Z', null), true);
 
 console.log('Goal sync: independent edits merge, newest same-task edit wins, deletions persist, and revisions are stable.');
+
+// Completion wins when an uncheck is not clearly newer (clock skew guard).
+const skewed = mergeGoalStores(
+  base,
+  { today: [task('study', true, '2026-09-22T02:00:00.000Z'), base.today[1]] },
+  { today: [task('study', false, '2026-09-22T02:01:00.000Z'), base.today[1]] }
+);
+assert.equal(skewed.today.find((item) => item.id === 'study')?.done, true);
+const skewedReverse = mergeGoalStores(
+  base,
+  { today: [task('study', false, '2026-09-22T02:01:00.000Z'), base.today[1]] },
+  { today: [task('study', true, '2026-09-22T02:00:00.000Z'), base.today[1]] }
+);
+assert.equal(skewedReverse.today.find((item) => item.id === 'study')?.done, true);

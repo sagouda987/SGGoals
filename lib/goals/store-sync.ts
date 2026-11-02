@@ -1,4 +1,7 @@
-export type SyncTask = { id: string; updatedAt?: string };
+export type SyncTask = { id: string; updatedAt?: string; done?: boolean };
+
+/** An uncheck must be at least this much newer than a completion to win (absorbs device clock skew). */
+export const UNCHECK_MIN_LEAD_MS = 2 * 60 * 1000;
 export type SyncStore<T extends SyncTask> = Record<string, T[]>;
 
 function changed<T extends SyncTask>(base: T | undefined, value: T | undefined) {
@@ -6,9 +9,17 @@ function changed<T extends SyncTask>(base: T | undefined, value: T | undefined) 
   return base.updatedAt !== value.updatedAt;
 }
 
+function timeOf(task: SyncTask) {
+  const value = Date.parse(task.updatedAt || '1970-01-01T00:00:00.000Z');
+  return Number.isFinite(value) ? value : 0;
+}
+
 function newer<T extends SyncTask>(left: T, right: T) {
-  const leftTime = Date.parse(left.updatedAt || '1970-01-01T00:00:00.000Z');
-  const rightTime = Date.parse(right.updatedAt || '1970-01-01T00:00:00.000Z');
+  const leftTime = timeOf(left);
+  const rightTime = timeOf(right);
+  // Completion wins conflicts: a done task only goes back to undone when the uncheck is clearly newer.
+  if (left.done === true && right.done === false) return rightTime - leftTime > UNCHECK_MIN_LEAD_MS ? right : left;
+  if (right.done === true && left.done === false) return leftTime - rightTime > UNCHECK_MIN_LEAD_MS ? left : right;
   return leftTime > rightTime ? left : right;
 }
 

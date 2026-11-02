@@ -1,3 +1,4 @@
+import { rejectStaleBuild } from '@/lib/goals/build-version';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { amountToPaise, expenseDateIsAllowed, moneyKind, parseExpenseNote, type ExpenseEntry, type MoneyKind } from '@/lib/goals/expenses';
@@ -68,6 +69,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const stale = rejectStaleBuild(req);
+  if (stale) return stale;
   try {
     const value = expensePayload((await req.json()).expense);
     if (!value) return NextResponse.json({ error: 'Enter a valid date in the current month (from the 30th) and an amount.' }, { status: 400 });
@@ -92,6 +95,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  const stale = rejectStaleBuild(req);
+  if (stale) return stale;
   try {
     const value = expensePayload((await req.json()).expense);
     if (!value) return NextResponse.json({ error: 'Enter a valid date in the current month (from the 30th) and an amount.' }, { status: 400 });
@@ -109,6 +114,8 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const stale = rejectStaleBuild(req);
+  if (stale) return stale;
   try {
     const id = req.nextUrl.searchParams.get('id');
     if (!id?.startsWith('__expense__:')) return NextResponse.json({ error: 'Invalid spending entry.' }, { status: 400 });
