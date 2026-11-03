@@ -231,7 +231,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
 };
 const SCHEDULE_BLOCKS = ['morning', 'afternoon', 'evening'] as const;
 
-const HABIT_TASKS = ['O', 'L1', LEGACY_BOOK_LABEL, 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses', 'Chess endgame 15 min', "dbt/SQL study 4 hours (today's topic)", 'No masturbation (this week)', 'No sex (this week)', 'Wake up before 8', 'Study for 4 hours', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening', 'Gym', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
+const HABIT_TASKS = ['O', 'L1', LEGACY_BOOK_LABEL, 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'Chess practice', 'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses', 'Chess endgame 15 min', "dbt/SQL study 4 hours (today's topic)", 'No masturbation (this week)', 'No sex (this week)', 'Wake up before 8', 'Study for 4 hours', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening', 'Gym', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
 function habitTasksFor(dateKey: string) {
   return HABIT_TASKS.map((text) => (text === LEGACY_BOOK_LABEL ? bookSpeakingTaskText(dateKey) : text));
 }
