@@ -16,7 +16,7 @@ const WEEKLY_SUMMARY_NOTE_PREFIX = 'weekly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
-const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'DBTSQL', 'NOMB', 'NOSEX', 'EYECARE', 'BOOK', 'STUDY4H', 'STUDY1H', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
+const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'CHESSSTUDY', 'NOMB', 'NOSEX', 'EYECARE', 'BOOK', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -46,6 +46,7 @@ const habitLabels: Record<string, string> = {
   CHESSPRACTICE: 'Chess practice',
   CHESSTARGET: "Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses",
   CHESSENDGAME: "Chess endgame 15 min",
+  CHESSSTUDY: "Chess study: 4 hours (puzzles, games review, openings, endgames)",
   DBTSQL: "dbt/SQL study 4 hours (today's topic)",
   NOMB: "No masturbation (this week)",
   NOSEX: "No sex (this week)",
@@ -87,6 +88,7 @@ const habitDefaultWeights: Record<string, number> = {
   CHESSPRACTICE: 1,
   CHESSTARGET: 1,
   CHESSENDGAME: 1,
+  CHESSSTUDY: 4,
   DBTSQL: 1,
   NOMB: 1,
   NOSEX: 1,
@@ -168,6 +170,7 @@ function normalizeHabitCode(text: string) {
   if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
   if (compact === "CHESS:30PUZZLES(85%+ACCURACY)+3RAPID15+10+REVIEWLOSSES") return 'CHESSTARGET';
   if (compact === "CHESSENDGAME15MIN") return 'CHESSENDGAME';
+  if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'CHESSSTUDY';
   if (compact === "DBT/SQLSTUDY4HOURS(TODAY'STOPIC)") return 'DBTSQL';
   if (compact === "NOMASTURBATION(THISWEEK)") return 'NOMB';
   if (compact === "NOSEX(THISWEEK)") return 'NOSEX';

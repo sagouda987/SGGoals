@@ -79,8 +79,8 @@ type GoalTask = {
 };
 
 type ActivityKind = 'completion' | 'failure' | 'undo' | 'rest' | 'strike-reset' | 'monthly-summary' | 'weekly-summary' | 'focus-session' | 'focus-correction';
-type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'ICESKINCARE' | 'YOUTUBEVIDEO' | 'CHESSPRACTICE' | 'CHESSTARGET' | 'CHESSENDGAME' | 'DBTSQL' | 'NOMB' | 'NOSEX' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
-type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'ICESKINCARE' | 'YOUTUBEVIDEO' | 'CHESSPRACTICE' | 'CHESSTARGET' | 'CHESSENDGAME' | 'DBTSQL' | 'NOMB' | 'NOSEX' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
+type StrikeCode = 'O' | 'O1' | 'O2' | 'O3' | 'L1' | 'L2' | 'L3' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'ICESKINCARE' | 'YOUTUBEVIDEO' | 'CHESSPRACTICE' | 'CHESSTARGET' | 'CHESSENDGAME' | 'CHESSSTUDY' | 'DBTSQL' | 'NOMB' | 'NOSEX' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
+type StrikeFamily = 'O' | 'L' | 'M' | 'B' | 'PRACTISEB' | 'MEDITATION' | 'LANGUAGE' | 'GYM' | 'HEALTHYDRINKMORNING' | 'HEALTHYDRINKEVENING' | 'SKINCAREMORNING' | 'SKINCAREEVENING' | 'ICESKINCARE' | 'YOUTUBEVIDEO' | 'CHESSPRACTICE' | 'CHESSTARGET' | 'CHESSENDGAME' | 'CHESSSTUDY' | 'DBTSQL' | 'NOMB' | 'NOSEX' | 'BOOK' | 'STUDY2' | 'STUDY4H' | 'STUDY1H' | 'OFFICEWORK2' | 'SLEEP' | 'NOJUNK' | 'NOSUGAR' | 'MANIFEST' | 'NOSOCIAL' | 'NOE' | 'EYECARE' | 'SALTGARGLE';
 
 type GoalActivity = {
   id: string;
@@ -231,7 +231,7 @@ const blocks: Record<Block, { label: string; time: string }> = {
 };
 const SCHEDULE_BLOCKS = ['morning', 'afternoon', 'evening'] as const;
 
-const HABIT_TASKS = ['O', 'L1', LEGACY_BOOK_LABEL, 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'Chess practice', 'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses', 'Chess endgame 15 min', "dbt/SQL study 4 hours (today's topic)", 'No masturbation (this week)', 'No sex (this week)', 'Wake up before 8', 'Study for 4 hours', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening', 'Gym', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
+const HABIT_TASKS = ['O', 'L1', LEGACY_BOOK_LABEL, 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'Chess practice', 'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses', 'Chess endgame 15 min', 'No masturbation (this week)', 'No sex (this week)', 'Wake up before 8', 'Chess study: 4 hours (puzzles, games review, openings, endgames)', 'L2', 'Language learn', 'Office work', 'Healthy drink evening', 'Gym', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
 function habitTasksFor(dateKey: string) {
   return HABIT_TASKS.map((text) => (text === LEGACY_BOOK_LABEL ? bookSpeakingTaskText(dateKey) : text));
 }
@@ -247,7 +247,7 @@ const REMOVED_HABIT_TASKS = [
   'No E',
   'Study',
 ];
-const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'YOUTUBEVIDEO', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'DBTSQL', 'NOMB', 'NOSEX', 'EYECARE', 'NOSOCIAL', 'MANIFEST'];
+const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'YOUTUBEVIDEO', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'CHESSSTUDY', 'DBTSQL', 'NOMB', 'NOSEX', 'EYECARE', 'NOSOCIAL', 'MANIFEST'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
 const HABIT_MISS_ROLLOVER_KEY = 'sg-goals-habit-miss-rollover-v1';
 
@@ -274,6 +274,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   CHESSPRACTICE: 'Chess practice',
   CHESSTARGET: "Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses",
   CHESSENDGAME: "Chess endgame 15 min",
+  CHESSSTUDY: "Chess study: 4 hours (puzzles, games review, openings, endgames)",
   DBTSQL: "dbt/SQL study 4 hours (today's topic)",
   NOMB: "No masturbation (this week)",
   NOSEX: "No sex (this week)",
@@ -314,6 +315,7 @@ const habitDefaultWeights: Partial<Record<StrikeCode, number>> = {
   CHESSPRACTICE: 1,
   CHESSTARGET: 1,
   CHESSENDGAME: 1,
+  CHESSSTUDY: 4,
   DBTSQL: 1,
   NOMB: 1,
   NOSEX: 1,
@@ -898,6 +900,7 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
   if (compact === "CHESS:30PUZZLES(85%+ACCURACY)+3RAPID15+10+REVIEWLOSSES") return 'CHESSTARGET';
   if (compact === "CHESSENDGAME15MIN") return 'CHESSENDGAME';
+  if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'CHESSSTUDY';
   if (compact === "DBT/SQLSTUDY4HOURS(TODAY'STOPIC)") return 'DBTSQL';
   if (compact === "NOMASTURBATION(THISWEEK)") return 'NOMB';
   if (compact === "NOSEX(THISWEEK)") return 'NOSEX';
@@ -1224,7 +1227,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
   };
   const counterCycleStart = buildCounterCycleStart(todayKey);
   const counterResetAt = Math.max(new Date(`${counterCycleStart}T03:00:00+05:30`).getTime(), new Date(COUNTER_FORCE_RESET_AT).getTime());
-  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, B: counterResetAt, PRACTISEB: counterResetAt, MEDITATION: counterResetAt, LANGUAGE: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, SKINCAREMORNING: counterResetAt, SKINCAREEVENING: counterResetAt, ICESKINCARE: counterResetAt, YOUTUBEVIDEO: counterResetAt, CHESSPRACTICE: counterResetAt, CHESSTARGET: counterResetAt, CHESSENDGAME: counterResetAt, DBTSQL: counterResetAt, NOMB: counterResetAt, NOSEX: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, STUDY4H: counterResetAt, STUDY1H: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, NOSUGAR: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, NOE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
+  const resetAt: Record<StrikeFamily, number> = { O: counterResetAt, L: counterResetAt, M: counterResetAt, B: counterResetAt, PRACTISEB: counterResetAt, MEDITATION: counterResetAt, LANGUAGE: counterResetAt, GYM: counterResetAt, HEALTHYDRINKMORNING: counterResetAt, HEALTHYDRINKEVENING: counterResetAt, SKINCAREMORNING: counterResetAt, SKINCAREEVENING: counterResetAt, ICESKINCARE: counterResetAt, YOUTUBEVIDEO: counterResetAt, CHESSPRACTICE: counterResetAt, CHESSTARGET: counterResetAt, CHESSENDGAME: counterResetAt, CHESSSTUDY: counterResetAt, DBTSQL: counterResetAt, NOMB: counterResetAt, NOSEX: counterResetAt, BOOK: counterResetAt, STUDY2: counterResetAt, STUDY4H: counterResetAt, STUDY1H: counterResetAt, OFFICEWORK2: counterResetAt, SLEEP: counterResetAt, NOJUNK: counterResetAt, NOSUGAR: counterResetAt, MANIFEST: counterResetAt, NOSOCIAL: counterResetAt, NOE: counterResetAt, EYECARE: counterResetAt, SALTGARGLE: counterResetAt };
   const familyForCode = (code: StrikeCode): StrikeFamily => {
     if (code.startsWith('O')) return 'O';
     if (code.startsWith('L')) return 'L';
@@ -1251,6 +1254,7 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
         activity.note === 'CHESSPRACTICE' ||
         activity.note === 'CHESSTARGET' ||
         activity.note === 'CHESSENDGAME' ||
+        activity.note === 'CHESSSTUDY' ||
         activity.note === 'DBTSQL' ||
         activity.note === 'NOMB' ||
         activity.note === 'NOSEX' ||
