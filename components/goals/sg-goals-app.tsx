@@ -1485,6 +1485,19 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
   };
 }
 
+// Weekly highlight card on the main page. Update each week.
+const WEEK_TARGETS = {
+  title: "This week's targets (Nov 4–9)",
+  items: [
+    { label: 'Chess', text: 'Rapid 1779 → 1820 by Sun Nov 9' },
+    { label: 'Chess daily', text: '30 puzzles + 3 rapid games (15+10), review every loss, zero bullet' },
+    { label: 'Chess habit', text: 'Before every move check all checks + is destination square safe; 0 hung pieces in rapid' },
+    { label: 'Health', text: 'Gym 5+ days, bed by 11 PM nightly, Sunday weigh-in (goal 68 kg)' },
+    { label: 'Office', text: 'Finish top-priority Deloitte task daily before chess' },
+    { label: 'Mind', text: '30 min reading + 10 min meditation daily' },
+  ],
+};
+
 export function SgGoalsApp() {
   const [store, setStore] = useState<GoalsStore>(starterStore);
   const [activityRecords, setActivities] = useState<GoalActivity[]>([]);
@@ -4774,6 +4787,20 @@ export function SgGoalsApp() {
             </div>
             </div>
           </div>
+        </div>
+      </section>
+      <section className="px-5 pt-5">
+        <div className="mx-auto max-w-4xl rounded-2xl border-2 border-[#f5b94280] bg-gradient-to-br from-[#f5b9421c] to-[#4f8ef712] p-5 shadow-[0_0_24px_#f5b94222]">
+          <p className="text-[10px] font-bold uppercase tracking-[.3em] text-[#f5b942]">Highlight</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight">{WEEK_TARGETS.title}</h2>
+          <ol className="mt-3 flex flex-col gap-2">
+            {WEEK_TARGETS.items.map((t, i) => (
+              <li key={i} className="flex gap-3 rounded-xl border border-[#1a1a30] bg-[#0b0b1c] px-3 py-2 text-sm">
+                <span className="font-bold text-[#f5b942]">{i + 1}.</span>
+                <span><b className="text-[#e8e8f5]">{t.label}:</b> <span className="text-[#b8b8d8]">{t.text}</span></span>
+              </li>
+            ))}
+          </ol>
         </div>
       </section>
 
