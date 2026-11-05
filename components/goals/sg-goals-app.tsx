@@ -180,7 +180,7 @@ const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const WAKE_LOG_KEY_PREFIX = 'sg-goals-wake-time-v1:';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v86';
+const APP_VERSION = 'cloud-sync-v87';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -379,14 +379,14 @@ const starterStore: GoalsStore = {
     makeTask('Pray', 'Morning ritual', 'health', 'morning'),
     makeTask('Gym workout', '45 min', 'health', 'morning'),
     makeTask('Office work - zero escalation', 'Focus block', 'career', 'afternoon'),
-    makeTask('Study DSA / Databricks / Spark', '1 hour minimum', 'career', 'evening'),
-    makeTask('Communication practice', 'Speak or read English', 'communication', 'evening'),
+    makeTask('Chess study: 4 hours (puzzles, games review, openings, endgames)', 'Replace study slot', 'career', 'evening'),
+    makeTask('Book read + communication practice', '30 min weekdays, 45 weekends', 'communication', 'evening'),
     makeTask('Skin care - night', 'Routine', 'looks', 'evening')
   ],
   weekly: [
     makeTask('Gym minimum 4 times this week', undefined, 'health'),
-    makeTask('Study Databricks/Spark - 5 hours total', undefined, 'career'),
-    makeTask('Communication practice daily - 7/7', undefined, 'communication'),
+    makeTask('Chess: rapid +40 this week, zero bullet, review every rapid loss', undefined, 'career'),
+    makeTask('Book read + communication practice daily - 7/7', undefined, 'communication'),
     makeTask('Skin care routine daily - 7/7', undefined, 'looks')
   ],
   weekend: [
@@ -397,8 +397,8 @@ const starterStore: GoalsStore = {
   ],
   monthly: [
     makeTask('Reach weight 68 kg', undefined, 'health'),
-    makeTask('Complete Databricks and Spark course', undefined, 'career'),
-    makeTask('Daily communication practice - 30 days', undefined, 'communication'),
+    makeTask('Chess: push rapid toward 2000 (first rating stage)', undefined, 'career'),
+    makeTask('Book read + communication practice - 30 days', undefined, 'communication'),
     makeTask('Consistent skin care - 28+ days', undefined, 'looks')
   ],
   yearly: [
@@ -1145,7 +1145,57 @@ function isRemovedHabitTask(text: string) {
   return REMOVED_HABIT_TASKS.some((task) => task.replace(/[^a-z0-9]/gi, '').toUpperCase() === normalized);
 }
 
+const DROPPED_STUDY_TASK_REWRITES: Record<string, { text: string; note?: string }> = {
+  'Study DSA / Databricks / Spark': {
+    text: 'Chess study: 4 hours (puzzles, games review, openings, endgames)',
+    note: 'Replace study slot'
+  },
+  'Study Databricks/Spark - 5 hours total': {
+    text: 'Chess: rapid +40 this week, zero bullet, review every rapid loss'
+  },
+  'Complete Databricks and Spark course': {
+    text: 'Chess: push rapid toward 2000 (first rating stage)'
+  },
+  'Communication practice': {
+    text: 'Book read + communication practice',
+    note: '30 min weekdays, 45 weekends'
+  },
+  'Communication practice daily - 7/7': {
+    text: 'Book read + communication practice daily - 7/7'
+  },
+  'Daily communication practice - 30 days': {
+    text: 'Book read + communication practice - 30 days'
+  }
+};
+
+function rewriteDroppedStudyTasks(store: GoalsStore): GoalsStore {
+  let changed = false;
+  const rewriteScope = (tasks: GoalTask[]) =>
+    tasks.map((task) => {
+      const next = DROPPED_STUDY_TASK_REWRITES[task.text];
+      if (!next) return task;
+      changed = true;
+      return {
+        ...task,
+        text: next.text,
+        note: next.note !== undefined ? next.note : task.note,
+        updatedAt: new Date().toISOString()
+      };
+    });
+  const nextStore: GoalsStore = {
+    ...store,
+    today: rewriteScope(store.today),
+    weekly: rewriteScope(store.weekly),
+    weekend: rewriteScope(store.weekend),
+    monthly: rewriteScope(store.monthly),
+    yearly: rewriteScope(store.yearly),
+    tomorrow: rewriteScope(store.tomorrow)
+  };
+  return changed ? nextStore : store;
+}
+
 function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = [], todayKey = toIstDateKey()): GoalsStore {
+  store = rewriteDroppedStudyTasks(store);
   const dayHabitTasks = habitTasksFor(todayKey);
   const canonicalHabitText = new Map(dayHabitTasks.map((text) => [normalizeStrikeCode(text), text]));
   const failedHabitCodesToday = new Set(
