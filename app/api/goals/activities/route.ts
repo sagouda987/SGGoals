@@ -214,3 +214,21 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Could not update focus session.' }, { status: 503 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = (await req.json()) as { id?: unknown };
+    if (typeof body.id !== 'string' || !body.id) {
+      return NextResponse.json({ error: 'A valid activity ID is required.' }, { status: 400 });
+    }
+    const existing = await prisma.goalActivity.findFirst({ where: { id: body.id, ownerKey } });
+    if (!existing) {
+      return NextResponse.json({ error: 'Activity not found.' }, { status: 404 });
+    }
+    await prisma.goalActivity.delete({ where: { id: existing.id } });
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('Failed to delete goal activity', error);
+    return NextResponse.json({ error: 'Could not delete activity.' }, { status: 503 });
+  }
+}

@@ -900,7 +900,7 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
   if (compact === "CHESS:30PUZZLES(85%+ACCURACY)+3RAPID15+10+REVIEWLOSSES") return 'CHESSTARGET';
   if (compact === "CHESSENDGAME15MIN") return 'CHESSENDGAME';
-  if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'CHESSSTUDY';
+  if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)" || compact === "CHESSSTUDY:4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'CHESSSTUDY';
   if (compact === "DBT/SQLSTUDY4HOURS(TODAY'STOPIC)") return 'DBTSQL';
   if (compact === "NOMASTURBATION(THISWEEK)") return 'NOMB';
   if (compact === "NOSEX(THISWEEK)") return 'NOSEX';
@@ -2201,7 +2201,7 @@ export function SgGoalsApp() {
           const cloud = (await refresh.json()) as { store?: GoalsStore; weeklyPlan?: unknown; yearlyNotes?: unknown; storeRevision?: string | null };
           if (!cloud.store) throw new Error('Conflict refresh returned no store.');
           const remoteStore = ensureHabitTemplates(cloud.store, activityRecords, currentDateKey);
-          const mergedStore = mergeGoalStores(cloudStoreRef.current, store, remoteStore) as GoalsStore;
+          const mergedStore = ensureHabitTemplates(mergeGoalStores(cloudStoreRef.current, store, remoteStore) as GoalsStore, activityRecords, currentDateKey);
           const needsRetry = JSON.stringify(mergedStore) !== JSON.stringify(remoteStore);
           cloudStoreRef.current = remoteStore;
           storeRevisionRef.current = cloud.storeRevision ?? null;
@@ -2285,7 +2285,7 @@ export function SgGoalsApp() {
         };
         if (data.store && (data.storeRevision ?? null) !== storeRevisionRef.current) {
           const remoteStore = ensureHabitTemplates(data.store, latestActivities, currentDateKey);
-          const mergedStore = mergeGoalStores(cloudStoreRef.current, store, remoteStore) as GoalsStore;
+          const mergedStore = ensureHabitTemplates(mergeGoalStores(cloudStoreRef.current, store, remoteStore) as GoalsStore, latestActivities, currentDateKey);
           const needsSave = JSON.stringify(mergedStore) !== JSON.stringify(remoteStore);
           cloudStoreRef.current = remoteStore;
           storeRevisionRef.current = data.storeRevision ?? null;
