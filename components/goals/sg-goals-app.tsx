@@ -180,7 +180,7 @@ const TARGET_NOTIFICATION_KEY = 'sg-goals-target-notified-v1';
 const MUST_TASK_STOPWATCHES_KEY = 'sg-goals-must-task-stopwatches-v1';
 const WAKE_LOG_KEY_PREFIX = 'sg-goals-wake-time-v1:';
 const SAVE_DEBOUNCE_MS = 600;
-const APP_VERSION = 'cloud-sync-v87';
+const APP_VERSION = 'cloud-sync-v88';
 const MONTHLY_SUMMARY_NOTE_PREFIX = 'monthly-summary:';
 const DEFAULT_TARGET_DURATION_MINUTES = 120;
 const TARGET_DURATION_MS = DEFAULT_TARGET_DURATION_MINUTES * 60 * 1000;
@@ -246,6 +246,12 @@ const REMOVED_HABIT_TASKS = [
   'Salt water gargle',
   'No E',
   'Study',
+  'Study for 4 hours',
+  'Study for 1 hour',
+  'Study 2 hour',
+  'Study Databricks/Spark - 5 hours total',
+  'Study DSA / Databricks / Spark',
+  "dbt/SQL study 4 hours (today's topic)",
 ];
 const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'YOUTUBEVIDEO', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'CHESSSTUDY', 'DBTSQL', 'NOMB', 'NOSEX', 'EYECARE', 'NOSOCIAL', 'MANIFEST'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -1150,9 +1156,6 @@ const DROPPED_STUDY_TASK_REWRITES: Record<string, { text: string; note?: string 
     text: 'Chess study: 4 hours (puzzles, games review, openings, endgames)',
     note: 'Replace study slot'
   },
-  'Study Databricks/Spark - 5 hours total': {
-    text: 'Chess: rapid +40 this week, zero bullet, review every rapid loss'
-  },
   'Complete Databricks and Spark course': {
     text: 'Chess: push rapid toward 2000 (first rating stage)'
   },
@@ -1168,20 +1171,45 @@ const DROPPED_STUDY_TASK_REWRITES: Record<string, { text: string; note?: string 
   }
 };
 
+/** Old study-hour goals to delete on load (not rewritten). Chess study 4h stays. */
+const DROPPED_STUDY_TASK_REMOVALS = [
+  'Study Databricks/Spark - 5 hours total',
+  'Study for 4 hours',
+  'Study for 1 hour',
+  'Study 2 hour',
+  'Study',
+  "dbt/SQL study 4 hours (today's topic)"
+];
+
+function isDroppedStudyRemoval(text: string) {
+  const normalized = text.replace(/[^a-z0-9]/gi, '').toUpperCase();
+  return DROPPED_STUDY_TASK_REMOVALS.some((task) => task.replace(/[^a-z0-9]/gi, '').toUpperCase() === normalized);
+}
+
 function rewriteDroppedStudyTasks(store: GoalsStore): GoalsStore {
   let changed = false;
-  const rewriteScope = (tasks: GoalTask[]) =>
-    tasks.map((task) => {
+  const rewriteScope = (tasks: GoalTask[]) => {
+    const nextTasks: GoalTask[] = [];
+    for (const task of tasks) {
+      if (isDroppedStudyRemoval(task.text)) {
+        changed = true;
+        continue;
+      }
       const next = DROPPED_STUDY_TASK_REWRITES[task.text];
-      if (!next) return task;
+      if (!next) {
+        nextTasks.push(task);
+        continue;
+      }
       changed = true;
-      return {
+      nextTasks.push({
         ...task,
         text: next.text,
         note: next.note !== undefined ? next.note : task.note,
         updatedAt: new Date().toISOString()
-      };
-    });
+      });
+    }
+    return nextTasks;
+  };
   const nextStore: GoalsStore = {
     ...store,
     today: rewriteScope(store.today),
