@@ -1194,6 +1194,15 @@ function rewriteDroppedStudyTasks(store: GoalsStore): GoalsStore {
   return changed ? nextStore : store;
 }
 
+function mergeCloudActivities(cloud: GoalActivity[], local: GoalActivity[]) {
+  // Keep recent local activities that the cloud has not stored yet (POST still in flight),
+  // otherwise a just-saved failure disappears and its habit gets re-added.
+  const cloudIds = new Set(cloud.map((activity) => activity.id));
+  const cutoff = Date.now() - 15 * 60000;
+  const pending = local.filter((activity) => !cloudIds.has(activity.id) && new Date(activity.createdAt).getTime() >= cutoff);
+  return pending.length ? [...pending, ...cloud] : cloud;
+}
+
 function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = [], todayKey = toIstDateKey()): GoalsStore {
   store = rewriteDroppedStudyTasks(store);
   const dayHabitTasks = habitTasksFor(todayKey);
@@ -2231,8 +2240,11 @@ export function SgGoalsApp() {
         if (!response) return;
         const data = (await response.json()) as { activities?: GoalActivity[] };
         if (Array.isArray(data.activities)) {
-          setActivities(data.activities);
-          window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(data.activities));
+          setActivities((current) => {
+            const merged = mergeCloudActivities(data.activities as GoalActivity[], current);
+            window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(merged));
+            return merged;
+          });
         }
         void loadDailyReview();
       })
@@ -2244,6 +2256,7 @@ export function SgGoalsApp() {
   useEffect(() => {
     if (!ready || !cloudReady) return;
     const refreshCloudState = async () => {
+      let latestActivities = activityRecords;
       try {
         const [response, activitiesResponse] = await Promise.all([
           fetch('/api/goals', { cache: 'no-store' }),
@@ -2252,11 +2265,13 @@ export function SgGoalsApp() {
         if (activitiesResponse.ok) {
           const activityData = (await activitiesResponse.json()) as { activities?: GoalActivity[] };
           if (Array.isArray(activityData.activities)) {
-            const cloudActivities = activityData.activities;
+            const cloudActivities = mergeCloudActivities(activityData.activities, activityRecords);
+            latestActivities = cloudActivities;
             setActivities((current) => {
-              if (JSON.stringify(current) === JSON.stringify(cloudActivities)) return current;
-              window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(cloudActivities));
-              return cloudActivities;
+              const merged = mergeCloudActivities(activityData.activities as GoalActivity[], current);
+              if (JSON.stringify(current) === JSON.stringify(merged)) return current;
+              window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(merged));
+              return merged;
             });
           }
         }
@@ -2269,7 +2284,7 @@ export function SgGoalsApp() {
           yearlyNotes?: unknown;
         };
         if (data.store && (data.storeRevision ?? null) !== storeRevisionRef.current) {
-          const remoteStore = ensureHabitTemplates(data.store, activityRecords, currentDateKey);
+          const remoteStore = ensureHabitTemplates(data.store, latestActivities, currentDateKey);
           const mergedStore = mergeGoalStores(cloudStoreRef.current, store, remoteStore) as GoalsStore;
           const needsSave = JSON.stringify(mergedStore) !== JSON.stringify(remoteStore);
           cloudStoreRef.current = remoteStore;
@@ -2891,8 +2906,11 @@ export function SgGoalsApp() {
     if (!response.ok) throw new Error('Could not refresh activities.');
     const data = (await response.json()) as { activities?: GoalActivity[] };
     if (Array.isArray(data.activities)) {
-      setActivities(data.activities);
-      window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(data.activities));
+      setActivities((current) => {
+            const merged = mergeCloudActivities(data.activities as GoalActivity[], current);
+            window.localStorage.setItem(ACTIVITY_KEY, JSON.stringify(merged));
+            return merged;
+          });
     }
   }
 
