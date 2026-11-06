@@ -231,7 +231,42 @@ const blocks: Record<Block, { label: string; time: string }> = {
 };
 const SCHEDULE_BLOCKS = ['morning', 'afternoon', 'evening'] as const;
 
-const HABIT_TASKS = ['O', 'L1', LEGACY_BOOK_LABEL, 'Manifestation', 'Eye care', 'Meditation', 'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'Chess practice', 'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses', 'Chess endgame 15 min', 'No masturbation (this week)', 'No sex (this week)', 'Wake up before 8', 'Chess study: 4 hours (puzzles, games review, openings, endgames)', 'L2', 'Office work', 'Healthy drink evening', 'Gym', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'];
+// Daily checklist order follows SK priorities: Health → Chess & career → Communication → Money/other.
+// Targets/weights stay the same; only display order and section grouping change.
+const HABIT_TASKS = [
+  // 1) Health
+  'Gym',
+  'Meditation',
+  'Eye care',
+  'Wake up before 8',
+  'No masturbation (this week)',
+  'No sex (this week)',
+  'Healthy drink morning',
+  'Healthy drink evening',
+  'Morning skin care',
+  'Evening skin care',
+  'Ice skin care',
+  'No junk food',
+  'No sugar',
+  'No Social Media',
+  'Manifestation',
+  // 2) Chess & career
+  'Chess study: 4 hours (puzzles, games review, openings, endgames)',
+  'Chess practice',
+  'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses',
+  'Chess endgame 15 min',
+  'Office work',
+  'O',
+  // 3) Communication
+  LEGACY_BOOK_LABEL,
+  'Practise B',
+  // 4) Money has no daily habit checklist items (expense tracker lives on Monthly).
+  // Remaining legacy short codes kept, unchanged, at the end.
+  'L1',
+  'L2',
+  'L3',
+  'M',
+];
 function habitTasksFor(dateKey: string) {
   return HABIT_TASKS.map((text) => (text === LEGACY_BOOK_LABEL ? bookSpeakingTaskText(dateKey) : text));
 }
@@ -937,6 +972,27 @@ function habitBlock(text: string): Exclude<Block, 'habit'> {
   return 'morning';
 }
 
+const HEALTH_HABIT_CODES: StrikeCode[] = ['GYM', 'MEDITATION', 'EYECARE', 'SLEEP', 'NOMB', 'NOSEX', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'NOJUNK', 'NOSUGAR', 'NOSOCIAL', 'MANIFEST'];
+const CAREER_HABIT_CODES: StrikeCode[] = ['CHESSSTUDY', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'OFFICEWORK2', 'O', 'O1', 'O2', 'O3', 'DBTSQL', 'STUDY2', 'STUDY4H', 'STUDY1H'];
+const COMMUNICATION_HABIT_CODES: StrikeCode[] = ['BOOK', 'PRACTISEB', 'B', 'LANGUAGE'];
+const TODAY_PRIORITY_ORDER: Priority[] = ['health', 'career', 'communication', 'looks', 'other'];
+
+function habitPriority(text: string): Priority {
+  const code = normalizeStrikeCode(text);
+  if (!code) return 'other';
+  if (HEALTH_HABIT_CODES.includes(code)) return 'health';
+  if (CAREER_HABIT_CODES.includes(code)) return 'career';
+  if (COMMUNICATION_HABIT_CODES.includes(code)) return 'communication';
+  return 'other';
+}
+
+function habitOrderIndex(text: string, dayHabitTasks: string[]) {
+  const code = normalizeStrikeCode(text);
+  if (!code) return Number.MAX_SAFE_INTEGER;
+  const index = dayHabitTasks.findIndex((task) => normalizeStrikeCode(task) === code);
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
 function isHabitTask(text: string) {
   return normalizeStrikeCode(text) !== null;
 }
@@ -1261,10 +1317,14 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
     }
     const defaultWeight = defaultHabitWeight(canonicalText);
     const assignedBlock = habitBlock(canonicalText);
+    const assignedPriority = habitPriority(canonicalText);
     const normalizedTask =
-      task.text === canonicalText && task.weight !== undefined && task.block === assignedBlock
+      task.text === canonicalText &&
+      task.weight !== undefined &&
+      task.block === assignedBlock &&
+      task.priority === assignedPriority
         ? task
-        : { ...task, text: canonicalText, block: assignedBlock, weight: task.weight ?? defaultWeight };
+        : { ...task, text: canonicalText, block: assignedBlock, priority: assignedPriority, weight: task.weight ?? defaultWeight };
     if (normalizedTask !== task) changed = true;
     const existingIndex = seenHabitIndexes.get(code);
     if (existingIndex === undefined) {
@@ -1287,10 +1347,24 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
     const code = normalizeStrikeCode(text);
     return code && !existingHabits.has(code) && !failedHabitCodesToday.has(code);
   });
-  if (!missingHabits.length && !changed) return store;
+  const withMissing = missingHabits.length
+    ? [...today, ...missingHabits.map((text) => makeTask(text, undefined, habitPriority(text), habitBlock(text), false, defaultHabitWeight(text)))]
+    : today;
+  if (missingHabits.length) changed = true;
+  const sortedToday = [...withMissing].sort((a, b) => {
+    const aHabit = isHabitTask(a.text);
+    const bHabit = isHabitTask(b.text);
+    if (aHabit && bHabit) return habitOrderIndex(a.text, dayHabitTasks) - habitOrderIndex(b.text, dayHabitTasks);
+    if (aHabit && !bHabit) return -1;
+    if (!aHabit && bHabit) return 1;
+    return 0;
+  });
+  const orderChanged = sortedToday.some((task, index) => task.id !== withMissing[index]?.id);
+  if (orderChanged) changed = true;
+  if (!changed) return store;
   return {
     ...store,
-    today: [...today, ...missingHabits.map((text) => makeTask(text, undefined, 'other', habitBlock(text), false, defaultHabitWeight(text)))]
+    today: sortedToday
   };
 }
 
@@ -3554,6 +3628,7 @@ export function SgGoalsApp() {
               ...existing,
               text,
               block: habitBlock(text),
+              priority: habitPriority(text),
               weight: existing.weight ?? defaultHabitWeight(text),
               done: false,
               startedAt: undefined,
@@ -3561,7 +3636,7 @@ export function SgGoalsApp() {
               investedMinutes: undefined,
               updatedAt: new Date().toISOString()
             }
-          : makeTask(text, undefined, 'other', 'habit', false, defaultHabitWeight(text));
+          : makeTask(text, undefined, habitPriority(text), habitBlock(text), false, defaultHabitWeight(text));
       });
       return { ...current, today: [...remainingTasks, ...freshHabits] };
     });
@@ -3960,21 +4035,31 @@ export function SgGoalsApp() {
 
   const completedInCurrentScope = scope === 'today' || scope === 'weekend' ? activeTasks.filter((task) => task.done) : [];
 
-  const groupedToday = SCHEDULE_BLOCKS.map((block) => {
-    const blockTasks = activeTasks.filter((task) => {
-      const effectiveBlock = isHabitTask(task.text) ? habitBlock(task.text) : task.block;
-      return effectiveBlock === block && !restedTaskTexts.has(task.text);
-    });
+  const groupedToday = TODAY_PRIORITY_ORDER.map((priority) => {
+    const sectionTasks = activeTasks
+      .filter((task) => {
+        const effectivePriority = isHabitTask(task.text) ? habitPriority(task.text) : task.priority;
+        return effectivePriority === priority && !restedTaskTexts.has(task.text);
+      })
+      .sort((a, b) => habitOrderIndex(a.text, habitTasksFor(currentDateKey)) - habitOrderIndex(b.text, habitTasksFor(currentDateKey)));
     return {
-      id: block,
-      title: blocks[block].label,
-      sub: blocks[block].time,
-      color: '#4f8ef7',
-      tasks: blockTasks.filter((task) => !task.done),
-      done: blockTasks.filter((task) => task.done).length,
-      total: blockTasks.length
+      id: priority,
+      title: priorities[priority].label,
+      sub: priority === 'health'
+        ? 'Priority 1 · gym, meditation, eye care, sleep, habits'
+        : priority === 'career'
+          ? 'Priority 2 · chess study + office work'
+          : priority === 'communication'
+            ? 'Priority 3 · book read + speaking practice'
+            : priority === 'other'
+              ? 'Priority 4 · money tracker is on Monthly; leftover codes'
+              : 'Looks routines',
+      color: priorities[priority].color,
+      tasks: sectionTasks.filter((task) => !task.done),
+      done: sectionTasks.filter((task) => task.done).length,
+      total: sectionTasks.length
     };
-  });
+  }).filter((group) => group.total > 0 || group.id === 'health' || group.id === 'career' || group.id === 'communication');
 
   const restedTasks = activeTasks.filter((task) => !task.done && restedTaskTexts.has(task.text));
   const todayDisplayGroups = restedTasks.length
@@ -5223,7 +5308,7 @@ export function SgGoalsApp() {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[.22em] text-[#52527a]">Next target</p>
-                <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{targetTasks.length ? `${targetTasks.length} task${targetTasks.length === 1 ? '' : 's'} selected` : 'Select tasks from Morning, Afternoon, or Night'}</h2>
+                <h2 className="mt-2 text-lg font-bold text-[#e8e8f5]">{targetTasks.length ? `${targetTasks.length} task${targetTasks.length === 1 ? '' : 's'} selected` : 'Select tasks from Health, Career, or Communication'}</h2>
                 {mainGoal ? (
                   <p className="mt-1 text-xs text-[#8b8bb3]">
                     Current focus starts with {mainGoal.text} ({taskWeight(mainGoal)} pts)
@@ -6146,7 +6231,7 @@ export function SgGoalsApp() {
                     <p className="text-[11px] text-[#52527a]">{group.sub}</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {scope === 'today' && group.id === 'morning' ? (
+                    {scope === 'today' && group.id === 'health' ? (
                       <button onClick={resetHabitTasks} className="rounded-lg border border-[#00d97e40] px-2 py-1 text-[11px] font-bold text-[#00d97e]">
                         Reset habits
                       </button>

@@ -58,7 +58,7 @@ const rollover = loadFunctions('app/api/goals/rollover/route.ts', [
 const pointsLogic = loadFunctions('lib/goal-points.ts', ['dailyHabitPointEvents'], { istFocusDateKey: focus.istFocusDateKey });
 const history = loadFunctions('components/goals/sg-goals-app.tsx', [
   'HABIT_TASKS', 'REMOVED_HABIT_TASKS', 'habitDefaultWeights', 'AUTO_HABIT_MISS_NOTE', 'normalizeTaskWeight', 'taskWeight',
-  'buildScopeCompletion', 'normalizeStrikeCode', 'habitBlock', 'isHabitTask', 'defaultHabitWeight',
+  'buildScopeCompletion', 'normalizeStrikeCode', 'habitBlock', 'HEALTH_HABIT_CODES', 'CAREER_HABIT_CODES', 'COMMUNICATION_HABIT_CODES', 'habitPriority', 'isHabitTask', 'defaultHabitWeight',
   'defaultTaskWeightFromText', 'activityPoints', 'toISODate', 'emptyMustTaskFocusMinutes',
   'isAutoHabitMiss', 'completedFocusMinutes', 'buildPointHistory', 'MONTHLY_SUMMARY_NOTE_PREFIX', 'parseMonthlySummary'
 ], {
@@ -156,9 +156,16 @@ test('Sunday weekly report covers the completed Sunday-to-Saturday week', () => 
 });
 
 test('requested daily routines are independent active habits', () => {
-  const expected = ['O1', 'O2', 'O3', 'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Eye care', 'No junk food', 'No sugar', 'Practise B', 'Study for 4 hours', 'Study for 1 hour'];
+  const expected = [
+    'Gym', 'Meditation', 'Eye care', 'Wake up before 8', 'No masturbation (this week)', 'No sex (this week)',
+    'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Ice skin care',
+    'No junk food', 'No sugar', 'No Social Media', 'Manifestation',
+    'Chess study: 4 hours (puzzles, games review, openings, endgames)', 'Chess practice',
+    'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses', 'Chess endgame 15 min',
+    'Office work', 'O', 'Book read and communication practice', 'Practise B', 'L1', 'L2', 'L3', 'M'
+  ];
+  assert.deepEqual(Array.from(history.HABIT_TASKS), expected, 'Daily habits follow Health → Chess/career → Communication order');
   for (const task of expected) {
-    assert.equal(history.HABIT_TASKS.includes(task), true, `${task} is a visible daily habit`);
     assert.equal(history.REMOVED_HABIT_TASKS.includes(task), false, `${task} is not removed`);
     const clientCode = history.normalizeStrikeCode(task);
     const serverCode = rollover.normalizeHabitCode(task);
@@ -167,27 +174,18 @@ test('requested daily routines are independent active habits', () => {
     assert.equal(rollover.ACTIVE_HABIT_CODES.has(serverCode), true, `${task} is included by overnight rollover`);
     assert.equal(history.defaultHabitWeight(task), rollover.habitDefaultWeights[serverCode]);
   }
-  assert.deepEqual(['O1', 'O2', 'O3'].map(history.normalizeStrikeCode), ['O1', 'O2', 'O3']);
-  assert.equal(history.normalizeStrikeCode('O'), 'O', 'Historical O entries remain readable');
-  assert.equal(history.REMOVED_HABIT_TASKS.includes('O'), true, 'The retired single O task is removed from today');
+  assert.equal(history.normalizeStrikeCode('O'), 'O', 'Single O office habit remains active');
+  assert.equal(history.REMOVED_HABIT_TASKS.includes('O'), false, 'Single O stays on the daily list');
+  assert.ok(history.REMOVED_HABIT_TASKS.includes('O1') && history.REMOVED_HABIT_TASKS.includes('O2') && history.REMOVED_HABIT_TASKS.includes('O3'));
   assert.match(goalsComponentSource, /label: 'Eye care count'/, 'Eye care has a visible habit counter card');
   assert.equal(history.habitBlock('Healthy drink morning'), 'morning');
-  assert.equal(history.habitBlock('Study for 4 hours'), 'morning');
-  assert.equal(history.habitBlock('Study for 1 hour'), 'afternoon');
+  assert.equal(history.habitBlock('Healthy drink evening'), 'afternoon');
   assert.equal(history.habitBlock('No sugar'), 'evening');
   assert.equal(history.habitBlock('Practise B'), 'evening');
-  assert.equal(history.defaultHabitWeight('Study for 4 hours') + history.defaultHabitWeight('Study for 1 hour'), 5);
-  const habits = Array.from(history.HABIT_TASKS);
-  assert.deepEqual(habits.filter((task) => history.habitBlock(task) === 'morning'), [
-    'O1', 'L1', 'Book read and communication practice', 'Manifestation', 'Eye care', 'Meditation',
-    'Healthy drink morning', 'Morning skin care', 'Ice skin care', 'YouTube video creation', 'Chess practice', 'Wake up before 8', 'Study for 4 hours'
-  ]);
-  assert.deepEqual(habits.filter((task) => history.habitBlock(task) === 'afternoon'), [
-    'O2', 'L2', 'Language learn', 'Study for 1 hour', 'Office work', 'Healthy drink evening'
-  ]);
-  assert.deepEqual(habits.filter((task) => history.habitBlock(task) === 'evening'), [
-    'Gym', 'O3', 'Evening skin care', 'No junk food', 'No sugar', 'No Social Media', 'L3', 'M', 'Practise B'
-  ]);
+  assert.equal(history.habitPriority('Gym'), 'health');
+  assert.equal(history.habitPriority('Chess practice'), 'career');
+  assert.equal(history.habitPriority('Book read and communication practice'), 'communication');
+  assert.equal(history.habitPriority('O'), 'career');
 });
 
 const september7 = [
