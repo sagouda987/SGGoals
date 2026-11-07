@@ -1,3 +1,4 @@
+import { chessTaskText } from '@/lib/goals/chess-migration';
 import { rejectStaleBuild } from '@/lib/goals/build-version';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
@@ -324,6 +325,17 @@ function composeStoredTaskNote(note: string | undefined, subtasks: GoalSubtaskIn
 
 export async function GET() {
   try {
+    // Idempotent, non-destructive cloud migration, serialized with normal saves.
+    await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ownerKey}))`;
+      const candidates = await tx.goalTask.findMany({ where: { ownerKey, scope: { in: scopes } } });
+      const renamed = candidates.filter(row => chessTaskText(row.text) !== row.text);
+      if (!renamed.length) return;
+      // Retain the complete original rows as a rollback snapshot before touching them.
+      const id = '__chess_migration_backup_v1__';
+      await tx.goalTask.upsert({ where: { id }, create: { id, ownerKey, scope: '__meta__', text: 'Pre-chess migration backup', priority: 'other', note: JSON.stringify(renamed) }, update: {} });
+      for (const row of renamed) await tx.goalTask.update({ where: { id: row.id }, data: { text: 'Chess', updatedAt: row.updatedAt } });
+    });
     const rows = await prisma.goalTask.findMany({
       where: { ownerKey },
       orderBy: [{ scope: 'asc' }, { position: 'asc' }]
@@ -395,7 +407,7 @@ export async function PUT(req: NextRequest) {
         id: task.id,
         ownerKey,
         scope,
-        text: task.text,
+        text: chessTaskText(task.text),
         note: composeStoredTaskNote(task.note, task.subtasks, task.weight, task.allowSubtasks),
         priority: task.priority,
         block: task.block || null,

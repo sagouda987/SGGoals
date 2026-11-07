@@ -16,7 +16,7 @@ const WEEKLY_SUMMARY_NOTE_PREFIX = 'weekly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
-const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'CHESSSTUDY', 'NOMB', 'NOSEX', 'EYECARE', 'BOOK', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
+const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'CHESSSTUDY', 'STUDY2', 'NOMB', 'NOSEX', 'EYECARE', 'BOOK', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -51,7 +51,7 @@ const habitLabels: Record<string, string> = {
   NOMB: "No masturbation (this week)",
   NOSEX: "No sex (this week)",
   BOOK: BOOK_SPEAKING_GENERIC_LABEL,
-  STUDY2: 'Study',
+  STUDY2: 'Chess',
   STUDY4H: 'Study for 4 hours',
   STUDY1H: 'Study for 1 hour',
   OFFICEWORK2: 'Office work',
@@ -170,13 +170,13 @@ function normalizeHabitCode(text: string) {
   if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
   if (compact === "CHESS:30PUZZLES(85%+ACCURACY)+3RAPID15+10+REVIEWLOSSES") return 'CHESSTARGET';
   if (compact === "CHESSENDGAME15MIN") return 'CHESSENDGAME';
-  if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)" || compact === "CHESSSTUDY:4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'CHESSSTUDY';
+  if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)" || compact === "CHESSSTUDY:4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'STUDY2';
   if (compact === "DBT/SQLSTUDY4HOURS(TODAY'STOPIC)") return 'DBTSQL';
   if (compact === "NOMASTURBATION(THISWEEK)") return 'NOMB';
   if (compact === "NOSEX(THISWEEK)") return 'NOSEX';
   if (isBookSpeakingText(text)) return 'BOOK';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
-  if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
+  if (compact === 'CHESS' || compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'STUDYFOR4HOURS' || compact === 'STUDY4HOURS') return 'STUDY4H';
   if (compact === 'STUDYFOR1HOUR' || compact === 'STUDY1HOUR') return 'STUDY1H';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
@@ -277,7 +277,7 @@ function buildMonthlySummaryPdf(summary: {
   ];
   summary.days.filter((day) => day.completedPoints || day.failedPoints || day.focusMinutes).forEach((day) => {
     const target = buildMustFocusDayProgress(day.dateKey, day.mustTaskFocusMinutes);
-    lines.push(`${day.dateKey} | Done ${day.completedPoints} | Failed ${day.failedPoints} | Focus ${day.focusMinutes}m | Target ${target.percent}% (${target.completedMinutes}/${target.targetMinutes}m, ${target.met}/3) | Office ${day.mustTaskFocusMinutes.OFFICEWORK2}m | Study ${day.mustTaskFocusMinutes.STUDY2}m | Book ${day.mustTaskFocusMinutes.BOOK}m | Gym ${day.mustTaskFocusMinutes.GYM}m`);
+    lines.push(`${day.dateKey} | Done ${day.completedPoints} | Failed ${day.failedPoints} | Focus ${day.focusMinutes}m | Target ${target.percent}% (${target.completedMinutes}/${target.targetMinutes}m, ${target.met}/2) | Office ${day.mustTaskFocusMinutes.OFFICEWORK2}m | Chess ${day.mustTaskFocusMinutes.STUDY2}m | Book ${day.mustTaskFocusMinutes.BOOK}m | Gym ${day.mustTaskFocusMinutes.GYM}m`);
   });
   const content = `BT\n/F1 8 Tf\n40 760 Td\n${lines.map((line, index) => `${index ? '0 -13 Td\n' : ''}(${escapePdfText(line)}) Tj`).join('\n')}\nET`;
   const objects = [

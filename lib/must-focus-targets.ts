@@ -1,8 +1,8 @@
 export const MUST_FOCUS_TARGET_START = '2026-09-04';
-export const MUST_FOCUS_TARGET_CODES = ['BOOK', 'GYM', 'STUDY2'] as const;
+export const MUST_FOCUS_TARGET_CODES = ['BOOK', 'STUDY2'] as const;
 export type MustFocusTargetCode = (typeof MUST_FOCUS_TARGET_CODES)[number];
-export const MUST_FOCUS_WEEKDAY_MINUTES = { BOOK: 30, GYM: 90, STUDY2: 300 };
-export const MUST_FOCUS_WEEKEND_MINUTES = { BOOK: 45, GYM: 120, STUDY2: 420 };
+export const MUST_FOCUS_WEEKDAY_MINUTES = { BOOK: 30, GYM: 0, STUDY2: 300 };
+export const MUST_FOCUS_WEEKEND_MINUTES = { BOOK: 45, GYM: 0, STUDY2: 420 };
 
 type FocusSession = { code: string; createdAt: string; minutes: number };
 
@@ -76,7 +76,7 @@ export function buildMustFocusDayProgress(dateKey: string, input: Partial<Record
   const creditedMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + Math.min(minutes[code], targets[code]), 0);
   const targetMinutes = MUST_FOCUS_TARGET_CODES.reduce((sum, code) => sum + targets[code], 0);
   const percent = tracked ? Math.floor(creditedMinutes / targetMinutes * 100) : 0;
-  return { dateKey, weekend, targets, minutes, completedMinutes, creditedMinutes, targetMinutes, tracked, met, percent, complete: met === 3 };
+  return { dateKey, weekend, targets, minutes, completedMinutes, creditedMinutes, targetMinutes, tracked, met, percent, complete: met === MUST_FOCUS_TARGET_CODES.length };
 }
 
 export function buildMustFocusTargetProgress(sessions: FocusSession[], todayKey: string) {

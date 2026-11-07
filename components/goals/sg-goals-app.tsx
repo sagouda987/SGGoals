@@ -1,5 +1,9 @@
 'use client';
 
+import { chessTaskText } from '@/lib/goals/chess-migration';
+
+import { DailyChessMetrics, DailySteps } from './daily-chess-metrics';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReviewConnectionStatus } from './connection-status';
 import { HistoryPointBreakdown } from './point-breakdown';
@@ -251,7 +255,7 @@ const HABIT_TASKS = [
   'No Social Media',
   'Manifestation',
   // 2) Chess & career
-  'Chess study: 4 hours (puzzles, games review, openings, endgames)',
+  'Chess',
   'Chess practice',
   'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses',
   'Chess endgame 15 min',
@@ -320,7 +324,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   NOMB: "No masturbation (this week)",
   NOSEX: "No sex (this week)",
   BOOK: BOOK_SPEAKING_GENERIC_LABEL,
-  STUDY2: 'Study',
+  STUDY2: 'Chess',
   STUDY4H: 'Study for 4 hours',
   STUDY1H: 'Study for 1 hour',
   OFFICEWORK2: 'Office work',
@@ -920,7 +924,7 @@ function formatIstClock(timestamp: number) {
   }).format(new Date(timestamp));
 }
 
-function normalizeStrikeCode(text: string) {
+function normalizeStrikeCode(text: string): StrikeCode | null {
   if (isBookSpeakingText(text)) return 'BOOK';
   const compact = text.trim().toUpperCase().replace(/\s+/g, '');
   if (compact === 'O') return 'O';
@@ -941,12 +945,12 @@ function normalizeStrikeCode(text: string) {
   if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
   if (compact === "CHESS:30PUZZLES(85%+ACCURACY)+3RAPID15+10+REVIEWLOSSES") return 'CHESSTARGET';
   if (compact === "CHESSENDGAME15MIN") return 'CHESSENDGAME';
-  if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)" || compact === "CHESSSTUDY:4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'CHESSSTUDY';
+  if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)" || compact === "CHESSSTUDY:4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'STUDY2';
   if (compact === "DBT/SQLSTUDY4HOURS(TODAY'STOPIC)") return 'DBTSQL';
   if (compact === "NOMASTURBATION(THISWEEK)") return 'NOMB';
   if (compact === "NOSEX(THISWEEK)") return 'NOSEX';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
-  if (compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
+  if (compact === 'CHESS' || compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'STUDYFOR4HOURS' || compact === 'STUDY4HOURS') return 'STUDY4H';
   if (compact === 'STUDYFOR1HOUR' || compact === 'STUDY1HOUR') return 'STUDY1H';
   if (compact === 'OFFICEWORK' || compact === 'OFFICEWORK2HOUR') return 'OFFICEWORK2';
@@ -1246,9 +1250,12 @@ function rewriteDroppedStudyTasks(store: GoalsStore): GoalsStore {
   let changed = false;
   const rewriteScope = (tasks: GoalTask[]) => {
     const nextTasks: GoalTask[] = [];
-    for (const task of tasks) {
+    for (const original of tasks) {
+      const task = { ...original, text: chessTaskText(original.text) };
+      if (task.text !== original.text) changed = true;
       if (isDroppedStudyRemoval(task.text)) {
         changed = true;
+        nextTasks.push({ ...task, text: 'Chess' });
         continue;
       }
       const next = DROPPED_STUDY_TASK_REWRITES[task.text];
@@ -3551,6 +3558,11 @@ export function SgGoalsApp() {
       return;
     }
 
+    const measuredCode = dailyPriorityStrikeCode(normalizeStrikeCode(currentTask.text));
+    if (scope === 'today' && (measuredCode === 'GYM' || measuredCode === 'STUDY2')) {
+      completeMeasuredTask(currentTask, measuredCode);
+      return;
+    }
     setTimingTask(currentTask);
     setTimingScope(scope);
     const now = new Date();
@@ -3574,7 +3586,22 @@ export function SgGoalsApp() {
     updateTimingPreview(guessedValue, nowValue);
   }
 
+  function completeMeasuredTask(task: GoalTask, code: 'GYM' | 'STUDY2') {
+    let metrics: { steps?: number; puzzles?: number } = {};
+    try { metrics = JSON.parse(window.localStorage.getItem(`sg-daily-metrics:${focusTargetDateKey}`) || '{}'); } catch {}
+    const minutes = dailyPriorityFocus.find(item => item.code === 'STUDY2')?.minutes || 0;
+    if (code === 'GYM' ? (metrics.steps || 0) < 10000 : (metrics.puzzles || 0) < 30 || minutes < mustFocusProgress.today.targets.STUDY2) {
+      window.alert(code === 'GYM' ? 'Reach 10,000 steps first.' : 'Complete 30 puzzles and your chess study time target first.'); return;
+    }
+    if (task.done) return;
+    const now = new Date().toISOString();
+    persist(current => ({ ...current, today: current.today.map(t => t.id === task.id ? { ...t, done: true, completedAt: now, updatedAt: now } : t) }));
+    appendActivity({ id: activityId(), scope: 'today', priority: task.priority, taskText: task.text, kind: 'completion', points: taskWeight(task), createdAt: now });
+  }
+
   function openMustTaskCompletion(task: GoalTask) {
+    const code = dailyPriorityStrikeCode(normalizeStrikeCode(task.text));
+    if (code === 'STUDY2' || code === 'GYM') { completeMeasuredTask(task, code); return; }
     if (task.done) return;
     const now = new Date();
     const nowValue = formatClock(now);
@@ -3894,7 +3921,7 @@ export function SgGoalsApp() {
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
       `Weekly plan: Main=${weeklyPlan.mainGoal || 'Not set'}; Study=${weeklyPlan.studyPlan || 'Not set'}; Work=${weeklyPlan.workPlan || 'Not set'}; Health=${weeklyPlan.healthPlan || 'Not set'}; Notes=${weeklyPlan.notes || 'None'}`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Language learn=${strikeCounts.language}, Gym=${strikeCounts.gym}, Book reading / Speaking practice (alternating daily; today: ${bookSpeakingLabel(currentDateKey)})=${strikeCounts.book}, Study=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Language learn=${strikeCounts.language}, Gym=${strikeCounts.gym}, Book reading / Speaking practice (alternating daily; today: ${bookSpeakingLabel(currentDateKey)})=${strikeCounts.book}, Chess=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
       `Next target (${formatMinutes(targetDurationMinutes)} timer): ${
         targetTasks.length
           ? targetTasks.map((task) => `${task.text}${targetTaskMinutes[task.id] ? ` (${targetTaskMinutes[task.id]}m)` : ''}`).join(', ')
@@ -4382,7 +4409,7 @@ export function SgGoalsApp() {
               </div>
             </div>
             <div className="text-left sm:text-right">
-              <p className="text-xs font-bold" style={{ color: targetDay.complete ? '#00d97e' : '#f7a04f' }}>{targetDay.met}/3 time targets met</p>
+              <p className="text-xs font-bold" style={{ color: targetDay.complete ? '#00d97e' : '#f7a04f' }}>{targetDay.met}/2 time targets met</p>
               <p className="mt-1 text-[10px] text-[#8b8bb3]">{targetDay.weekend ? 'Weekend' : 'Weekday'} · IST</p>
               <p className="mt-1 text-[10px] text-[#8b8bb3]">{targetDay.complete ? 'Day achieved' : mustFocusProgress.current ? 'Streak pending today' : 'In progress'}</p>
             </div>
@@ -4398,10 +4425,10 @@ export function SgGoalsApp() {
               <p className="text-[10px] font-bold text-[#8b8bb3]">{targetDay.percent}% complete</p>
             </div>
           </div>
-          <p className="mt-3 text-[10px] text-[#8b8bb3]">Book or speaking / Gym / Study · saved focus</p>
+          <p className="mt-3 text-[10px] text-[#8b8bb3]">Book or speaking / Steps / Chess · saved focus</p>
           <div className="mt-3 grid grid-cols-[repeat(14,minmax(0,1fr))] gap-1" role="img" aria-label="Last 14 days of daily time-target progress">
             {mustFocusProgress.history.map((day) => {
-              const summary = `${day.dateKey}: ${day.tracked ? `${day.met}/3 targets met, ${day.percent}% time complete, ${day.completedMinutes}/${day.targetMinutes} minutes recorded. ${MUST_FOCUS_TARGET_CODES.map((code) => `${habitLabelForDay(code, day.dateKey)} ${day.minutes[code]}/${day.targets[code]} minutes`).join('; ')}` : 'Before target tracking began'}`;
+              const summary = `${day.dateKey}: ${day.tracked ? `${day.met}/2 targets met, ${day.percent}% time complete, ${day.completedMinutes}/${day.targetMinutes} minutes recorded. ${MUST_FOCUS_TARGET_CODES.map((code) => `${habitLabelForDay(code, day.dateKey)} ${day.minutes[code]}/${day.targets[code]} minutes`).join('; ')}` : 'Before target tracking began'}`;
               return (
                 <div key={day.dateKey} title={summary} aria-label={summary} className="min-w-0">
                   <div className={`relative h-20 overflow-hidden rounded-sm border ${day.dateKey === focusTargetDateKey ? 'border-[#8b8bb3]' : 'border-[#24243e]'} ${day.tracked ? 'bg-[#1a1a30]' : 'bg-transparent'}`}>
@@ -4421,6 +4448,7 @@ export function SgGoalsApp() {
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {dailyPriorityFocus.map((item) => {
+            if (item.code === 'GYM') return <DailySteps key={item.code} dateKey={focusTargetDateKey} done={Boolean(item.task?.done)} onComplete={() => { if (item.task) completeMeasuredTask(item.task, 'GYM'); }} />;
             const sharePct = todayFocus.focusMinutes ? Math.min(100, Math.round((item.minutes / todayFocus.focusMinutes) * 100)) : 0;
             const targetCode = (MUST_FOCUS_TARGET_CODES as readonly string[]).includes(item.code) ? item.code as MustFocusTargetCode : null;
             const targetMinutes = targetCode ? targetDay.targets[targetCode] : null;
@@ -4432,6 +4460,7 @@ export function SgGoalsApp() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="break-words text-xs font-bold text-[#e8e8f5]">{item.label}</p>
+                    {item.code === 'STUDY2' ? <DailyChessMetrics dateKey={focusTargetDateKey} studyMinutes={item.minutes} done={Boolean(item.task?.done)} onComplete={() => { if (item.task) completeMeasuredTask(item.task, 'STUDY2'); }} /> : null}
                     <p className="mt-1 text-lg font-bold" style={{ color: item.color }}>{formatMinutes(item.minutes) || '0m'}{targetMinutes ? <span className="text-xs font-normal text-[#8b8bb3]"> / {formatMinutes(targetMinutes)}</span> : null}</p>
                     {item.isActive ? <p className="mt-0.5 font-mono text-[10px] text-[#00d97e]">+ {formatElapsed(item.liveElapsedMs)} live</p> : null}
                   </div>
@@ -4720,7 +4749,7 @@ export function SgGoalsApp() {
                 </div>
                 <div className="mt-2 w-full max-w-full overflow-x-auto">
                   <svg viewBox="0 0 740 150" className="h-40 w-[620px] max-w-none" role="img" aria-label="Must-task completed focus time line graph by day">
-                    <title>Office work, study, book and communication, and gym focus time by day</title>
+                    <title>Office work, chess, book and communication, and historical gym focus time by day</title>
                     {[20, 69, 118].map((y) => (
                       <line key={`must-focus-grid-${y}`} x1="36" x2="704" y1={y} y2={y} stroke="#24243e" strokeWidth="1" />
                     ))}
@@ -4892,7 +4921,7 @@ export function SgGoalsApp() {
             <div className="grid grid-cols-3 gap-2">
             {[
               { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Daily priority - Office work complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
-              { key: 'STUDY2' as const, label: 'Study count', rule: 'Daily priority - Study complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
+              { key: 'STUDY2' as const, label: 'Chess count', rule: 'Daily priority - Chess complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
               { key: 'BOOK' as const, label: 'Book / speaking count', rule: `Daily priority - ${bookSpeakingLabel(currentDateKey)} complete (alternates daily)`, color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
               { key: 'GYM' as const, label: 'Gym count', rule: 'Daily priority - Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
               { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
