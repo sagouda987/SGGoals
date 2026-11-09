@@ -1655,14 +1655,14 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
 
 // Weekly highlight card on the main page. Update each week.
 const WEEK_TARGETS = {
-  title: "This week's targets (Nov 4–9)",
+  title: "This week's targets (Nov 9-15)",
   items: [
-    { label: 'Chess', text: 'Rapid 1779 → 1820 by Sun Nov 9' },
-    { label: 'Chess daily', text: '30 puzzles + 3 rapid games (15+10), review every loss, zero bullet' },
-    { label: 'Chess habit', text: 'Before every move check all checks + is destination square safe; 0 hung pieces in rapid' },
-    { label: 'Health', text: 'Gym 5+ days, bed by 11 PM nightly, Sunday weigh-in (goal 68 kg)' },
+    { label: 'Chess', text: 'Play the BRDCA Rapid on Sat 14 Nov, 8 AM-5 PM, at Sri Manjunath Kalyana Mantapa, Katamnallur Gate' },
+    { label: 'Chess daily', text: '30 puzzles + study-time target, blitz is the rating focus (rapid secondary), zero bullet' },
+    { label: 'Chess habit', text: 'Before every move check all checks + is destination square safe; 0 hung pieces' },
+    { label: 'Health', text: '10,000 steps daily, bed by 11 PM nightly, Sunday weigh-in (goal 68 kg)' },
     { label: 'Office', text: 'Finish top-priority Deloitte task daily before chess' },
-    { label: 'Mind', text: '30 min reading + 10 min meditation daily' },
+    { label: 'Mind', text: '30 min reading + communication weekdays (45 weekends), 10 min meditation daily' },
   ],
 };
 
