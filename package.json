@@ -24,7 +24,8 @@
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
     "postinstall": "node scripts/postinstall.js",
-    "test:chess": "tsx scripts/chess-goals.test.ts && tsx scripts/must-focus-targets.test.ts"
+    "test:chess": "tsx scripts/chess-goals.test.ts && tsx scripts/must-focus-targets.test.ts",
+    "test:office-subtasks": "tsx scripts/office-subtasks.test.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.10.0",

@@ -48,6 +48,7 @@ import {
 } from '@/lib/goals/expense-budget';
 import { buildRecentSummary, formatIstTime, formatTrackedMinutes, type RecentWindowMode } from '@/lib/goals/recent-activity';
 import { BOOK_SPEAKING_GENERIC_LABEL, LEGACY_BOOK_LABEL, bookSpeakingLabel, bookSpeakingTaskText, isBookSpeakingText } from '@/lib/goals/book-speaking';
+import { OFFICE_SUBTASK_EMPTY_PROMPT, OFFICE_SUBTASK_PLACEHOLDER, carryUnfinishedOfficeSubtasks, isOfficeWorkText, officeWorkSubtasksComplete, unfinishedOfficeSubtasksFrom, withOfficeWorkDayState } from '@/lib/goals/office-subtasks';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
 import { calculateBedtimeRemaining, calculateWakeTimer, formatWakeCountdown, istCalendarDateKey, istTimeInput, type WakeLog } from '@/lib/wake-timer';
@@ -423,7 +424,7 @@ const starterStore: GoalsStore = {
   today: [
     makeTask('Pray', 'Morning ritual', 'health', 'morning'),
     makeTask('Gym workout', '45 min', 'health', 'morning'),
-    makeTask('Office work - zero escalation', 'Focus block', 'career', 'afternoon'),
+    makeTask('Office work - zero escalation', 'Focus block', 'career', 'afternoon', true),
     makeTask('Chess study: 4 hours (puzzles, games review, openings, endgames)', 'Replace study slot', 'career', 'evening'),
     makeTask('Book read + communication practice', '30 min weekdays, 45 weekends', 'communication', 'evening'),
     makeTask('Skin care - night', 'Routine', 'looks', 'evening')
@@ -1036,6 +1037,7 @@ function completedFocusMinutes(activities: GoalActivity[]) {
 }
 
 function allowsSubtasks(task: GoalTask) {
+  if (isOfficeWorkText(task.text)) return true;
   const code = normalizeStrikeCode(task.text);
   if (code && NO_SUBTASK_STRIKE_CODES.includes(code)) return false;
   return task.allowSubtasks === true || Boolean(task.subtasks?.length);
@@ -1354,8 +1356,21 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
     const code = normalizeStrikeCode(text);
     return code && !existingHabits.has(code) && !failedHabitCodesToday.has(code);
   });
+  const nowIso = new Date().toISOString();
   const withMissing = missingHabits.length
-    ? [...today, ...missingHabits.map((text) => makeTask(text, undefined, habitPriority(text), habitBlock(text), false, defaultHabitWeight(text)))]
+    ? [
+        ...today,
+        ...missingHabits.map((text) => {
+          const allow = isOfficeWorkText(text);
+          const task = makeTask(text, undefined, habitPriority(text), habitBlock(text), allow, defaultHabitWeight(text));
+          if (!allow) return task;
+          return {
+            ...task,
+            allowSubtasks: true,
+            subtasks: unfinishedOfficeSubtasksFrom([...today, ...store.tomorrow], nowIso, cryptoSafeId)
+          };
+        })
+      ]
     : today;
   if (missingHabits.length) changed = true;
   const sortedToday = [...withMissing].sort((a, b) => {
@@ -1368,10 +1383,13 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
   });
   const orderChanged = sortedToday.some((task, index) => task.id !== withMissing[index]?.id);
   if (orderChanged) changed = true;
+  const officeAdjusted = sortedToday.map((task) => withOfficeWorkDayState(task, todayKey, nowIso));
+  const officeChanged = officeAdjusted.some((task, index) => task !== sortedToday[index]);
+  if (officeChanged) changed = true;
   if (!changed) return store;
   return {
     ...store,
-    today: sortedToday
+    today: officeAdjusted
   };
 }
 
@@ -1729,6 +1747,7 @@ export function SgGoalsApp() {
   const [draft, setDraft] = useState({ text: '', note: '', dueTime: '', priority: 'career' as Priority, block: 'morning' as Block, allowSubtasks: false, weight: '1' });
   const [tomorrowDraft, setTomorrowDraft] = useState({ text: '', note: '', dueTime: '' });
   const [subtaskDrafts, setSubtaskDrafts] = useState<Record<string, string>>({});
+  const [editingSubtask, setEditingSubtask] = useState<{ taskId: string; subtaskId: string; text: string } | null>(null);
   const [habitCheckState, setHabitCheckState] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [extraFocusCode, setExtraFocusCode] = useState<keyof MustTaskFocusMinutes | null>(null);
   const [extraMinutesDraft, setExtraMinutesDraft] = useState('');
@@ -3101,11 +3120,11 @@ export function SgGoalsApp() {
       if (editing) {
         next[scope] = current[scope].map((task) =>
           task.id === editing.id
-            ? { ...task, text, note, priority, block: taskBlock, weight, allowSubtasks: draft.allowSubtasks, updatedAt: new Date().toISOString() }
+            ? { ...task, text, note, priority, block: taskBlock, weight, allowSubtasks: isOfficeWorkText(text) ? true : draft.allowSubtasks, updatedAt: new Date().toISOString() }
             : task
         );
       } else {
-        next[scope] = [...current[scope], makeTask(text, note, priority, taskBlock, draft.allowSubtasks, weight)];
+        next[scope] = [...current[scope], makeTask(text, note, priority, taskBlock, isOfficeWorkText(text) ? true : draft.allowSubtasks, weight)];
       }
       return next;
     });
@@ -3530,7 +3549,7 @@ export function SgGoalsApp() {
   function beginEdit(task: GoalTask) {
     const noteInfo = splitTaskNote(task.note);
     setEditing(task);
-    setDraft({ text: task.text, note: noteInfo.note || '', dueTime: noteInfo.dueTime, priority: task.priority, block: task.block || 'morning', allowSubtasks: task.allowSubtasks !== false, weight: String(taskWeight(task)) });
+    setDraft({ text: task.text, note: noteInfo.note || '', dueTime: noteInfo.dueTime, priority: task.priority, block: task.block || 'morning', allowSubtasks: isOfficeWorkText(task.text) || task.allowSubtasks !== false, weight: String(taskWeight(task)) });
   }
 
   function toggleTask(taskId: string) {
@@ -3558,6 +3577,10 @@ export function SgGoalsApp() {
       return;
     }
 
+    if (isOfficeWorkText(currentTask.text) && !officeWorkSubtasksComplete(currentTask.subtasks)) {
+      window.alert("Add and tick today's office subtasks first. Office work is done when every subtask is ticked.");
+      return;
+    }
     const measuredCode = dailyPriorityStrikeCode(normalizeStrikeCode(currentTask.text));
     if (scope === 'today' && (measuredCode === 'GYM' || measuredCode === 'STUDY2')) {
       completeMeasuredTask(currentTask, measuredCode);
@@ -3603,6 +3626,10 @@ export function SgGoalsApp() {
     const code = dailyPriorityStrikeCode(normalizeStrikeCode(task.text));
     if (code === 'STUDY2' || code === 'GYM') { completeMeasuredTask(task, code); return; }
     if (task.done) return;
+    if (isOfficeWorkText(task.text) && !officeWorkSubtasksComplete(task.subtasks)) {
+      window.alert("Add and tick today's office subtasks first. Office work is done when every subtask is ticked.");
+      return;
+    }
     const now = new Date();
     const nowValue = formatClock(now);
     setTimingTask(task);
@@ -3648,22 +3675,33 @@ export function SgGoalsApp() {
           .filter((task) => isHabitTask(task.text))
           .map((task) => [normalizeStrikeCode(task.text), task])
       );
+      const nowIso = new Date().toISOString();
       const freshHabits = habitTasksFor(currentDateKey).map((text) => {
         const existing = existingHabits.get(normalizeStrikeCode(text));
-        return existing
-          ? {
-              ...existing,
-              text,
-              block: habitBlock(text),
-              priority: habitPriority(text),
-              weight: existing.weight ?? defaultHabitWeight(text),
-              done: false,
-              startedAt: undefined,
-              completedAt: undefined,
-              investedMinutes: undefined,
-              updatedAt: new Date().toISOString()
-            }
-          : makeTask(text, undefined, habitPriority(text), habitBlock(text), false, defaultHabitWeight(text));
+        const allowOffice = isOfficeWorkText(text);
+        if (existing) {
+          return {
+            ...existing,
+            text,
+            block: habitBlock(text),
+            priority: habitPriority(text),
+            weight: existing.weight ?? defaultHabitWeight(text),
+            allowSubtasks: allowOffice ? true : existing.allowSubtasks,
+            subtasks: allowOffice ? carryUnfinishedOfficeSubtasks(existing.subtasks, nowIso, cryptoSafeId) : existing.subtasks,
+            done: false,
+            startedAt: undefined,
+            completedAt: undefined,
+            investedMinutes: undefined,
+            updatedAt: nowIso
+          };
+        }
+        const task = makeTask(text, undefined, habitPriority(text), habitBlock(text), allowOffice, defaultHabitWeight(text));
+        if (!allowOffice) return task;
+        return {
+          ...task,
+          allowSubtasks: true,
+          subtasks: unfinishedOfficeSubtasksFrom([...current.today, ...current.tomorrow], nowIso, cryptoSafeId)
+        };
       });
       return { ...current, today: [...remainingTasks, ...freshHabits] };
     });
@@ -3786,67 +3824,98 @@ export function SgGoalsApp() {
     if (editing?.id === taskId) resetDraft();
   }
 
-  function addSubtask(taskId: string) {
+  function syncOfficeWorkAfterSubtasks(previous: GoalTask, updated: GoalTask) {
+    if (!isOfficeWorkText(updated.text)) return { task: updated, flip: null as 'completion' | 'undo' | null };
+    const complete = officeWorkSubtasksComplete(updated.subtasks);
+    const now = new Date().toISOString();
+    if (complete && !previous.done) {
+      return { task: { ...updated, done: true, completedAt: now, updatedAt: now }, flip: 'completion' as const };
+    }
+    if (!complete && previous.done) {
+      return {
+        task: { ...updated, done: false, startedAt: undefined, completedAt: undefined, investedMinutes: undefined, updatedAt: now },
+        flip: 'undo' as const
+      };
+    }
+    return { task: updated, flip: null as 'completion' | 'undo' | null };
+  }
+
+  function mutateSubtasks(taskId: string, mutator: (task: GoalTask) => GoalTask) {
     const parentTask = store[scope].find((task) => task.id === taskId);
     if (!parentTask || !allowsSubtasks(parentTask)) return;
-    const text = subtaskDrafts[taskId]?.trim();
-    if (!text) return;
+    const synced = syncOfficeWorkAfterSubtasks(parentTask, mutator(parentTask));
     persist((current) => ({
       ...current,
-      [scope]: current[scope].map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              subtasks: [...(task.subtasks || []), { id: cryptoSafeId(), text, done: false, updatedAt: new Date().toISOString() }],
-              updatedAt: new Date().toISOString()
-            }
-          : task
-      )
+      [scope]: current[scope].map((task) => (task.id === taskId ? syncOfficeWorkAfterSubtasks(task, mutator(task)).task : task))
+    }));
+    if (!synced.flip) return;
+    appendActivity({
+      id: activityId(),
+      scope,
+      priority: synced.task.priority,
+      taskText: synced.task.text,
+      kind: synced.flip,
+      note: splitTaskNote(synced.task.note).note,
+      points: taskWeight(synced.task),
+      completedAt: synced.flip === 'completion' ? synced.task.completedAt : undefined,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  function addSubtask(taskId: string) {
+    const text = subtaskDrafts[taskId]?.trim();
+    if (!text) return;
+    const now = new Date().toISOString();
+    mutateSubtasks(taskId, (task) => ({
+      ...task,
+      subtasks: [...(task.subtasks || []), { id: cryptoSafeId(), text, done: false, updatedAt: now }],
+      updatedAt: now
     }));
     setSubtaskDrafts((current) => ({ ...current, [taskId]: '' }));
   }
 
   function toggleSubtask(taskId: string, subtaskId: string) {
-    const parentTask = store[scope].find((task) => task.id === taskId);
-    if (!parentTask || !allowsSubtasks(parentTask)) return;
-    persist((current) => ({
-      ...current,
-      [scope]: current[scope].map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              subtasks: (task.subtasks || []).map((subtask) =>
-                subtask.id === subtaskId
-                  ? (() => {
-                      const changedAt = new Date().toISOString();
-                      return subtask.done
-                        ? { ...subtask, done: false, completedAt: undefined, updatedAt: changedAt }
-                        : { ...subtask, done: true, completedAt: changedAt, updatedAt: changedAt };
-                    })()
-                  : subtask
-              ),
-              updatedAt: new Date().toISOString()
-            }
-          : task
-      )
-    }));
+    mutateSubtasks(taskId, (task) => {
+      const changedAt = new Date().toISOString();
+      return {
+        ...task,
+        subtasks: (task.subtasks || []).map((subtask) =>
+          subtask.id === subtaskId
+            ? subtask.done
+              ? { ...subtask, done: false, completedAt: undefined, updatedAt: changedAt }
+              : { ...subtask, done: true, completedAt: changedAt, updatedAt: changedAt }
+            : subtask
+        ),
+        updatedAt: changedAt
+      };
+    });
   }
 
   function deleteSubtask(taskId: string, subtaskId: string) {
-    const parentTask = store[scope].find((task) => task.id === taskId);
-    if (!parentTask || !allowsSubtasks(parentTask)) return;
-    persist((current) => ({
-      ...current,
-      [scope]: current[scope].map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              subtasks: (task.subtasks || []).filter((subtask) => subtask.id !== subtaskId),
-              updatedAt: new Date().toISOString()
-            }
-          : task
-      )
+    const now = new Date().toISOString();
+    mutateSubtasks(taskId, (task) => ({
+      ...task,
+      subtasks: (task.subtasks || []).filter((subtask) => subtask.id !== subtaskId),
+      updatedAt: now
     }));
+    setEditingSubtask((current) => (current?.taskId === taskId && current.subtaskId === subtaskId ? null : current));
+  }
+
+  function saveSubtaskText(taskId: string, subtaskId: string, rawText: string) {
+    const text = rawText.trim();
+    if (!text) {
+      setEditingSubtask(null);
+      return;
+    }
+    const now = new Date().toISOString();
+    mutateSubtasks(taskId, (task) => ({
+      ...task,
+      subtasks: (task.subtasks || []).map((subtask) =>
+        subtask.id === subtaskId && subtask.text !== text ? { ...subtask, text, updatedAt: now } : subtask
+      ),
+      updatedAt: now
+    }));
+    setEditingSubtask(null);
   }
 
   function resetAll() {
@@ -5448,6 +5517,9 @@ export function SgGoalsApp() {
                             </button>
                           </div>
                         </div>
+                        {isOfficeWorkText(task.text) && !targetSubtasks.length ? (
+                          <p className="mt-3 text-[11px] text-[#8b8bb3]">{OFFICE_SUBTASK_EMPTY_PROMPT}</p>
+                        ) : null}
                         {targetSubtasks.length ? (
                           <div className="mt-3 space-y-1.5 rounded-lg border border-[#1a1a30] bg-[#0b0b18] p-2">
                             {targetSubtasks.map((subtask) => (
@@ -6349,7 +6421,9 @@ export function SgGoalsApp() {
                               <div className="space-y-2 border-t border-[#1a1a30] bg-[#0b0b18] px-4 py-3">
                                 {subtasks.length ? (
                                   <div className="space-y-1.5">
-                                    {subtasks.map((subtask) => (
+                                    {subtasks.map((subtask) => {
+                                      const editDraft = editingSubtask?.taskId === task.id && editingSubtask.subtaskId === subtask.id ? editingSubtask : null;
+                                      return (
                                       <div key={subtask.id} className="flex items-center gap-2 rounded-lg border border-[#1a1a30] bg-[#0f0f1d] px-2 py-2">
                                         <button
                                           type="button"
@@ -6359,13 +6433,41 @@ export function SgGoalsApp() {
                                         >
                                           {subtask.done ? <Check className="h-3.5 w-3.5" /> : null}
                                         </button>
-                                        <span className={`min-w-0 flex-1 text-xs ${subtask.done ? 'text-[#52527a] line-through' : 'text-[#c8c8ee]'}`}>{subtask.text}</span>
+                                        {editDraft ? (
+                                          <input
+                                            autoFocus
+                                            value={editDraft.text}
+                                            onChange={(event) => setEditingSubtask({ taskId: task.id, subtaskId: subtask.id, text: event.target.value })}
+                                            onBlur={() => saveSubtaskText(task.id, subtask.id, editDraft.text)}
+                                            onKeyDown={(event) => {
+                                              if (event.key === 'Enter') {
+                                                event.preventDefault();
+                                                saveSubtaskText(task.id, subtask.id, editDraft.text);
+                                              }
+                                              if (event.key === 'Escape') setEditingSubtask(null);
+                                            }}
+                                            className="min-w-0 flex-1 rounded-md border border-[#4f8ef7] bg-[#07070f] px-2 py-1 text-xs text-[#c8c8ee] outline-none"
+                                            aria-label="Edit subtask"
+                                          />
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => setEditingSubtask({ taskId: task.id, subtaskId: subtask.id, text: subtask.text })}
+                                            className={`min-w-0 flex-1 text-left text-xs ${subtask.done ? 'text-[#52527a] line-through' : 'text-[#c8c8ee]'}`}
+                                            aria-label={`Edit subtask ${subtask.text}`}
+                                          >
+                                            {subtask.text}
+                                          </button>
+                                        )}
                                         <button type="button" onClick={() => deleteSubtask(task.id, subtask.id)} className="rounded-md px-2 py-1 text-[#ff6b6b]" aria-label="Delete subtask">
                                           <Trash2 className="h-3.5 w-3.5" />
                                         </button>
                                       </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
+                                ) : isOfficeWorkText(task.text) ? (
+                                  <p className="text-[11px] text-[#8b8bb3]">{OFFICE_SUBTASK_EMPTY_PROMPT}</p>
                                 ) : null}
                                 <div className="flex gap-2">
                                   <input
@@ -6374,7 +6476,7 @@ export function SgGoalsApp() {
                                     onKeyDown={(event) => {
                                       if (event.key === 'Enter') addSubtask(task.id);
                                     }}
-                                    placeholder="+ Add subtask"
+                                    placeholder={isOfficeWorkText(task.text) ? OFFICE_SUBTASK_PLACEHOLDER : '+ Add subtask'}
                                     className="min-w-0 flex-1 rounded-lg border border-[#1a1a30] bg-[#07070f] px-3 py-2 text-xs outline-none placeholder:text-[#52527a] focus:border-[#4f8ef7]"
                                   />
                                   <button type="button" onClick={() => addSubtask(task.id)} className="rounded-lg border border-[#4f8ef740] px-3 py-2 text-xs font-bold text-[#4f8ef7]">
@@ -6430,6 +6532,9 @@ export function SgGoalsApp() {
             </label>
             <div>
               <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Subtasks</p>
+              {isOfficeWorkText(draft.text) ? (
+                <p className="rounded-lg border border-[#4f8ef740] bg-[#4f8ef715] px-3 py-2 text-xs text-[#8b8bb3]">Office work always has a daily subtask list.</p>
+              ) : (
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { value: true, label: 'Need subtasks' },
@@ -6450,6 +6555,7 @@ export function SgGoalsApp() {
                   );
                 })}
               </div>
+              )}
             </div>
             {scope !== 'today' && scope !== 'weekend' ? (
               <div>
