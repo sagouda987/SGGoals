@@ -6,6 +6,7 @@ import { buildMustFocusDayProgress, istFocusDateKey } from '@/lib/must-focus-tar
 import { generateAndStoreDailyReview } from '@/lib/ai/daily-review-store';
 import { purgeClosedExpenseMonthsInDb } from '@/lib/goals/expense-purge-prisma';
 import { BOOK_SPEAKING_GENERIC_LABEL, bookSpeakingLabel, bookSpeakingTaskTextVariants, isBookSpeakingText } from '@/lib/goals/book-speaking';
+import { mappedDuplicateHabitCode } from '@/lib/goals/habit-dedupe';
 
 const ownerKey = 'default';
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -16,7 +17,7 @@ const WEEKLY_SUMMARY_NOTE_PREFIX = 'weekly-summary:';
 const MONTHLY_SUMMARY_RECIPIENT = 'gouda3859@gmail.com';
 const MONTHLY_RESET_DAY = 1;
 const DAILY_PRIORITY_FOCUS_KEYS = ['OFFICEWORK2', 'STUDY2', 'BOOK', 'GYM'] as const;
-const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'CHESSSTUDY', 'STUDY2', 'NOMB', 'NOSEX', 'EYECARE', 'BOOK', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
+const ACTIVE_HABIT_CODES = new Set(['O', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREEVENING', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'CHESSSTUDY', 'STUDY2', 'NOMB', 'EYECARE', 'BOOK', 'OFFICEWORK2', 'SLEEP', 'NOJUNK', 'NOSUGAR', 'PRACTISEB', 'NOSOCIAL', 'MANIFEST']);
 type MustTaskFocusMinutes = Record<(typeof DAILY_PRIORITY_FOCUS_KEYS)[number], number>;
 
 function emptyMustTaskFocusMinutes(): MustTaskFocusMinutes {
@@ -40,7 +41,7 @@ const habitLabels: Record<string, string> = {
   HEALTHYDRINKMORNING: 'Healthy drink morning',
   HEALTHYDRINKEVENING: 'Healthy drink evening',
   SKINCAREMORNING: 'Morning skin care',
-  SKINCAREEVENING: 'Evening skin care',
+  SKINCAREEVENING: 'Night skin care',
   ICESKINCARE: 'Ice skin care',
   YOUTUBEVIDEO: 'YouTube video creation',
   CHESSPRACTICE: 'Chess practice',
@@ -163,17 +164,14 @@ function normalizeHabitCode(text: string) {
   if (compact === 'GYM') return 'GYM';
   if (compact === 'HEALTHYDRINKMORNING') return 'HEALTHYDRINKMORNING';
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
-  if (compact === 'MORNINGSKINCARE' || compact === 'SKINCAREMORNING') return 'SKINCAREMORNING';
-  if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
-  if (compact === 'ICESKINCARE') return 'ICESKINCARE';
+  const duplicateCode = mappedDuplicateHabitCode(text);
+  if (duplicateCode) return duplicateCode;
   if (compact === 'YOUTUBEVIDEOCREATION' || compact === 'YOUTUBEVIDEO') return 'YOUTUBEVIDEO';
   if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
   if (compact === "CHESS:30PUZZLES(85%+ACCURACY)+3RAPID15+10+REVIEWLOSSES") return 'CHESSTARGET';
   if (compact === "CHESSENDGAME15MIN") return 'CHESSENDGAME';
   if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)" || compact === "CHESSSTUDY:4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'STUDY2';
   if (compact === "DBT/SQLSTUDY4HOURS(TODAY'STOPIC)") return 'DBTSQL';
-  if (compact === "NOMASTURBATION(THISWEEK)") return 'NOMB';
-  if (compact === "NOSEX(THISWEEK)") return 'NOSEX';
   if (isBookSpeakingText(text)) return 'BOOK';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
   if (compact === 'CHESS' || compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';

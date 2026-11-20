@@ -1,6 +1,7 @@
 'use client';
 
 import { chessTaskText } from '@/lib/goals/chess-migration';
+import { dedupeHabitStore, mappedDuplicateHabitCode } from '@/lib/goals/habit-dedupe';
 
 import { DailyChessMetrics, DailySteps } from './daily-chess-metrics';
 
@@ -245,12 +246,9 @@ const HABIT_TASKS = [
   'Eye care',
   'Wake up before 8',
   'No masturbation (this week)',
-  'No sex (this week)',
   'Healthy drink morning',
   'Healthy drink evening',
-  'Morning skin care',
-  'Evening skin care',
-  'Ice skin care',
+  'Night skin care',
   'No junk food',
   'No sugar',
   'No Social Media',
@@ -285,6 +283,8 @@ const REMOVED_HABIT_TASKS = [
   'B',
   'Salt water gargle',
   'No E',
+  'Morning skin care',
+  'Ice skin care',
   'Study',
   'Study for 4 hours',
   'Study for 1 hour',
@@ -314,7 +314,7 @@ const habitLabels: Partial<Record<StrikeCode, string>> = {
   HEALTHYDRINKMORNING: 'Healthy drink morning',
   HEALTHYDRINKEVENING: 'Healthy drink evening',
   SKINCAREMORNING: 'Morning skin care',
-  SKINCAREEVENING: 'Evening skin care',
+  SKINCAREEVENING: 'Night skin care',
   ICESKINCARE: 'Ice skin care',
   YOUTUBEVIDEO: 'YouTube video creation',
   CHESSPRACTICE: 'Chess practice',
@@ -426,8 +426,7 @@ const starterStore: GoalsStore = {
     makeTask('Gym workout', '45 min', 'health', 'morning'),
     makeTask('Office work - zero escalation', 'Focus block', 'career', 'afternoon', true),
     makeTask('Chess study: 4 hours (puzzles, games review, openings, endgames)', 'Replace study slot', 'career', 'evening'),
-    makeTask('Book read + communication practice', '30 min weekdays, 45 weekends', 'communication', 'evening'),
-    makeTask('Skin care - night', 'Routine', 'looks', 'evening')
+    makeTask('Book read + communication practice', '30 min weekdays, 45 weekends', 'communication', 'evening')
   ],
   weekly: [
     makeTask('Gym minimum 4 times this week', undefined, 'health'),
@@ -939,17 +938,14 @@ function normalizeStrikeCode(text: string): StrikeCode | null {
   if (compact === 'GYM') return 'GYM';
   if (compact === 'HEALTHYDRINKMORNING') return 'HEALTHYDRINKMORNING';
   if (compact === 'HEALTHYDRINKEVENING') return 'HEALTHYDRINKEVENING';
-  if (compact === 'MORNINGSKINCARE' || compact === 'SKINCAREMORNING') return 'SKINCAREMORNING';
-  if (compact === 'EVENINGSKINCARE' || compact === 'SKINCAREEVENING') return 'SKINCAREEVENING';
-  if (compact === 'ICESKINCARE') return 'ICESKINCARE';
+  const duplicateCode = mappedDuplicateHabitCode(text);
+  if (duplicateCode) return duplicateCode;
   if (compact === 'YOUTUBEVIDEOCREATION' || compact === 'YOUTUBEVIDEO') return 'YOUTUBEVIDEO';
   if (compact === 'CHESSPRACTICE') return 'CHESSPRACTICE';
   if (compact === "CHESS:30PUZZLES(85%+ACCURACY)+3RAPID15+10+REVIEWLOSSES") return 'CHESSTARGET';
   if (compact === "CHESSENDGAME15MIN") return 'CHESSENDGAME';
   if (compact === "CHESSSTUDY4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)" || compact === "CHESSSTUDY:4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)") return 'STUDY2';
   if (compact === "DBT/SQLSTUDY4HOURS(TODAY'STOPIC)") return 'DBTSQL';
-  if (compact === "NOMASTURBATION(THISWEEK)") return 'NOMB';
-  if (compact === "NOSEX(THISWEEK)") return 'NOSEX';
   if (compact === 'BOOKREAD' || compact === 'BOOKREADANDCOMMUNICATIONPRACTICE') return 'BOOK';
   if (compact === 'CHESS' || compact === 'STUDY' || compact === 'STUDY2HOUR') return 'STUDY2';
   if (compact === 'STUDYFOR4HOURS' || compact === 'STUDY4HOURS') return 'STUDY4H';
@@ -1297,7 +1293,7 @@ function mergeCloudActivities(cloud: GoalActivity[], local: GoalActivity[]) {
 }
 
 function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = [], todayKey = toIstDateKey()): GoalsStore {
-  store = rewriteDroppedStudyTasks(store);
+  store = dedupeHabitStore(rewriteDroppedStudyTasks(store));
   const dayHabitTasks = habitTasksFor(todayKey);
   const canonicalHabitText = new Map(dayHabitTasks.map((text) => [normalizeStrikeCode(text), text]));
   const failedHabitCodesToday = new Set(

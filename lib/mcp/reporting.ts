@@ -1,4 +1,5 @@
 import { isBookSpeakingText } from '@/lib/goals/book-speaking';
+import { mappedDuplicateHabitCode } from '@/lib/goals/habit-dedupe';
 import { buildAIContextFromRecords, type AIContextTask } from '@/lib/ai/context';
 import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { dailyHabitPointEvents } from '@/lib/goal-points';
@@ -52,7 +53,7 @@ const subtaskMetaPattern = /\n?\[sg-subtasks:[A-Za-z0-9+/_=-]+\]\s*$/;
 const defaultHabitWeights: Record<string, number> = {
   O: 1, O1: 1, O2: 1, O3: 1, L1: 2, L2: 2, L3: 2, M: 1, B: 1, PRACTISEB: 1,
   MEDITATION: 1, LANGUAGE: 1, GYM: 4, HEALTHYDRINKMORNING: 2, HEALTHYDRINKEVENING: 2,
-  SKINCAREMORNING: 1, SKINCAREEVENING: 1, BOOK: 4, STUDY2: 5, STUDY4H: 4, STUDY1H: 1, OFFICEWORK2: 8,
+  SKINCAREMORNING: 1, SKINCAREEVENING: 1, ICESKINCARE: 1, NOMB: 1, BOOK: 4, STUDY2: 5, STUDY4H: 4, STUDY1H: 1, OFFICEWORK2: 8,
   SLEEP: 2, NOJUNK: 1, NOSUGAR: 1, MANIFEST: 1, NOSOCIAL: 1, NOE: 1, EYECARE: 2, SALTGARGLE: 2
 };
 
@@ -62,13 +63,13 @@ export function normalizeMcpCategory(value: string): GoalPriority {
 
 export function normalizeHabitCode(text: string) {
   if (isBookSpeakingText(text)) return 'BOOK';
+  const duplicateCode = mappedDuplicateHabitCode(text);
+  if (duplicateCode) return duplicateCode;
   const compact = text.trim().toUpperCase().replace(/\s+/g, '');
   if (compact === 'O' || /^O[123]$/.test(compact) || /^L[123]$/.test(compact) || compact === 'M' || compact === 'B') return compact;
   const aliases: Record<string, string> = {
     MEDITATION: 'MEDITATION', LANGUAGELEARN: 'LANGUAGE', LANGUAGELEARNING: 'LANGUAGE', GYM: 'GYM',
     HEALTHYDRINKMORNING: 'HEALTHYDRINKMORNING', HEALTHYDRINKEVENING: 'HEALTHYDRINKEVENING',
-    MORNINGSKINCARE: 'SKINCAREMORNING', SKINCAREMORNING: 'SKINCAREMORNING',
-    EVENINGSKINCARE: 'SKINCAREEVENING', SKINCAREEVENING: 'SKINCAREEVENING',
     CHESS: 'STUDY2', 'CHESSSTUDY:4HOURS(PUZZLES,GAMESREVIEW,OPENINGS,ENDGAMES)': 'STUDY2',
     BOOKREAD: 'BOOK', BOOKREADANDCOMMUNICATIONPRACTICE: 'BOOK', STUDY: 'STUDY2', STUDY2HOUR: 'STUDY2',
     STUDYFOR4HOURS: 'STUDY4H', STUDY4HOURS: 'STUDY4H', STUDYFOR1HOUR: 'STUDY1H', STUDY1HOUR: 'STUDY1H',

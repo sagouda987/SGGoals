@@ -45,10 +45,12 @@ const taskApi = loadFunctions('app/api/goals/route.ts', [
 ]);
 const focus = loadFunctions('lib/must-focus-targets.ts', ['istFocusDateKey']);
 const bookSpeaking = loadFunctions('lib/goals/book-speaking.ts', ['isBookSpeakingText']);
+const habitDedupe = loadFunctions('lib/goals/habit-dedupe.ts', ['compactHabitKey', 'NIGHT_SKIN_KEYS', 'MORNING_SKIN_KEYS', 'ICE_SKIN_KEYS', 'NO_MASTURBATION_KEYS', 'mappedDuplicateHabitCode']);
 const bookSpeakingGlobals = {
   LEGACY_BOOK_LABEL: 'Book read and communication practice',
   BOOK_SPEAKING_GENERIC_LABEL: 'Book reading / Speaking practice',
-  isBookSpeakingText: bookSpeaking.isBookSpeakingText
+  isBookSpeakingText: bookSpeaking.isBookSpeakingText,
+  mappedDuplicateHabitCode: habitDedupe.mappedDuplicateHabitCode
 };
 const rollover = loadFunctions('app/api/goals/rollover/route.ts', [
   'taskMetaNotePattern', 'activityMetaNotePattern', 'AUTO_HABIT_MISS_NOTE',
@@ -157,10 +159,10 @@ test('Sunday weekly report covers the completed Sunday-to-Saturday week', () => 
 
 test('requested daily routines are independent active habits', () => {
   const expected = [
-    'Gym', 'Meditation', 'Eye care', 'Wake up before 8', 'No masturbation (this week)', 'No sex (this week)',
-    'Healthy drink morning', 'Healthy drink evening', 'Morning skin care', 'Evening skin care', 'Ice skin care',
+    'Gym', 'Meditation', 'Eye care', 'Wake up before 8', 'No masturbation (this week)',
+    'Healthy drink morning', 'Healthy drink evening', 'Night skin care',
     'No junk food', 'No sugar', 'No Social Media', 'Manifestation',
-    'Chess study: 4 hours (puzzles, games review, openings, endgames)', 'Chess practice',
+    'Chess', 'Chess practice',
     'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses', 'Chess endgame 15 min',
     'Office work', 'O', 'Book read and communication practice', 'Practise B', 'L1', 'L2', 'L3', 'M'
   ];
@@ -186,6 +188,20 @@ test('requested daily routines are independent active habits', () => {
   assert.equal(history.habitPriority('Chess practice'), 'career');
   assert.equal(history.habitPriority('Book read and communication practice'), 'communication');
   assert.equal(history.habitPriority('O'), 'career');
+  assert.equal(history.normalizeStrikeCode('No sex (this week)'), 'NOMB');
+  assert.equal(history.normalizeStrikeCode('Evening skin care'), 'SKINCAREEVENING');
+  assert.equal(history.normalizeStrikeCode('Skin care - night'), 'SKINCAREEVENING');
+  assert.equal(history.normalizeStrikeCode('Night skin care'), 'SKINCAREEVENING');
+  assert.equal(rollover.normalizeHabitCode('No sex (this week)'), 'NOMB');
+  assert.equal(rollover.normalizeHabitCode('Night skin care'), 'SKINCAREEVENING');
+  assert.equal(history.habitBlock('Night skin care'), 'evening');
+  assert.ok(history.REMOVED_HABIT_TASKS.includes('Morning skin care'));
+  assert.ok(history.REMOVED_HABIT_TASKS.includes('Ice skin care'));
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('NOSEX'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('SKINCAREMORNING'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('ICESKINCARE'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('SKINCAREEVENING'), true);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('NOMB'), true);
 });
 
 const september7 = [
