@@ -1,3 +1,5 @@
+import { isBookReadingDay } from '@/lib/goals/book-schedule';
+
 export const MUST_FOCUS_TARGET_START = '2026-09-04';
 export const MUST_FOCUS_TARGET_CODES = ['BOOK', 'STUDY2'] as const;
 export type MustFocusTargetCode = (typeof MUST_FOCUS_TARGET_CODES)[number];
@@ -64,7 +66,9 @@ const shiftDay = shiftReportingDateKey;
 export function mustFocusTargets(dateKey: string) {
   const day = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
   const weekend = day === 0 || day === 6;
-  return { weekend, minutes: weekend ? MUST_FOCUS_WEEKEND_MINUTES : MUST_FOCUS_WEEKDAY_MINUTES };
+  const minutes = { ...(weekend ? MUST_FOCUS_WEEKEND_MINUTES : MUST_FOCUS_WEEKDAY_MINUTES) };
+  if (!isBookReadingDay(dateKey)) minutes.BOOK = 0;
+  return { weekend, minutes };
 }
 
 export function buildMustFocusDayProgress(dateKey: string, input: Partial<Record<MustFocusTargetCode, number>>) {

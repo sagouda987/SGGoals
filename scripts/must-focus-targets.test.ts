@@ -52,4 +52,14 @@ assert.equal(result.today.minutes.BOOK, 30);
 assert.equal(result.history.filter((day) => day.complete).length, 1);
 assert.equal(result.history.length, 14);
 assert.equal(buildMustFocusTargetProgress([], '2026-09-04').best, 0);
+
+// Book reading is every other day after 26 Oct 2026; off days have a 0-minute book target.
+assert.deepEqual(mustFocusTargets('2026-11-23').minutes, { BOOK: 30, GYM: 0, STUDY2: 300 });
+assert.deepEqual(mustFocusTargets('2026-11-24').minutes, { BOOK: 0, GYM: 0, STUDY2: 300 });
+assert.deepEqual(mustFocusTargets('2026-11-21').minutes, { BOOK: 45, GYM: 0, STUDY2: 420 }); // Saturday reading day
+const offDay = buildMustFocusDayProgress('2026-11-24', { STUDY2: 300 });
+assert.equal(offDay.targets.BOOK, 0);
+assert.equal(offDay.met, 2);
+assert.equal(offDay.complete, true);
+assert.equal(offDay.targetMinutes, 300);
 console.log('Must-focus targets: weekday/weekend, IST rollover, partial progress, session accumulation and streak checks passed.');

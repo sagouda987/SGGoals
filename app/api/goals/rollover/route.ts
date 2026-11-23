@@ -5,7 +5,7 @@ import { applyFocusCorrections } from '@/lib/focus-corrections';
 import { buildMustFocusDayProgress, istFocusDateKey } from '@/lib/must-focus-targets';
 import { generateAndStoreDailyReview } from '@/lib/ai/daily-review-store';
 import { purgeClosedExpenseMonthsInDb } from '@/lib/goals/expense-purge-prisma';
-import { BOOK_SPEAKING_GENERIC_LABEL, bookSpeakingLabel, bookSpeakingTaskTextVariants, isBookSpeakingText } from '@/lib/goals/book-speaking';
+import { BOOK_SPEAKING_GENERIC_LABEL, bookSpeakingLabel, bookSpeakingTaskTextVariants, isBookReadingDay, isBookSpeakingText } from '@/lib/goals/book-speaking';
 import { mappedDuplicateHabitCode } from '@/lib/goals/habit-dedupe';
 
 const ownerKey = 'default';
@@ -663,6 +663,7 @@ async function recordHabitMisses() {
     .flatMap((task) => {
       const code = normalizeHabitCode(task.text);
       if (!code || !ACTIVE_HABIT_CODES.has(code) || plannedCodes.has(code) || handledHabitCodes.has(code)) return [];
+      if (code === 'BOOK' && !isBookReadingDay(missedDateKey)) return [];
       const id = `habit-miss-${missedDateKey}-${code}`;
       const taskText = code === 'BOOK' ? bookSpeakingLabel(missedDateKey) : habitLabels[code] || task.text;
       const points = taskWeightFromNote(task.note, habitDefaultWeights[code] ?? 1);

@@ -49,7 +49,7 @@ import {
   type ExpenseBudget
 } from '@/lib/goals/expense-budget';
 import { buildRecentSummary, formatIstTime, formatTrackedMinutes, type RecentWindowMode } from '@/lib/goals/recent-activity';
-import { BOOK_SPEAKING_GENERIC_LABEL, LEGACY_BOOK_LABEL, bookSpeakingLabel, bookSpeakingTaskText, isBookSpeakingText } from '@/lib/goals/book-speaking';
+import { BOOK_SPEAKING_GENERIC_LABEL, LEGACY_BOOK_LABEL, bookSpeakingLabel, bookSpeakingTaskText, isBookReadingDay, isBookSpeakingText } from '@/lib/goals/book-speaking';
 import { OFFICE_SUBTASK_EMPTY_PROMPT, OFFICE_SUBTASK_PLACEHOLDER, carryUnfinishedOfficeSubtasks, isOfficeWorkText, officeWorkSubtasksComplete, unfinishedOfficeSubtasksFrom, withOfficeWorkDayState } from '@/lib/goals/office-subtasks';
 import type { NextActionRecommendation } from '@/lib/ai/schema';
 import type { StoredDailyReview } from '@/lib/ai/daily-review-schema';
@@ -267,7 +267,11 @@ const HABIT_TASKS = [
   'M',
 ];
 function habitTasksFor(dateKey: string) {
-  return HABIT_TASKS.map((text) => (text === LEGACY_BOOK_LABEL ? bookSpeakingTaskText(dateKey) : text));
+  return HABIT_TASKS.flatMap((text) => {
+    if (text !== LEGACY_BOOK_LABEL) return [text];
+    if (!isBookReadingDay(dateKey)) return [];
+    return [bookSpeakingTaskText(dateKey)];
+  });
 }
 
 const REMOVED_HABIT_TASKS = [
@@ -1309,6 +1313,10 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
       changed = true;
       return;
     }
+    if (isBookSpeakingText(task.text) && !isBookReadingDay(todayKey)) {
+      changed = true;
+      return;
+    }
     const code = normalizeStrikeCode(task.text);
     if (code && failedHabitCodesToday.has(code)) {
       changed = true;
@@ -1534,12 +1542,16 @@ function buildStrikeCounts(activities: GoalActivity[], todayTasks: GoalTask[], t
     const cursor = new Date(`${todayKey}T00:00:00`);
     const cycleStart = new Date(`${counterCycleStart}T00:00:00`);
     const todayResult = dayResultMap.get(todayKey) || emptyDay;
-    if (!dayCompleteForFamily(todayResult, family)) {
+    if (!dayCompleteForFamily(todayResult, family) && !(family === 'BOOK' && !isBookReadingDay(todayKey))) {
       cursor.setDate(cursor.getDate() - 1);
     }
     let streak = 0;
     while (cursor >= cycleStart) {
       const key = toISODate(cursor);
+      if (family === 'BOOK' && !isBookReadingDay(key)) {
+        cursor.setDate(cursor.getDate() - 1);
+        continue;
+      }
       const day = dayResultMap.get(key) || { ...emptyDay, day: key };
       if (!dayCompleteForFamily(day, family)) break;
       streak += 1;
@@ -4007,7 +4019,7 @@ export function SgGoalsApp() {
       `Best streak: ${streaks.best} day(s)`,
       `Day counter: ${dayCounter}`,
       `Weekly plan: Main=${weeklyPlan.mainGoal || 'Not set'}; Study=${weeklyPlan.studyPlan || 'Not set'}; Work=${weeklyPlan.workPlan || 'Not set'}; Health=${weeklyPlan.healthPlan || 'Not set'}; Notes=${weeklyPlan.notes || 'None'}`,
-      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Language learn=${strikeCounts.language}, Gym=${strikeCounts.gym}, Book reading / Speaking practice (alternating daily; today: ${bookSpeakingLabel(currentDateKey)})=${strikeCounts.book}, Chess=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
+      `Strike counts: O=${strikeCounts.o}, L=${strikeCounts.l}, M=${strikeCounts.m}, Meditation=${strikeCounts.meditation}, Language learn=${strikeCounts.language}, Gym=${strikeCounts.gym}, Book reading (every other day${isBookReadingDay(currentDateKey) ? '; scheduled today' : '; off today'})=${strikeCounts.book}, Chess=${strikeCounts.study2}, Office work=${strikeCounts.officeWork2}, Wake up before 8=${strikeCounts.sleep}, No Social Media=${strikeCounts.noSocial}, Manifestation=${strikeCounts.manifest}`,
       `Next target (${formatMinutes(targetDurationMinutes)} timer): ${
         targetTasks.length
           ? targetTasks.map((task) => `${task.text}${targetTaskMinutes[task.id] ? ` (${targetTaskMinutes[task.id]}m)` : ''}`).join(', ')
@@ -4533,7 +4545,7 @@ export function SgGoalsApp() {
           </div>
         </div>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {dailyPriorityFocus.map((item) => {
+          {dailyPriorityFocus.filter((item) => item.code !== 'BOOK' || isBookReadingDay(currentDateKey)).map((item) => {
             if (item.code === 'GYM') return <DailySteps key={item.code} dateKey={focusTargetDateKey} done={Boolean(item.task?.done)} onComplete={() => { if (item.task) completeMeasuredTask(item.task, 'GYM'); }} />;
             const sharePct = todayFocus.focusMinutes ? Math.min(100, Math.round((item.minutes / todayFocus.focusMinutes) * 100)) : 0;
             const targetCode = (MUST_FOCUS_TARGET_CODES as readonly string[]).includes(item.code) ? item.code as MustFocusTargetCode : null;
@@ -5008,7 +5020,7 @@ export function SgGoalsApp() {
             {[
               { key: 'OFFICEWORK2' as const, label: 'Office work count', rule: 'Daily priority - Office work complete', color: '#22c55e', todayDone: strikeCounts.today.officeWork2, value: strikeCounts.officeWork2 },
               { key: 'STUDY2' as const, label: 'Chess count', rule: 'Daily priority - Chess complete', color: '#ff6b6b', todayDone: strikeCounts.today.study2, value: strikeCounts.study2 },
-              { key: 'BOOK' as const, label: 'Book / speaking count', rule: `Daily priority - ${bookSpeakingLabel(currentDateKey)} complete (alternates daily)`, color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
+              { key: 'BOOK' as const, label: 'Book reading count', rule: isBookReadingDay(currentDateKey) ? 'Every other day - Book reading complete' : 'Every other day - Book reading is off today', color: '#ffd166', todayDone: strikeCounts.today.book, value: strikeCounts.book },
               { key: 'GYM' as const, label: 'Gym count', rule: 'Daily priority - Gym complete', color: '#00d97e', todayDone: strikeCounts.today.gym, value: strikeCounts.gym },
               { key: 'O' as const, label: 'O count', rule: 'O complete', color: '#4f8ef7', todayDone: strikeCounts.today.o, value: strikeCounts.o },
               { key: 'L' as const, label: 'L count', rule: 'L1 + L2 + L3', color: '#c084fc', todayDone: strikeCounts.today.l, value: strikeCounts.l },

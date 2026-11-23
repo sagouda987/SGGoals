@@ -1,32 +1,26 @@
-import { mustFocusTargets } from '@/lib/must-focus-targets';
+import { MUST_FOCUS_WEEKDAY_MINUTES, MUST_FOCUS_WEEKEND_MINUTES } from '@/lib/must-focus-targets';
+import { BOOK_SPEAKING_START_DATE, bookSpeakingMode } from '@/lib/goals/book-schedule';
+
+export { BOOK_SPEAKING_START_DATE, bookSpeakingMode, isBookReadingDay } from '@/lib/goals/book-schedule';
+export type { BookSpeakingMode } from '@/lib/goals/book-schedule';
 
 /**
- * The daily "BOOK" priority alternates between book reading and speaking practice.
- * Keys are the app's reporting day keys (the day starts at 03:00 IST, see istFocusDateKey),
- * so the switch happens at 3 AM IST, the same moment habits, targets and rollover change day.
+ * Book reading is scheduled every other reporting day (the day starts at 03:00 IST,
+ * see istFocusDateKey), so the switch happens at 3 AM IST with habits and rollover.
  *
- * Rule: 2026-10-26 (the first alternating day) is Book reading; every day an even number of
- * days away from it is Book reading, every odd day is Speaking practice. Equivalently, with
- * 1 Sep 2026 as Day 1, even Day numbers are Book reading and odd Day numbers are Speaking practice.
- * Days before 2026-10-26 keep the old combined task so history reads as it was recorded.
+ * Rule: 2026-10-26 is a Book reading day; every day an even number of days away from
+ * it is also a reading day, and every odd day is an off day. Equivalently, with
+ * 1 Sep 2026 as Day 1, even Day numbers are reading days. Days before 2026-10-26
+ * keep the old combined daily task so history reads as it was recorded.
  *
- * The internal code stays "BOOK" so time targets (30m weekdays / 45m weekends), points (4),
- * streaks, stopwatches and stored history are unchanged.
+ * Off days do not show the habit, do not count as misses, and have a 0-minute book
+ * focus target. The internal code stays "BOOK" so points (4), streaks, stopwatches
+ * and stored history stay on the same habit.
  */
-export const BOOK_SPEAKING_START_DATE = '2026-10-26';
 export const LEGACY_BOOK_LABEL = 'Book read and communication practice';
 export const BOOK_SPEAKING_GENERIC_LABEL = 'Book reading / Speaking practice';
 
-export type BookSpeakingMode = 'book' | 'speaking' | 'combined';
-
 const DAY_MS = 86400000;
-
-export function bookSpeakingMode(dateKey: string): BookSpeakingMode {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return 'combined';
-  if (dateKey < BOOK_SPEAKING_START_DATE) return 'combined';
-  const diff = Math.round((Date.parse(`${dateKey}T00:00:00Z`) - Date.parse(`${BOOK_SPEAKING_START_DATE}T00:00:00Z`)) / DAY_MS);
-  return diff % 2 === 0 ? 'book' : 'speaking';
-}
 
 export function bookSpeakingLabel(dateKey: string) {
   const mode = bookSpeakingMode(dateKey);
@@ -41,10 +35,12 @@ export function bookSpeakingEmoji(dateKey: string) {
 }
 
 export function bookSpeakingTargetMinutes(dateKey: string) {
-  return mustFocusTargets(dateKey).minutes.BOOK;
+  const day = new Date(`${dateKey}T00:00:00Z`).getUTCDay();
+  const weekend = day === 0 || day === 6;
+  return (weekend ? MUST_FOCUS_WEEKEND_MINUTES : MUST_FOCUS_WEEKDAY_MINUTES).BOOK;
 }
 
-/** Task-list text for that day, e.g. "📖 Book reading (30m)" or "🗣️ Speaking practice (45m)". */
+/** Task-list text for a reading day, e.g. "📖 Book reading (30m)". Off-day labels are kept for history. */
 export function bookSpeakingTaskText(dateKey: string) {
   if (bookSpeakingMode(dateKey) === 'combined') return LEGACY_BOOK_LABEL;
   return `${bookSpeakingEmoji(dateKey)} ${bookSpeakingLabel(dateKey)} (${bookSpeakingTargetMinutes(dateKey)}m)`;
@@ -60,7 +56,7 @@ export function isBookSpeakingText(text: string) {
 /** Every stored task text the BOOK priority can have, for exact-match database queries. */
 export function bookSpeakingTaskTextVariants() {
   const texts = new Set<string>([LEGACY_BOOK_LABEL, BOOK_SPEAKING_GENERIC_LABEL, 'Book reading', 'Speaking practice']);
-  // A Mon..Sun week starting at the anchor covers both modes on weekdays and weekends.
+  // A Mon..Sun week starting at the anchor covers reading and leftover off-day labels on weekdays and weekends.
   for (let offset = 0; offset < 14; offset += 1) {
     texts.add(bookSpeakingTaskText(new Date(Date.parse(`${BOOK_SPEAKING_START_DATE}T00:00:00Z`) + offset * DAY_MS).toISOString().slice(0, 10)));
   }

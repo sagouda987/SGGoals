@@ -6,11 +6,12 @@ import {
   bookSpeakingMode,
   bookSpeakingTaskText,
   bookSpeakingTaskTextVariants,
+  isBookReadingDay,
   isBookSpeakingText
 } from '../lib/goals/book-speaking';
 import { istFocusDateKey } from '../lib/must-focus-targets';
 
-// Anchor: Mon 26 Oct 2026 is Book reading, then it alternates every reporting day.
+// Anchor: Mon 26 Oct 2026 is Book reading, then it appears every other reporting day.
 assert.equal(BOOK_SPEAKING_START_DATE, '2026-10-26');
 assert.equal(bookSpeakingMode('2026-10-26'), 'book');
 assert.equal(bookSpeakingMode('2026-10-27'), 'speaking');
@@ -19,6 +20,11 @@ assert.equal(bookSpeakingMode('2026-10-31'), 'speaking');
 assert.equal(bookSpeakingMode('2026-11-01'), 'book'); // month boundary keeps alternating (31-day October)
 assert.equal(bookSpeakingMode('2026-12-31'), 'book');
 assert.equal(bookSpeakingMode('2027-01-01'), 'speaking'); // year boundary
+assert.equal(isBookReadingDay('2026-10-26'), true);
+assert.equal(isBookReadingDay('2026-10-27'), false);
+assert.equal(isBookReadingDay('2026-11-23'), true); // Monday 23 Nov 2026 is a reading day
+assert.equal(isBookReadingDay('2026-11-24'), false);
+assert.equal(isBookReadingDay('2026-10-25'), true); // history before the change stays daily
 for (let i = 0; i < 400; i += 1) {
   const date = new Date(Date.UTC(2026, 9, 26 + i)).toISOString().slice(0, 10);
   const next = new Date(Date.UTC(2026, 9, 27 + i)).toISOString().slice(0, 10);
