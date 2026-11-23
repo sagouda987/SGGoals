@@ -159,12 +159,11 @@ test('Sunday weekly report covers the completed Sunday-to-Saturday week', () => 
 
 test('requested daily routines are independent active habits', () => {
   const expected = [
-    'Gym', 'Meditation', 'Eye care', 'Wake up before 8', 'No masturbation (this week)',
+    'Gym', 'Meditation', 'Eye care', 'Wake up before 8',
     'Healthy drink morning', 'Healthy drink evening', 'Night skin care',
     'No junk food', 'No sugar', 'No Social Media', 'Manifestation',
-    'Chess', 'Chess practice',
-    'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses', 'Chess endgame 15 min',
-    'Office work', 'O', 'Book read and communication practice', 'Practise B', 'L1', 'L2', 'L3', 'M'
+    'Chess',
+    'Office work', 'O', 'Book read and communication practice', 'L1', 'L2', 'L3', 'M'
   ];
   assert.deepEqual(Array.from(history.HABIT_TASKS), expected, 'Daily habits follow Health → Chess/career → Communication order');
   for (const task of expected) {
@@ -183,9 +182,8 @@ test('requested daily routines are independent active habits', () => {
   assert.equal(history.habitBlock('Healthy drink morning'), 'morning');
   assert.equal(history.habitBlock('Healthy drink evening'), 'afternoon');
   assert.equal(history.habitBlock('No sugar'), 'evening');
-  assert.equal(history.habitBlock('Practise B'), 'evening');
   assert.equal(history.habitPriority('Gym'), 'health');
-  assert.equal(history.habitPriority('Chess practice'), 'career');
+  assert.equal(history.habitPriority('Chess'), 'career');
   assert.equal(history.habitPriority('Book read and communication practice'), 'communication');
   assert.equal(history.habitPriority('O'), 'career');
   assert.equal(history.normalizeStrikeCode('No sex (this week)'), 'NOMB');
@@ -197,11 +195,22 @@ test('requested daily routines are independent active habits', () => {
   assert.equal(history.habitBlock('Night skin care'), 'evening');
   assert.ok(history.REMOVED_HABIT_TASKS.includes('Morning skin care'));
   assert.ok(history.REMOVED_HABIT_TASKS.includes('Ice skin care'));
+  assert.ok(history.REMOVED_HABIT_TASKS.includes('No masturbation (this week)'));
+  assert.ok(history.REMOVED_HABIT_TASKS.includes('No sex (this week)'));
+  assert.ok(history.REMOVED_HABIT_TASKS.includes('Practise B'));
+  assert.ok(history.REMOVED_HABIT_TASKS.includes('Chess practice'));
+  assert.ok(history.REMOVED_HABIT_TASKS.includes('Chess endgame 15 min'));
   assert.equal(rollover.ACTIVE_HABIT_CODES.has('NOSEX'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('NOMB'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('PRACTISEB'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('CHESSPRACTICE'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('CHESSTARGET'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('CHESSENDGAME'), false);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('CHESSSTUDY'), false);
   assert.equal(rollover.ACTIVE_HABIT_CODES.has('SKINCAREMORNING'), false);
   assert.equal(rollover.ACTIVE_HABIT_CODES.has('ICESKINCARE'), false);
   assert.equal(rollover.ACTIVE_HABIT_CODES.has('SKINCAREEVENING'), true);
-  assert.equal(rollover.ACTIVE_HABIT_CODES.has('NOMB'), true);
+  assert.equal(rollover.ACTIVE_HABIT_CODES.has('STUDY2'), true);
 });
 
 const september7 = [

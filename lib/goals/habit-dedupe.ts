@@ -1,4 +1,6 @@
-/** Collapse duplicate sex/masturbation and skincare habits into one kept entry each. */
+/** Drop retired habits and collapse leftover night-skincare aliases into one kept entry. */
+
+import { isRemovedChessItemText } from './chess-subtasks';
 
 export const NO_MASTURBATION_TEXT = 'No masturbation (this week)';
 export const NIGHT_SKIN_CARE_TEXT = 'Night skin care';
@@ -37,6 +39,8 @@ const NO_MASTURBATION_KEYS = new Set([
   'MASTURBATION',
   'MASTERBATE',
   'MASTERBATION',
+  'NOMASTURBATE',
+  'NOMASTERBATE',
   'SEX'
 ]);
 
@@ -53,16 +57,34 @@ export function mappedDuplicateHabitCode(text: string): 'NOMB' | 'SKINCAREEVENIN
   return null;
 }
 
+export function isRemovedNoMbOrSexText(text: string) {
+  const key = compactHabitKey(text);
+  if (NO_MASTURBATION_KEYS.has(key)) return true;
+  return (
+    key.startsWith('NOMASTURBATION') ||
+    key.startsWith('NOMASTERBATION') ||
+    key.startsWith('NOMASTURBATE') ||
+    key.startsWith('NOMASTERBATE') ||
+    key.startsWith('NOSEX') ||
+    key.startsWith('NOFAP')
+  );
+}
+
+export function isRemovedPractiseBText(text: string) {
+  const key = compactHabitKey(text);
+  return key === 'PRACTISEB' || key === 'PRACTICEB';
+}
+
 export function isRemovedDuplicateHabitText(text: string) {
   const code = mappedDuplicateHabitCode(text);
-  if (code === 'SKINCAREMORNING' || code === 'ICESKINCARE') return true;
+  if (code === 'SKINCAREMORNING' || code === 'ICESKINCARE' || code === 'NOMB') return true;
+  if (isRemovedNoMbOrSexText(text) || isRemovedPractiseBText(text) || isRemovedChessItemText(text)) return true;
   const key = compactHabitKey(text);
   return REMOVED_DUPLICATE_HABIT_TASKS.some((task) => compactHabitKey(task) === key);
 }
 
 export function canonicalKeptHabitText(text: string) {
   const code = mappedDuplicateHabitCode(text);
-  if (code === 'NOMB') return NO_MASTURBATION_TEXT;
   if (code === 'SKINCAREEVENING') return NIGHT_SKIN_CARE_TEXT;
   return null;
 }
@@ -128,7 +150,7 @@ function dedupeScope<T extends DedupeTask>(tasks: T[]): { tasks: T[]; changed: b
   return { tasks: kept, changed };
 }
 
-/** Drop morning/ice skincare and merge No-sex / night-skincare aliases into the kept habits. */
+/** Drop retired habits and merge leftover night-skincare aliases into one kept habit. */
 export function dedupeHabitStore<T extends DedupeTask>(store: DedupeStore<T>): DedupeStore<T> {
   const today = dedupeScope(store.today);
   const weekly = dedupeScope(store.weekly);
@@ -183,7 +205,7 @@ export function planCloudHabitDedupe(rows: CloudHabitRow[]) {
   }
 
   for (const [groupKey, group] of keptByScope) {
-    if (!groupKey.includes('No masturbation') && !groupKey.includes('Night skin care')) continue;
+    if (!groupKey.includes('Night skin care')) continue;
     if (group.length < 2) continue;
     const winner = group.reduce((current, candidate) =>
       preferTask(

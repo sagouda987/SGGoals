@@ -54,22 +54,16 @@ export function DailySteps({ dateKey, done, onComplete }: { dateKey: string; don
   </div>;
 }
 type Chess = { blitz: number | null; rapid: number | null; tactics: number | null; puzzleRush: number | null; games: {url: string; result: string; timeClass: string}[]; results: {wins: number; draws: number; losses: number} };
-export function DailyChessMetrics({ dateKey, studyMinutes, done, onComplete }: { dateKey: string; studyMinutes: number; done: boolean; onComplete: () => void }) {
+export function DailyChessMetrics({ dateKey }: { dateKey: string; studyMinutes?: number; done?: boolean; onComplete?: () => void }) {
   const { data, status, saving, save } = useMetrics(dateKey);
   const [chess, setChess] = useState<Chess | null>(null);
   const [error, setError] = useState('');
   const refresh = () => fetch('/api/chess').then(async r => { const d = await r.json(); if (!r.ok) throw Error(d.error); setChess(d); setError(''); }).catch(e => setError(e.message));
   useEffect(() => { void refresh(); const id = setInterval(refresh, 60000); return () => clearInterval(id); }, []);
-  const weekend = [0, 6].includes(new Date(`${dateKey}T12:00:00Z`).getUTCDay());
-  const complete = data.puzzles >= 30 && studyMinutes >= (weekend ? 420 : 300);
-  useEffect(() => { if (complete && !done) onComplete(); }, [complete, done, onComplete]);
   return <div className="mt-2 space-y-2 text-xs font-normal text-[#e8e8f5]">
     <p className="font-bold">Blitz {chess?.blitz ?? '—'} / daily target <input aria-label="Daily blitz rating target" className={inputStyle} type="number" min="100" max="4000" disabled={saving} key={`${dateKey}-${data.blitzTarget}`} defaultValue={data.blitzTarget} onBlur={e => void save('blitzTarget', Math.round(Number(e.target.value)))} /></p>
     <p>Rapid {chess?.rapid ?? '—'} · secondary</p>
-    <p>Puzzles (manual) {data.puzzles} / 30</p>
-    {[1, 5].map(n => <button key={n} disabled={saving} className="mr-2 rounded border border-[#52527a] px-3 py-1 disabled:opacity-40" onClick={() => void save('puzzles', n, true)}>+{n}</button>)}
-    <label className="block">Correct count <input aria-label="Puzzle count" className={inputStyle} type="number" min="0" disabled={saving} key={`${dateKey}-${data.puzzles}`} defaultValue={data.puzzles} onBlur={e => void save('puzzles', Math.max(0, Math.round(Number(e.target.value))))} /></label>
-    <p>{complete ? 'Chess complete ✓' : 'Complete 30 puzzles + study timer target below'} · rating is aspirational</p>
+    <p>Tick the four Chess subtasks to complete the habit: 1 hour Chess.com puzzles, 1 hour Lichess puzzles, Opening study, and Endgame study.</p>
     <p>Today (IST): {chess?.games.length ?? '—'} games · {chess ? `${chess.results.wins}W ${chess.results.draws}D ${chess.results.losses}L` : 'Loading'}</p>
     <p>Tactics best {chess?.tactics ?? 'not available'} · Puzzle Rush best {chess?.puzzleRush ?? 'not available'}</p>
     {chess?.games.slice(-5).map(g => <a className="mr-2 underline" key={g.url} href={g.url} target="_blank" rel="noreferrer">{g.timeClass}: {g.result}</a>)}

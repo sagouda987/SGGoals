@@ -1,7 +1,8 @@
 'use client';
 
 import { chessTaskText } from '@/lib/goals/chess-migration';
-import { dedupeHabitStore, mappedDuplicateHabitCode } from '@/lib/goals/habit-dedupe';
+import { dedupeHabitStore, isRemovedDuplicateHabitText, mappedDuplicateHabitCode } from '@/lib/goals/habit-dedupe';
+import { chessSubtasksComplete, isChessHabitText, withChessDayState } from '@/lib/goals/chess-subtasks';
 
 import { DailyChessMetrics, DailySteps } from './daily-chess-metrics';
 
@@ -245,7 +246,6 @@ const HABIT_TASKS = [
   'Meditation',
   'Eye care',
   'Wake up before 8',
-  'No masturbation (this week)',
   'Healthy drink morning',
   'Healthy drink evening',
   'Night skin care',
@@ -255,14 +255,10 @@ const HABIT_TASKS = [
   'Manifestation',
   // 2) Chess & career
   'Chess',
-  'Chess practice',
-  'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses',
-  'Chess endgame 15 min',
   'Office work',
   'O',
   // 3) Communication
   LEGACY_BOOK_LABEL,
-  'Practise B',
   // 4) Money has no daily habit checklist items (expense tracker lives on Monthly).
   // Remaining legacy short codes kept, unchanged, at the end.
   'L1',
@@ -292,6 +288,13 @@ const REMOVED_HABIT_TASKS = [
   'Study Databricks/Spark - 5 hours total',
   'Study DSA / Databricks / Spark',
   "dbt/SQL study 4 hours (today's topic)",
+  'No masturbation (this week)',
+  'No sex (this week)',
+  'Practise B',
+  'Practice B',
+  'Chess practice',
+  'Chess: 30 puzzles (85%+ accuracy) + 3 rapid 15+10 + review losses',
+  'Chess endgame 15 min',
 ];
 const NO_SUBTASK_STRIKE_CODES: StrikeCode[] = ['O', 'O1', 'O2', 'O3', 'L1', 'L2', 'L3', 'M', 'MEDITATION', 'LANGUAGE', 'GYM', 'HEALTHYDRINKMORNING', 'HEALTHYDRINKEVENING', 'SKINCAREMORNING', 'SKINCAREEVENING', 'ICESKINCARE', 'YOUTUBEVIDEO', 'CHESSPRACTICE', 'CHESSTARGET', 'CHESSENDGAME', 'CHESSSTUDY', 'DBTSQL', 'NOMB', 'NOSEX', 'EYECARE', 'NOSOCIAL', 'MANIFEST'];
 const AUTO_HABIT_MISS_NOTE = 'auto-habit-miss';
@@ -425,12 +428,11 @@ const starterStore: GoalsStore = {
     makeTask('Pray', 'Morning ritual', 'health', 'morning'),
     makeTask('Gym workout', '45 min', 'health', 'morning'),
     makeTask('Office work - zero escalation', 'Focus block', 'career', 'afternoon', true),
-    makeTask('Chess study: 4 hours (puzzles, games review, openings, endgames)', 'Replace study slot', 'career', 'evening'),
+    makeTask('Chess', '1 hour Chess.com puzzles, 1 hour Lichess puzzles, Opening study, Endgame study', 'career', 'evening', true),
     makeTask('Book read + communication practice', '30 min weekdays, 45 weekends', 'communication', 'evening')
   ],
   weekly: [
     makeTask('Gym minimum 4 times this week', undefined, 'health'),
-    makeTask('Chess: rapid +40 this week, zero bullet, review every rapid loss', undefined, 'career'),
     makeTask('Book read + communication practice daily - 7/7', undefined, 'communication'),
     makeTask('Skin care routine daily - 7/7', undefined, 'looks')
   ],
@@ -442,7 +444,6 @@ const starterStore: GoalsStore = {
   ],
   monthly: [
     makeTask('Reach weight 68 kg', undefined, 'health'),
-    makeTask('Chess: push rapid toward 2000 (first rating stage)', undefined, 'career'),
     makeTask('Book read + communication practice - 30 days', undefined, 'communication'),
     makeTask('Consistent skin care - 28+ days', undefined, 'looks')
   ],
@@ -1033,7 +1034,7 @@ function completedFocusMinutes(activities: GoalActivity[]) {
 }
 
 function allowsSubtasks(task: GoalTask) {
-  if (isOfficeWorkText(task.text)) return true;
+  if (isOfficeWorkText(task.text) || isChessHabitText(task.text)) return true;
   const code = normalizeStrikeCode(task.text);
   if (code && NO_SUBTASK_STRIKE_CODES.includes(code)) return false;
   return task.allowSubtasks === true || Boolean(task.subtasks?.length);
@@ -1205,6 +1206,7 @@ function buildHabitInsights(activities: GoalActivity[], currentDays: Date[], pre
 }
 
 function isRemovedHabitTask(text: string) {
+  if (isRemovedDuplicateHabitText(text)) return true;
   const normalized = text.replace(/[^a-z0-9]/gi, '').toUpperCase();
   return REMOVED_HABIT_TASKS.some((task) => task.replace(/[^a-z0-9]/gi, '').toUpperCase() === normalized);
 }
@@ -1213,9 +1215,6 @@ const DROPPED_STUDY_TASK_REWRITES: Record<string, { text: string; note?: string 
   'Study DSA / Databricks / Spark': {
     text: 'Chess study: 4 hours (puzzles, games review, openings, endgames)',
     note: 'Replace study slot'
-  },
-  'Complete Databricks and Spark course': {
-    text: 'Chess: push rapid toward 2000 (first rating stage)'
   },
   'Communication practice': {
     text: 'Book read + communication practice',
@@ -1357,9 +1356,11 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
     ? [
         ...today,
         ...missingHabits.map((text) => {
-          const allow = isOfficeWorkText(text);
-          const task = makeTask(text, undefined, habitPriority(text), habitBlock(text), allow, defaultHabitWeight(text));
-          if (!allow) return task;
+          const allowOffice = isOfficeWorkText(text);
+          const allowChess = isChessHabitText(text);
+          const task = makeTask(text, undefined, habitPriority(text), habitBlock(text), allowOffice || allowChess, defaultHabitWeight(text));
+          if (allowChess) return withChessDayState(task, todayKey, nowIso, cryptoSafeId);
+          if (!allowOffice) return task;
           return {
             ...task,
             allowSubtasks: true,
@@ -1380,12 +1381,13 @@ function ensureHabitTemplates(store: GoalsStore, activities: GoalActivity[] = []
   const orderChanged = sortedToday.some((task, index) => task.id !== withMissing[index]?.id);
   if (orderChanged) changed = true;
   const officeAdjusted = sortedToday.map((task) => withOfficeWorkDayState(task, todayKey, nowIso));
-  const officeChanged = officeAdjusted.some((task, index) => task !== sortedToday[index]);
-  if (officeChanged) changed = true;
+  const chessAdjusted = officeAdjusted.map((task) => withChessDayState(task, todayKey, nowIso, cryptoSafeId));
+  const dayStateChanged = chessAdjusted.some((task, index) => task !== sortedToday[index]);
+  if (dayStateChanged) changed = true;
   if (!changed) return store;
   return {
     ...store,
-    today: officeAdjusted
+    today: chessAdjusted
   };
 }
 
@@ -1671,9 +1673,6 @@ function buildAnalytics(activities: GoalActivity[], days: Date[], maxFailures = 
 const WEEK_TARGETS = {
   title: "This week's targets (Nov 9-15)",
   items: [
-    { label: 'Chess', text: 'Play the BRDCA Rapid on Sat 14 Nov, 8 AM-5 PM, at Sri Manjunath Kalyana Mantapa, Katamnallur Gate' },
-    { label: 'Chess daily', text: '30 puzzles + study-time target, blitz is the rating focus (rapid secondary), zero bullet' },
-    { label: 'Chess habit', text: 'Before every move check all checks + is destination square safe; 0 hung pieces' },
     { label: 'Health', text: '10,000 steps daily, bed by 11 PM nightly, Sunday weigh-in (goal 68 kg)' },
     { label: 'Office', text: 'Finish top-priority Deloitte task daily before chess' },
     { label: 'Mind', text: '30 min reading + communication weekdays (45 weekends), 10 min meditation daily' },
@@ -3577,6 +3576,10 @@ export function SgGoalsApp() {
       window.alert("Add and tick today's office subtasks first. Office work is done when every subtask is ticked.");
       return;
     }
+    if (isChessHabitText(currentTask.text) && !chessSubtasksComplete(currentTask.subtasks)) {
+      window.alert('Tick all four Chess subtasks first: 1 hour Chess.com puzzles, 1 hour Lichess puzzles, Opening study, and Endgame study.');
+      return;
+    }
     const measuredCode = dailyPriorityStrikeCode(normalizeStrikeCode(currentTask.text));
     if (scope === 'today' && (measuredCode === 'GYM' || measuredCode === 'STUDY2')) {
       completeMeasuredTask(currentTask, measuredCode);
@@ -3608,9 +3611,11 @@ export function SgGoalsApp() {
   function completeMeasuredTask(task: GoalTask, code: 'GYM' | 'STUDY2') {
     let metrics: { steps?: number; puzzles?: number } = {};
     try { metrics = JSON.parse(window.localStorage.getItem(`sg-daily-metrics:${focusTargetDateKey}`) || '{}'); } catch {}
-    const minutes = dailyPriorityFocus.find(item => item.code === 'STUDY2')?.minutes || 0;
-    if (code === 'GYM' ? (metrics.steps || 0) < 10000 : (metrics.puzzles || 0) < 30 || minutes < mustFocusProgress.today.targets.STUDY2) {
-      window.alert(code === 'GYM' ? 'Reach 10,000 steps first.' : 'Complete 30 puzzles and your chess study time target first.'); return;
+    if (code === 'GYM' && (metrics.steps || 0) < 10000) {
+      window.alert('Reach 10,000 steps first.'); return;
+    }
+    if (code === 'STUDY2' && !chessSubtasksComplete(task.subtasks)) {
+      window.alert('Tick all four Chess subtasks first: 1 hour Chess.com puzzles, 1 hour Lichess puzzles, Opening study, and Endgame study.'); return;
     }
     if (task.done) return;
     const now = new Date().toISOString();
@@ -3624,6 +3629,10 @@ export function SgGoalsApp() {
     if (task.done) return;
     if (isOfficeWorkText(task.text) && !officeWorkSubtasksComplete(task.subtasks)) {
       window.alert("Add and tick today's office subtasks first. Office work is done when every subtask is ticked.");
+      return;
+    }
+    if (isChessHabitText(task.text) && !chessSubtasksComplete(task.subtasks)) {
+      window.alert('Tick all four Chess subtasks first: 1 hour Chess.com puzzles, 1 hour Lichess puzzles, Opening study, and Endgame study.');
       return;
     }
     const now = new Date();
@@ -3675,14 +3684,15 @@ export function SgGoalsApp() {
       const freshHabits = habitTasksFor(currentDateKey).map((text) => {
         const existing = existingHabits.get(normalizeStrikeCode(text));
         const allowOffice = isOfficeWorkText(text);
+        const allowChess = isChessHabitText(text);
         if (existing) {
-          return {
+          const next = {
             ...existing,
             text,
             block: habitBlock(text),
             priority: habitPriority(text),
             weight: existing.weight ?? defaultHabitWeight(text),
-            allowSubtasks: allowOffice ? true : existing.allowSubtasks,
+            allowSubtasks: allowOffice || allowChess ? true : existing.allowSubtasks,
             subtasks: allowOffice ? carryUnfinishedOfficeSubtasks(existing.subtasks, nowIso, cryptoSafeId) : existing.subtasks,
             done: false,
             startedAt: undefined,
@@ -3690,8 +3700,10 @@ export function SgGoalsApp() {
             investedMinutes: undefined,
             updatedAt: nowIso
           };
+          return allowChess ? withChessDayState(next, currentDateKey, nowIso, cryptoSafeId) : next;
         }
-        const task = makeTask(text, undefined, habitPriority(text), habitBlock(text), allowOffice, defaultHabitWeight(text));
+        const task = makeTask(text, undefined, habitPriority(text), habitBlock(text), allowOffice || allowChess, defaultHabitWeight(text));
+        if (allowChess) return withChessDayState(task, currentDateKey, nowIso, cryptoSafeId);
         if (!allowOffice) return task;
         return {
           ...task,
@@ -3859,6 +3871,8 @@ export function SgGoalsApp() {
   }
 
   function addSubtask(taskId: string) {
+    const current = store.today.find((task) => task.id === taskId) || store.tomorrow.find((task) => task.id === taskId);
+    if (current && isChessHabitText(current.text)) return;
     const text = subtaskDrafts[taskId]?.trim();
     if (!text) return;
     const now = new Date().toISOString();
@@ -3888,6 +3902,8 @@ export function SgGoalsApp() {
   }
 
   function deleteSubtask(taskId: string, subtaskId: string) {
+    const current = store.today.find((task) => task.id === taskId) || store.tomorrow.find((task) => task.id === taskId);
+    if (current && isChessHabitText(current.text)) return;
     const now = new Date().toISOString();
     mutateSubtasks(taskId, (task) => ({
       ...task,
@@ -3898,6 +3914,11 @@ export function SgGoalsApp() {
   }
 
   function saveSubtaskText(taskId: string, subtaskId: string, rawText: string) {
+    const current = store.today.find((task) => task.id === taskId) || store.tomorrow.find((task) => task.id === taskId);
+    if (current && isChessHabitText(current.text)) {
+      setEditingSubtask(null);
+      return;
+    }
     const text = rawText.trim();
     if (!text) {
       setEditingSubtask(null);
@@ -6429,7 +6450,7 @@ export function SgGoalsApp() {
                                         >
                                           {subtask.done ? <Check className="h-3.5 w-3.5" /> : null}
                                         </button>
-                                        {editDraft ? (
+                                        {editDraft && !isChessHabitText(task.text) ? (
                                           <input
                                             autoFocus
                                             value={editDraft.text}
@@ -6446,6 +6467,9 @@ export function SgGoalsApp() {
                                             aria-label="Edit subtask"
                                           />
                                         ) : (
+                                          isChessHabitText(task.text) ? (
+                                            <span className={`min-w-0 flex-1 text-left text-xs ${subtask.done ? 'text-[#52527a] line-through' : 'text-[#c8c8ee]'}`}>{subtask.text}</span>
+                                          ) : (
                                           <button
                                             type="button"
                                             onClick={() => setEditingSubtask({ taskId: task.id, subtaskId: subtask.id, text: subtask.text })}
@@ -6454,10 +6478,13 @@ export function SgGoalsApp() {
                                           >
                                             {subtask.text}
                                           </button>
+                                          )
                                         )}
+                                        {isChessHabitText(task.text) ? null : (
                                         <button type="button" onClick={() => deleteSubtask(task.id, subtask.id)} className="rounded-md px-2 py-1 text-[#ff6b6b]" aria-label="Delete subtask">
                                           <Trash2 className="h-3.5 w-3.5" />
                                         </button>
+                                        )}
                                       </div>
                                       );
                                     })}
@@ -6465,6 +6492,7 @@ export function SgGoalsApp() {
                                 ) : isOfficeWorkText(task.text) ? (
                                   <p className="text-[11px] text-[#8b8bb3]">{OFFICE_SUBTASK_EMPTY_PROMPT}</p>
                                 ) : null}
+                                {isChessHabitText(task.text) ? null : (
                                 <div className="flex gap-2">
                                   <input
                                     value={subtaskDrafts[task.id] || ''}
@@ -6479,6 +6507,7 @@ export function SgGoalsApp() {
                                     Add
                                   </button>
                                 </div>
+                                )}
                               </div>
                             ) : null}
                           </>
@@ -6530,6 +6559,8 @@ export function SgGoalsApp() {
               <p className="mb-2 text-[10px] font-bold uppercase tracking-[.18em] text-[#52527a]">Subtasks</p>
               {isOfficeWorkText(draft.text) ? (
                 <p className="rounded-lg border border-[#4f8ef740] bg-[#4f8ef715] px-3 py-2 text-xs text-[#8b8bb3]">Office work always has a daily subtask list.</p>
+              ) : isChessHabitText(draft.text) ? (
+                <p className="rounded-lg border border-[#4f8ef740] bg-[#4f8ef715] px-3 py-2 text-xs text-[#8b8bb3]">Chess always has four daily subtasks: 1 hour Chess.com puzzles, 1 hour Lichess puzzles, Opening study, and Endgame study.</p>
               ) : (
               <div className="grid grid-cols-2 gap-2">
                 {[
